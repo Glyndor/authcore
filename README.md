@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://pkg.go.dev/github.com/Glyndor/authcore"><img src="https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg" alt="Go Reference"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="https://github.com/Glyndor/authcore/actions/workflows/ci.yml"><img src="https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Glyndor/authcore/actions/workflows/codeql.yml"><img src="https://github.com/Glyndor/authcore/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="https://github.com/sponsors/Jaro-c"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?logo=githubsponsors" alt="Sponsor"></a>
@@ -1119,4 +1119,4 @@ Do not open a public issue for security bugs — coordinated disclosure keeps us
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [Apache-2.0 License](LICENSE).
