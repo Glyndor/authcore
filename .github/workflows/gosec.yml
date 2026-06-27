@@ -2,9 +2,9 @@ name: Gosec
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main, develop]
   schedule:
     - cron: '0 6 * * 1'
 
@@ -21,14 +21,23 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Run gosec
-        uses: securego/gosec@4ead098510926e1015958a36dc966bfcb7f6ee11 # master
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          # G104 (errcheck on logger Output) and G306 (public-key 0644) are
-          # justified in code with //nolint:gosec; standalone gosec ignores
-          # those pragmas so we exclude the rule IDs at the workflow layer.
-          # G115 mirrors the .golangci.yml exclusion for UUID/time math.
-          args: '-fmt sarif -out results.sarif -no-fail -exclude=G104,G115,G306 ./...'
+          go-version: '1.26.1'
+          cache: true
+
+      - name: Install gosec
+        # Run the tool directly instead of the securego/gosec action — the org
+        # CI policy allows GitHub- and Glyndor-owned actions only. Pinned tag
+        # keeps the workflow reproducible.
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+
+      - name: Run gosec
+        # G104 (errcheck on logger Output) and G306 (public-key 0644) are
+        # justified in code with //nolint:gosec; standalone gosec ignores those
+        # pragmas so we exclude the rule IDs here. G115 mirrors the
+        # .golangci.yml exclusion for UUID/time math.
+        run: gosec -fmt sarif -out results.sarif -no-fail -exclude=G104,G115,G306 ./...
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3

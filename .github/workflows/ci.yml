@@ -2,48 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main, develop]
 
-# Least-privilege GITHUB_TOKEN. Jobs only read the code and upload coverage.
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build and Test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        go-version: ['1.26.1', 'stable']
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ matrix.go-version }}
-          cache: true
-
-      - name: Install dependencies
-        run: go mod download
-
-      - name: Build
-        run: go build -v ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.txt
-          fail_ci_if_error: false
+  go:
+    uses: Glyndor/.github/.github/workflows/go-ci.yml@80523422631014f591b07bc24c507145faabb271 # v1.2.0
+    with:
+      coverage-threshold: 90

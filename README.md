@@ -6,12 +6,9 @@
 
 <p align="center">
   <a href="https://pkg.go.dev/github.com/Jaro-c/authcore"><img src="https://pkg.go.dev/badge/github.com/Jaro-c/authcore.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/Jaro-c/authcore"><img src="https://goreportcard.com/badge/github.com/Jaro-c/authcore" alt="Go Report Card"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
   <a href="https://github.com/Jaro-c/authcore/actions/workflows/ci.yml"><img src="https://github.com/Jaro-c/authcore/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/Jaro-c/authcore"><img src="https://codecov.io/gh/Jaro-c/authcore/branch/main/graph/badge.svg" alt="codecov"></a>
   <a href="https://github.com/Jaro-c/authcore/actions/workflows/codeql.yml"><img src="https://github.com/Jaro-c/authcore/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/Jaro-c/authcore"><img src="https://api.scorecard.dev/projects/github.com/Jaro-c/authcore/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/sponsors/Jaro-c"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
@@ -1057,16 +1054,6 @@ No — AuthCore gives you the primitives (hash, sign, verify, rotate) and stays 
 
 ---
 
-## Coverage
-
-<details>
-<summary><b>📊 Sunburst coverage graph</b> · <i>click to expand</i></summary>
-
-[![Sunburst](https://codecov.io/github/Jaro-c/AuthCore/graphs/sunburst.svg?token=YXE6LDJFCQ)](https://app.codecov.io/gh/Jaro-c/AuthCore)
-
-Each ring is a directory; each slice is a file. Greener wedges are better covered. Click through for the full per-line report on Codecov.
-
-</details>
 
 ---
 
