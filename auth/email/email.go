@@ -63,7 +63,7 @@ import (
 	"golang.org/x/net/idna"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 // idnaProfile is configured once and reused because the profile value is

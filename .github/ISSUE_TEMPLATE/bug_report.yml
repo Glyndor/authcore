@@ -52,8 +52,8 @@ body:
     id: authcore-version
     attributes:
       label: authcore version
-      description: Output of `go list -m github.com/Jaro-c/authcore`
-      placeholder: "github.com/Jaro-c/authcore v0.1.0"
+      description: Output of `go list -m github.com/Glyndor/authcore`
+      placeholder: "github.com/Glyndor/authcore v0.1.0"
     validations:
       required: true
 

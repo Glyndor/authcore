@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/auth/email"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/email"
 )
 
 func main() {

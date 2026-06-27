@@ -16,20 +16,20 @@ Follow the process in our [Security Policy](SECURITY.md) instead.
 
 ### Reporting Bugs
 
-1. Search [existing issues](https://github.com/Jaro-c/authcore/issues) first.
-2. If none matches, [open a new issue](https://github.com/Jaro-c/authcore/issues/new/choose) using the **Bug Report** template.
+1. Search [existing issues](https://github.com/Glyndor/authcore/issues) first.
+2. If none matches, [open a new issue](https://github.com/Glyndor/authcore/issues/new/choose) using the **Bug Report** template.
 3. Include: Go version, OS, steps to reproduce, and any relevant logs.
 
 ### Suggesting Enhancements
 
-1. Search [existing issues](https://github.com/Jaro-c/authcore/issues) to avoid duplicates.
+1. Search [existing issues](https://github.com/Glyndor/authcore/issues) to avoid duplicates.
 2. Open an issue using the **Feature Request** template.
 3. Explain the use case — why would most users benefit?
 
 ### Pull Requests
 
 > **Branch model.** `main` only ever contains released code — what you see on
-> [pkg.go.dev](https://pkg.go.dev/github.com/Jaro-c/authcore). All work lands on
+> [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore). All work lands on
 > `develop` first and is promoted to `main` together with a release tag. Always
 > branch from `develop` and target `develop` in your PR. Pull requests against
 > `main` will be redirected.

@@ -10,7 +10,7 @@ import (
 
 	gjwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/Jaro-c/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/clock"
 )
 
 func TestVerifyAccessToken_wrongIssuerRejectsToken(t *testing.T) {

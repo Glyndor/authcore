@@ -23,7 +23,7 @@ type Config struct {
 	// "iss" claim to match on verification. Tokens whose iss does not equal
 	// this string are rejected with ErrTokenInvalid.
 	//
-	// Defaults to "github.com/Jaro-c/authcore".
+	// Defaults to "github.com/Glyndor/authcore".
 	// Override this with your own service URL or identifier (e.g. "https://auth.example.com").
 	Issuer string
 
@@ -37,7 +37,7 @@ type Config struct {
 	// verification path. If you need to accept tokens for multiple audiences
 	// today, run one JWT module per audience rather than widening this slice.
 	//
-	// Defaults to ["github.com/Jaro-c/authcore"].
+	// Defaults to ["github.com/Glyndor/authcore"].
 	// Override this with your own service identifiers (e.g. ["https://api.example.com"]).
 	Audience []string
 
@@ -60,8 +60,8 @@ func DefaultConfig() Config {
 	return Config{
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 24 * time.Hour,
-		Issuer:          "github.com/Jaro-c/authcore",
-		Audience:        []string{"github.com/Jaro-c/authcore"},
+		Issuer:          "github.com/Glyndor/authcore",
+		Audience:        []string{"github.com/Glyndor/authcore"},
 	}
 }
 

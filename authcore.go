@@ -39,7 +39,7 @@ package authcore
 import (
 	"fmt"
 
-	"github.com/Jaro-c/authcore/internal/keymanager"
+	"github.com/Glyndor/authcore/internal/keymanager"
 )
 
 // Compile-time proof that *AuthCore satisfies Provider.

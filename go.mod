@@ -1,4 +1,4 @@
-module github.com/Jaro-c/authcore
+module github.com/Glyndor/authcore
 
 go 1.26.3
 

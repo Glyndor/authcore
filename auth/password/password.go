@@ -57,7 +57,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/text/unicode/norm"
 )

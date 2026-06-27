@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Jaro-c/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/clock"
 )
 
 func TestHashRefreshToken_isDeterministic(t *testing.T) {

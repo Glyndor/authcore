@@ -17,14 +17,14 @@ A formal long-term support window for specific minor lines will be defined if us
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Please report security issues via [GitHub private vulnerability reporting](https://github.com/Jaro-c/authcore/security/advisories/new).
+Please report security issues via [GitHub private vulnerability reporting](https://github.com/Glyndor/authcore/security/advisories/new).
 This keeps the details confidential until a patch is released.
 
 Include as much of the following as possible:
 
 - A clear description of the vulnerability and its potential impact.
 - Steps to reproduce or a minimal proof-of-concept (PoC).
-- The affected version(s) — output of `go list -m github.com/Jaro-c/authcore`.
+- The affected version(s) — output of `go list -m github.com/Glyndor/authcore`.
 - Any known mitigations or workarounds.
 
 You will receive an acknowledgement within **72 hours**.
@@ -33,7 +33,7 @@ Reporters will be credited in the release notes unless you prefer to remain anon
 
 ## Scope
 
-This policy covers the `github.com/Jaro-c/authcore` module and all published sub-packages in this repository, including:
+This policy covers the `github.com/Glyndor/authcore` module and all published sub-packages in this repository, including:
 
 - `auth/jwt`
 - `auth/password`
