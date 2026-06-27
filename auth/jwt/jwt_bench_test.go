@@ -3,7 +3,7 @@ package jwt
 import (
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 const benchSubject = "018f0c8e-9b2a-7c3a-8b1e-1234567890ab"

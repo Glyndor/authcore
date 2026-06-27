@@ -3,7 +3,7 @@ package email
 import (
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func newBenchEmail(b *testing.B) *Email {

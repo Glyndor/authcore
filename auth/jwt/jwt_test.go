@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/internal/clock"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/internal/clock"
 )
 
 // ---- test infrastructure ----------------------------------------------------

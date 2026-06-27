@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Jaro-c/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/clock"
 )
 
 func TestNew_defaultsToUTC(t *testing.T) {

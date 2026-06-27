@@ -31,7 +31,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 // Compile-time assertion: *Username must satisfy authcore.Module.

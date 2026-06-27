@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/auth/jwt"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/jwt"
 )
 
 type AppClaims struct {

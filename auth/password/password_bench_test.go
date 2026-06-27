@@ -3,7 +3,7 @@ package password
 import (
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func newBenchModule(b *testing.B) *Password {

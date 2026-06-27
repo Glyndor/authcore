@@ -7,6 +7,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **BREAKING — module path renamed** from `github.com/Jaro-c/authcore` to
+  `github.com/Glyndor/authcore`. Update your imports and re-run
+  `go get github.com/Glyndor/authcore`. This is a new module identity, not a
+  `/v2`: the library stays on `v1.x` and the old path is frozen at its last
+  published version, receiving no further updates — move to the new path to
+  keep getting fixes.
+- JWT default `Issuer` and `Audience` now read `github.com/Glyndor/authcore`,
+  following the new module identity.
+
+---
+
 ## [1.2.2] - 2026-04-26
 
 Dependency-update release. No public API changes; safe drop-in upgrade.
@@ -71,7 +86,7 @@ silently accepted.
 
 ### Added
 
-#### JWT module (`github.com/Jaro-c/authcore/auth/jwt`)
+#### JWT module (`github.com/Glyndor/authcore/auth/jwt`)
 - `validateConfig` now caps `AccessTokenTTL` at **24 hours** and
   `RefreshTokenTTL` at **365 days**. Prevents operators from accidentally
   issuing effectively permanent bearer tokens by typing the wrong unit.
@@ -79,13 +94,13 @@ silently accepted.
   `kid` header matches the module's current key id. Unknown kids return
   `ErrTokenInvalid`. Future-proofs multi-key rotation.
 
-#### Password module (`github.com/Jaro-c/authcore/auth/password`)
+#### Password module (`github.com/Glyndor/authcore/auth/password`)
 - `Hash`, `Verify`, and `ValidatePolicy` now normalise plaintext to
   Unicode **NFC** before hashing or policy checks. A user who registers
   on macOS (precomposed accents) can now sign in on Linux (decomposed
   form) without being locked out.
 
-#### Email module (`github.com/Jaro-c/authcore/auth/email`)
+#### Email module (`github.com/Glyndor/authcore/auth/email`)
 - `ValidateAndNormalize` now converts Unicode domain parts to their
   ASCII (**punycode**) form via `golang.org/x/net/idna` before
   validation. Users with legitimate internationalised domains
@@ -116,14 +131,14 @@ inconsistent configuration.
 
 ### Security
 
-#### JWT module (`github.com/Jaro-c/authcore/auth/jwt`)
+#### JWT module (`github.com/Glyndor/authcore/auth/jwt`)
 - `VerifyAccessToken` and `RotateTokens` now enforce the `iss` claim against
   `Config.Issuer`, mirroring the existing `aud` check. Previously, a token
   signed by a trusted key was accepted regardless of which service issued it
   — a cross-service key-reuse gap. Tokens with a mismatched issuer now return
   `ErrTokenInvalid`.
 
-#### Password module (`github.com/Jaro-c/authcore/auth/password`)
+#### Password module (`github.com/Glyndor/authcore/auth/password`)
 - `parsePHC` now bounds the `m=` (memory), `t=` (iterations), and `p=`
   (parallelism) parameters read from the stored hash to the same ceilings
   `validateConfig` enforces at construction time. A corrupted or attacker-
@@ -157,7 +172,7 @@ version bump.
 
 ### Added
 
-#### Core (`github.com/Jaro-c/authcore`)
+#### Core (`github.com/Glyndor/authcore`)
 - `New(cfg Config) (*AuthCore, error)` — initialises the library, applies
   defaults, validates configuration, selects logger, and sets up the key manager.
 - `DefaultConfig() Config` — returns production-ready defaults
@@ -175,7 +190,7 @@ version bump.
 - Timezone-aware `Clock` abstraction (`internal/clock`) for deterministic
   testing without wall-clock sleeps.
 
-#### JWT module (`github.com/Jaro-c/authcore/auth/jwt`)
+#### JWT module (`github.com/Glyndor/authcore/auth/jwt`)
 - `New[T](p Provider, cfg Config) (*JWT[T], error)` — creates the JWT module;
   `T` is the application-specific claims type embedded in access tokens.
 - `DefaultConfig() Config` — returns safe defaults
@@ -227,7 +242,7 @@ version bump.
 
 ### Added
 
-#### Password module (`github.com/Jaro-c/authcore/auth/password`)
+#### Password module (`github.com/Glyndor/authcore/auth/password`)
 - `New(p Provider, cfg ...Config) (*Password, error)` — creates the password
   module. Config is optional; omitting it applies OWASP-recommended defaults.
 - `DefaultConfig() Config` — returns OWASP-recommended Argon2id defaults

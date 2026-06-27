@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/internal/clock"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/internal/clock"
 )
 
 // isUUIDv7 reports whether s is a valid UUID v7 string (RFC 9562 §5.7).

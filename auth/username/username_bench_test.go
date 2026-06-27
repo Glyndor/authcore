@@ -3,7 +3,7 @@ package username
 import (
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func BenchmarkValidateAndNormalize(b *testing.B) {
