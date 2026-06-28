@@ -9,6 +9,19 @@ updates:
       - "type:deps"
     open-pull-requests-limit: 10
 
+  # The examples are standalone Go modules (own go.mod + local replace), so the
+  # root entry above does not see them. Track them too — otherwise an example
+  # dependency drifts and accumulates advisories unmonitored.
+  - package-ecosystem: "gomod"
+    directories:
+      - "/examples/*"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
+    labels:
+      - "type:deps"
+    open-pull-requests-limit: 10
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
