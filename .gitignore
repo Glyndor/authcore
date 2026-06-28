@@ -8,6 +8,16 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Compiled example binaries (each example is `package main`; `go build ./...`
+# drops a binary named after its directory). Extensionless, so list them.
+/examples/basic/basic
+/examples/email/email
+/examples/fiber/fiber
+/examples/gin/gin
+/examples/jwt/jwt
+/examples/password/password
+/examples/username/username
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*
