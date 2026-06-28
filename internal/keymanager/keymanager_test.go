@@ -106,6 +106,30 @@ func TestNew_generatesAllFiles(t *testing.T) {
 	}
 }
 
+func TestNew_partialKeyDirIsRejected(t *testing.T) {
+	// Removing any single managed file while the others remain must fail closed,
+	// rather than silently regenerating it. A regenerated refresh secret would
+	// invalidate every stored refresh-token hash.
+	for _, remove := range []string{
+		"refresh_secret.key",
+		"ed25519_private.pem",
+		"ed25519_public.pem",
+	} {
+		t.Run("missing_"+remove, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := keymanager.New(dir, testLogger{t}); err != nil {
+				t.Fatalf("initial New() error = %v", err)
+			}
+			if err := os.Remove(filepath.Join(dir, remove)); err != nil {
+				t.Fatalf("remove %q: %v", remove, err)
+			}
+			if _, err := keymanager.New(dir, testLogger{t}); err == nil {
+				t.Errorf("expected an error for a key dir missing %q, got nil", remove)
+			}
+		})
+	}
+}
+
 func TestNew_keyMaterialHasCorrectSize(t *testing.T) {
 	km := newKM(t)
 

@@ -79,6 +79,13 @@ func New(dir string, log logger) (*KeyManager, error) {
 		return nil, fmt.Errorf("write .gitignore in %q: %w", dir, err)
 	}
 
+	// Fail closed on a partially-populated directory before generating anything,
+	// so a missing refresh secret beside an existing key pair is reported rather
+	// than silently regenerated (which would invalidate stored refresh hashes).
+	if err := checkKeyDirConsistency(dir); err != nil {
+		return nil, err
+	}
+
 	priv, pub, err := loadOrGenerateEd25519(dir, log)
 	if err != nil {
 		return nil, fmt.Errorf("ed25519 key pair: %w", err)
