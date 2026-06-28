@@ -96,13 +96,14 @@ type cacheEntry struct {
 // Call [Email.Close] when the module is no longer needed to stop the
 // background cache eviction goroutine.
 type Email struct {
-	log      authcore.Logger
-	resolver *net.Resolver
-	cacheTTL time.Duration
-	mu       sync.RWMutex
-	cache    map[string]cacheEntry
-	group    singleflight.Group
-	done     chan struct{}
+	log       authcore.Logger
+	resolver  *net.Resolver
+	cacheTTL  time.Duration
+	mu        sync.RWMutex
+	cache     map[string]cacheEntry
+	group     singleflight.Group
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New creates an Email module using the provider's logger and starts a
@@ -129,15 +130,12 @@ func New(p authcore.Provider) (*Email, error) {
 }
 
 // Close stops the background cache eviction goroutine.
-// It is safe to call Close multiple times; subsequent calls are no-ops.
+// It is safe to call Close multiple times and from multiple goroutines
+// concurrently; the channel is closed exactly once via sync.Once.
 // After Close, VerifyDomain continues to work but expired entries are no
 // longer evicted automatically.
 func (e *Email) Close() {
-	select {
-	case <-e.done: // already closed
-	default:
-		close(e.done)
-	}
+	e.closeOnce.Do(func() { close(e.done) })
 }
 
 // evictLoop runs in a background goroutine and periodically removes expired
