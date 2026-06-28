@@ -1080,12 +1080,14 @@ Have an opinion on priority, or a use case we haven't thought about? Open a [dis
 ## API Stability
 
 <details>
-<summary><b>ℹ️ Versioning policy</b> — v1.x public API is frozen · <i>click to expand</i></summary>
+<summary><b>ℹ️ Versioning policy</b> — latest-only, always move forward · <i>click to expand</i></summary>
 
-authcore follows [Semantic Versioning](https://semver.org).
+authcore ships the **latest** API on a single import path — only the newest release is supported, and fixes (including security fixes) ship **forward** in a new release, never back-ported. A version that is behind is upgraded, not patched in place; the safe version is always the newest.
 
-- **`v1.x` (current)** — the public API is frozen under semver guarantees. Breaking changes only ship in a new major version (`v2.0.0`). Minor releases add features; patch releases fix bugs or harden existing code paths without changing public shapes.
-- **`v1.2.0`** shipped defence-in-depth hardenings: JWT TTL caps, `kid` header matching, Unicode NFC password normalisation, IDN email support, and a PEM file size cap. See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+- **Move forward freely.** Improvements land on the `v1.x` line; any breaking change ships with clear migration notes in the release. The import path never changes — `go get` always resolves the newest, and Dependabot keeps you current.
+- **No frozen API, no `/v2`.** The latest-only model is what keeps everyone on the fix; there is deliberately no parallel old-major path to linger on.
+
+See the [Releases](https://github.com/Glyndor/authcore/releases) for the full history and per-release migration notes.
 
 Internal packages (`internal/…`) carry no compatibility guarantees at any version and must not be imported from outside the module.
 
