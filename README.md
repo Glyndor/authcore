@@ -2,40 +2,40 @@
 
 # 🛡️ authcore
 
-**Secure-by-default authentication primitives for Go — Argon2id passwords, EdDSA tokens, email + username validation. No database. No framework. No crypto expertise required.**
+**Auth is the code you only get wrong once. authcore does the dangerous parts for you.**
+
+Argon2id passwords · EdDSA tokens · refresh rotation · email + username validation —
+secure by default, in pure Go. No database. No framework. No crypto PhD.
 
 ![secure by default](https://img.shields.io/badge/secure-by_default-3fb950)
 ![passwords Argon2id](https://img.shields.io/badge/passwords-Argon2id-3fb950)
 ![tokens EdDSA](https://img.shields.io/badge/tokens-EdDSA_Ed25519-3fb950)
 ![timing-safe](https://img.shields.io/badge/comparisons-timing--safe-3fb950)
+![zero config](https://img.shields.io/badge/config-zero-3fb950)
 
 [![CI](https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/authcore/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg)](https://pkg.go.dev/github.com/Glyndor/authcore)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-[**Quick start**](#-quick-start) · [**Why**](#-why) · [**Modules**](#-modules) · [**Examples**](examples/) · [**API docs**](https://pkg.go.dev/github.com/Glyndor/authcore) · [**Docs**](docs/)
-
-```mermaid
-flowchart LR
-    App["Your App"] -->|init once| Core["authcore.AuthCore"]
-    Core -->|manages| Keys[("🔑 Ed25519 keys<br/>HMAC secret<br/>auto-generated, on disk")]
-    Core -->|Provider| Mods
-    subgraph Mods["Plug-in modules — pick what you need"]
-        direction TB
-        JWT["auth/jwt · access + refresh tokens"]
-        Pwd["auth/password · Argon2id hashing"]
-        Email["auth/email · validate + DNS MX"]
-        User["auth/username · validate + reserved"]
-    end
-    JWT -->|sign / verify| Client["HTTP client"]
-    Pwd -->|hash / verify| DB[("Your database")]
-    Email -->|normalize| DB
-    User -->|normalize| DB
-```
+[**Install**](#-install) · [**Quick start**](#-quick-start) · [**Why**](#-why) · [**Modules**](#-modules) · [**Examples**](examples/) · [**Docs**](docs/)
 
 </div>
 
 ---
+
+```go
+// Without authcore — every line is a chance to leak or weaken something:
+salt := make([]byte, 16); rand.Read(salt)               // right size? right RNG?
+key := argon2.IDKey(pw, salt, 3, 64*1024, 2, 32)        // OWASP params? memorised?
+stored := encodePHC(salt, key)                           // hand-rolled format…
+if subtle.ConstantTimeCompare(a, b) == 1 { /* login */ } // remembered constant-time?
+// …then generate Ed25519 keys, sign a JWT, hash + rotate refresh tokens, repeat.
+
+// With authcore — secure defaults, nothing to get wrong:
+hash, _ := pwd.Hash(password)                // Argon2id · salted · PHC-encoded
+ok,   _ := pwd.Verify(attempt, hash)         // constant-time, always
+pair, _ := tokens.CreateTokens(userID, claims) // EdDSA-signed access + refresh
+```
 
 ## 📦 Install
 
@@ -43,116 +43,84 @@ flowchart LR
 go get github.com/Glyndor/authcore
 ```
 
-Requires **Go 1.26+**. No database, no HTTP framework — you plug those in. On
-first run, Ed25519 keys + an HMAC secret are generated under `./.authcore/`.
+Requires **Go 1.26+**. On first run, Ed25519 keys + an HMAC secret are generated
+under `./.authcore/` — point `KeysDir` at a secrets volume in production.
 
 ## 🚀 Quick start
 
 ```go
-package main
+// One-time setup at startup. Keys are created on first run.
+auth, _ := authcore.New(authcore.DefaultConfig())
 
-import (
-    "log"
+pwd, _    := password.New(auth)                          // Argon2id, OWASP defaults
+tokens, _ := jwt.New[UserClaims](auth, jwt.DefaultConfig())
 
-    "github.com/Glyndor/authcore"
-    "github.com/Glyndor/authcore/auth/jwt"
-    "github.com/Glyndor/authcore/auth/password"
-)
+// Register: store only the hash, never the plaintext.
+hash, err := pwd.Hash("Str0ng-P@ssword!")                // err == password.ErrWeakPassword tells the user why
 
-type UserClaims struct {
-    Name string `json:"name"`
-    Role string `json:"role"`
-}
-
-func main() {
-    // 1. One-time setup at startup (generates keys on first run).
-    auth, err := authcore.New(authcore.DefaultConfig())
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // 2. Password hashing — zero config, OWASP-recommended Argon2id defaults.
-    pwdMod, err := password.New(auth)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // 3. JWT tokens — set issuer + audience to your service URL in production.
-    jwtMod, err := jwt.New[UserClaims](auth, jwt.DefaultConfig())
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Registration: hash the plaintext, store only the hash.
-    hash, err := pwdMod.Hash("Str0ng-P@ssword!")
-    if err != nil {
-        log.Fatal(err) // e.g. password.ErrWeakPassword — surface the reason
-    }
-
-    // Login: verify the submitted password, then issue a token pair.
-    if ok, _ := pwdMod.Verify("Str0ng-P@ssword!", hash); !ok {
-        log.Fatal("wrong password")
-    }
-
-    // subject must be a UUID v7 — generate it anywhere in your app.
-    pair, err := jwtMod.CreateTokens("019600ab-1234-7000-8000-000000000001",
-        UserClaims{Name: "Ana", Role: "admin"})
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // pair.AccessToken      → send as `Authorization: Bearer <token>`
-    // pair.RefreshTokenHash → store server-side (never the raw refresh token)
-    // pair.SessionID        → UUID v7 shared by both tokens — use as session PK
-    _ = pair
+// Log in: verify, then mint an access + refresh pair.
+if ok, _ := pwd.Verify("Str0ng-P@ssword!", hash); ok {
+    pair, _ := tokens.CreateTokens(userID, UserClaims{Role: "admin"})
+    // pair.AccessToken      → Authorization: Bearer …
+    // pair.RefreshTokenHash → store server-side (never the raw token)
+    // pair.SessionID        → UUID v7, use as your session PK
 }
 ```
 
 > [!TIP]
-> Every module has a runnable example — `go run ./examples/jwt/` to see it
-> end-to-end. See [`examples/`](examples/).
-
-## ✨ Modules
-
-| Module | Does | Import |
-|---|---|---|
-| 🔐 **jwt** | Sign + verify access/refresh tokens. EdDSA / Ed25519. Generic custom claims. Rotation. | `…/auth/jwt` |
-| 🔑 **password** | Hash + verify. Argon2id. Policy enforced. PHC format (self-describing). | `…/auth/password` |
-| 📧 **email** | Validate + normalize. RFC 5321/5322. Optional cached DNS MX check. | `…/auth/email` |
-| 👤 **username** | Validate + normalize. Reserved-name blocklist. Character rules. | `…/auth/username` |
-
-Each module is independent, testable, and safe by default — mix and match.
-Full guides: [JWT](docs/jwt.md) · [Password](docs/password.md) · [Validation](docs/validation.md).
+> Full, runnable versions live in [`examples/`](examples/) — `go run ./examples/jwt/`.
+> Wiring into a real HTTP stack: [Fiber](examples/fiber/) · [Gin](examples/gin/).
 
 ## ⚡ Why
 
-Password storage, token signing and timing-safe comparison are the things you
-only get wrong once. A full identity platform is a lot of surface area for a
-login form. authcore sits in the middle: **a small library that does the
-dangerous parts for you** and leaves the data model and HTTP to your app.
+Roll your own and own every footgun. Run a full identity platform for a login
+form. Or reach for authcore — **the dangerous primitives, done right, in-process**.
 
 | | Roll your own | Full IdP (Ory, Keycloak) | **authcore** |
 |---|:---:|:---:|:---:|
-| Time to first login | Hours – days | Hours (with ops) | **~5 minutes** |
-| Database / HTTP server | You build it | Theirs | **Bring your own** |
-| Argon2id + EdDSA + timing-safe | Manual | ✅ | ✅ |
+| Time to first login | Hours – days | Hours (+ ops) | **~5 minutes** |
+| Argon2id · EdDSA · timing-safe | Manual, easy to slip | ✅ | ✅ **by default** |
 | Automatic key management | Manual | ✅ | ✅ |
-| Runs in-process, no extra service | ✅ | ❌ | ✅ |
+| Database / HTTP server | You build it | Theirs (locked in) | **Bring your own** |
+| Extra service to run | No | **Yes** | No |
 | You own the data model | ✅ | ❌ | ✅ |
+
+## 🔐 Modules
+
+Pick only what you need — each is independent, testable, and safe by default.
+
+| | Module | Does |
+|---|---|---|
+| 🔑 | **[password](docs/password.md)** | Hash + verify. Argon2id, policy-enforced, self-describing PHC format. |
+| 🎫 | **[jwt](docs/jwt.md)** | Access + refresh tokens. EdDSA / Ed25519, generic claims, rotation. |
+| 📧 | **[email](docs/validation.md)** | Validate + normalize. RFC 5321/5322, optional cached DNS MX check. |
+| 👤 | **[username](docs/validation.md)** | Validate + normalize. Reserved-name blocklist, character rules. |
+
+```mermaid
+flowchart LR
+    App["Your app"] -->|init once| Core["authcore"]
+    Core -->|auto-generates| Keys[("🔑 Ed25519 + HMAC<br/>on disk")]
+    Core -->|Provider| M["password · jwt<br/>email · username"]
+    M -->|hash · sign · verify| App
+```
 
 ## 📖 Docs
 
-[JWT](docs/jwt.md) · [Password hashing](docs/password.md) · [Email & username](docs/validation.md) · [Key management](docs/key-management.md) · [Configuration & logging](docs/configuration.md) · [Testing & writing modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
+[Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [Key management](docs/key-management.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
 
 Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore).
 
-## 🗺️ Roadmap
+<details>
+<summary><b>🗺️ Roadmap</b></summary>
 
-Shipped: `auth/jwt`, `auth/password`, `auth/email`, `auth/username`, automatic
-key management. Planned (no hard ETA): `auth/apikey` (opaque keys + pluggable
-store), key-rotation helpers, an optional access-token revocation hook, a
-pluggable key source (KMS/env/in-memory), and `auth/oauth` (OAuth2/OIDC). Have a
-use case? Open an [issue](https://github.com/Glyndor/authcore/issues).
+Shipped: `password`, `jwt`, `email`, `username`, automatic key management.
+
+Planned (no hard ETA): `apikey` (opaque keys + pluggable store), key-rotation
+helpers, an optional access-token revocation hook, a pluggable key source
+(KMS / env / in-memory), and `oauth` (OAuth2 / OIDC). Have a use case? Open an
+[issue](https://github.com/Glyndor/authcore/issues).
+
+</details>
 
 ## License
 
