@@ -46,6 +46,19 @@ var (
 	// Use errors.Unwrap(err).Error() to obtain just the reason without the
 	// "password: does not meet policy requirements: " prefix.
 	ErrWeakPassword = errors.New("password: does not meet policy requirements")
+
+	// ErrBreachedPassword is returned by CheckBreached when the password was
+	// found in a known data breach corpus.
+	//
+	// Safety: CLIENT-SAFE — prompt the user to choose a different password.
+	ErrBreachedPassword = errors.New("password: found in a known data breach")
+
+	// ErrNoBreachChecker is returned by CheckBreached when no BreachChecker is
+	// configured in Config.BreachChecker.
+	//
+	// Safety: INTERNAL — programming error: the caller invoked CheckBreached
+	// without opting in to a breach backend. Treat as a 500.
+	ErrNoBreachChecker = errors.New("password: no breach checker configured")
 )
 
 // policyViolation wraps ErrWeakPassword with a single specific reason so that
