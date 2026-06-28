@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -112,6 +113,15 @@ func validateConfig(cfg Config) error {
 	}
 	if len(cfg.Audience) == 0 {
 		return fmt.Errorf("audience must contain at least one value")
+	}
+	// Reject empty or whitespace-only audience entries. A []string{""} passes
+	// the length check above but would issue tokens with an empty "aud" and
+	// verify against "", silently removing the cross-service-reuse protection
+	// the audience claim exists to provide.
+	for i, aud := range cfg.Audience {
+		if strings.TrimSpace(aud) == "" {
+			return fmt.Errorf("audience entry %d must not be empty or whitespace", i)
+		}
 	}
 	if cfg.ClockSkewLeeway < 0 {
 		return fmt.Errorf("clock skew leeway must not be negative, got %s", cfg.ClockSkewLeeway)
