@@ -23,11 +23,6 @@ secure by default, in pure Go. No database. No framework. No crypto PhD.
 
 ---
 
-Storing a password and signing a session token are two of the easiest things to
-get subtly, catastrophically wrong. authcore turns the parts you'd otherwise
-hand-roll into three function calls — and bakes in the choices a security
-auditor would insist on.
-
 ```go
 // Without authcore — every line is a chance to leak or weaken something:
 salt := make([]byte, 16); rand.Read(salt)               // right size? right RNG?
@@ -78,10 +73,8 @@ if ok, _ := pwd.Verify("Str0ng-P@ssword!", hash); ok {
 
 ## ⚡ Why
 
-You have three options for auth in a Go app. Roll your own and own every
-footgun. Stand up a full identity platform and run a service for a login form.
-Or reach for authcore — the **dangerous primitives, done right, in-process**, and
-keep your own data model and router.
+Roll your own and own every footgun. Run a full identity platform for a login
+form. Or reach for authcore — **the dangerous primitives, done right, in-process**.
 
 | | Roll your own | Full IdP (Ory, Keycloak) | **authcore** |
 |---|:---:|:---:|:---:|
