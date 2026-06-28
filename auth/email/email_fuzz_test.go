@@ -25,6 +25,8 @@ func FuzzValidateAndNormalize(f *testing.F) {
 		"a@example.", strings.Repeat("a", 65) + "@example.com",
 		strings.Repeat("a", 250) + "@example.com",
 		"\x00@example.com", "user@\x00.com", "user@example.com\n",
+		// IDN domains: normalization converts these to ASCII punycode.
+		"user@münchen.de", "USER@例え.JP", "0@Ȟ.0",
 	}
 	for _, s := range seeds {
 		f.Add(s)
@@ -38,8 +40,15 @@ func FuzzValidateAndNormalize(f *testing.F) {
 			}
 			return
 		}
-		if got != strings.ToLower(strings.TrimSpace(in)) {
-			t.Fatalf("not idempotent normalization: in=%q got=%q", in, got)
+		// The normalized form must be canonical — trimmed and lowercase.
+		// It is not necessarily strings.ToLower(strings.TrimSpace(in)):
+		// normalization also converts IDN domains to ASCII punycode, so
+		// "0@Ȟ.0" canonicalises to "0@xn--4la.0", not "0@ȟ.0".
+		if got != strings.TrimSpace(got) {
+			t.Fatalf("normalized form has surrounding whitespace: %q", got)
+		}
+		if got != strings.ToLower(got) {
+			t.Fatalf("normalized form is not lowercase: %q", got)
 		}
 		again, err := mod.ValidateAndNormalize(got)
 		if err != nil {
