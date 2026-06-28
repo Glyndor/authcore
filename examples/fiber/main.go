@@ -14,9 +14,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/auth/jwt"
-	"github.com/Jaro-c/authcore/auth/password"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/auth/password"
 	"github.com/gofiber/fiber/v3"
 )
 

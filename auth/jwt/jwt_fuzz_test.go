@@ -3,7 +3,7 @@ package jwt
 import (
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 // FuzzVerifyAccessToken ensures the verifier never panics on arbitrary input.

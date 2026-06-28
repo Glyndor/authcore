@@ -1,0 +1,18 @@
+name: Security audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    uses: Glyndor/.github/.github/workflows/go-audit.yml@aba530bccc10ed0f1eb93b063824560ec9347ea7 # v1.3.0
+    with:
+      # G104 (errcheck on logger Output) and G306 (public-key 0644) are justified
+      # in code with //nolint:gosec; standalone gosec ignores those pragmas.
+      # G115 mirrors the .golangci.yml exclusion for UUID/time math.
+      gosec-exclude: "G104,G115,G306"

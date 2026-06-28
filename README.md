@@ -5,13 +5,10 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/Jaro-c/authcore"><img src="https://pkg.go.dev/badge/github.com/Jaro-c/authcore.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/Jaro-c/authcore"><img src="https://goreportcard.com/badge/github.com/Jaro-c/authcore" alt="Go Report Card"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
-  <a href="https://github.com/Jaro-c/authcore/actions/workflows/ci.yml"><img src="https://github.com/Jaro-c/authcore/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/Jaro-c/authcore"><img src="https://codecov.io/gh/Jaro-c/authcore/branch/main/graph/badge.svg" alt="codecov"></a>
-  <a href="https://github.com/Jaro-c/authcore/actions/workflows/codeql.yml"><img src="https://github.com/Jaro-c/authcore/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/Jaro-c/authcore"><img src="https://api.scorecard.dev/projects/github.com/Jaro-c/authcore/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://pkg.go.dev/github.com/Glyndor/authcore"><img src="https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg" alt="Go Reference"></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="https://github.com/Glyndor/authcore/actions/workflows/ci.yml"><img src="https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Glyndor/authcore/actions/workflows/codeql.yml"><img src="https://github.com/Glyndor/authcore/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="https://github.com/sponsors/Jaro-c"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
@@ -20,7 +17,7 @@
   <a href="#why-authcore">Why AuthCore?</a> ·
   <a href="#modules-at-a-glance">Modules</a> ·
   <a href="examples/">Examples</a> ·
-  <a href="https://pkg.go.dev/github.com/Jaro-c/authcore">API Docs</a>
+  <a href="https://pkg.go.dev/github.com/Glyndor/authcore">API Docs</a>
 </p>
 
 ---
@@ -32,7 +29,7 @@ AuthCore is a Go library that handles the authentication plumbing most apps need
 Written for **Go 1.26+**. No database. No HTTP framework. You plug those in.
 
 ```bash
-go get github.com/Jaro-c/authcore
+go get github.com/Glyndor/authcore
 ```
 
 ## How it fits together
@@ -112,10 +109,10 @@ Use AuthCore when you want **security defaults without the infrastructure cost**
 
 | Module | Does | Import |
 |---|---|---|
-| 🔐 **`auth/jwt`** | Sign + verify access/refresh tokens. EdDSA / Ed25519. Generic custom claims. Rotation. | `github.com/Jaro-c/authcore/auth/jwt` |
-| 🔑 **`auth/password`** | Hash + verify passwords. Argon2id. Policy enforced. PHC format (self-describing). | `github.com/Jaro-c/authcore/auth/password` |
-| 📧 **`auth/email`** | Validate + normalize addresses. RFC 5321/5322. Optional DNS MX check (cached). | `github.com/Jaro-c/authcore/auth/email` |
-| 👤 **`auth/username`** | Validate + normalize usernames. Reserved-name blocklist. Character rules. | `github.com/Jaro-c/authcore/auth/username` |
+| 🔐 **`auth/jwt`** | Sign + verify access/refresh tokens. EdDSA / Ed25519. Generic custom claims. Rotation. | `github.com/Glyndor/authcore/auth/jwt` |
+| 🔑 **`auth/password`** | Hash + verify passwords. Argon2id. Policy enforced. PHC format (self-describing). | `github.com/Glyndor/authcore/auth/password` |
+| 📧 **`auth/email`** | Validate + normalize addresses. RFC 5321/5322. Optional DNS MX check (cached). | `github.com/Glyndor/authcore/auth/email` |
+| 👤 **`auth/username`** | Validate + normalize usernames. Reserved-name blocklist. Character rules. | `github.com/Glyndor/authcore/auth/username` |
 
 Each module works on its own — mix and match.
 
@@ -146,9 +143,9 @@ package main
 import (
     "log"
 
-    "github.com/Jaro-c/authcore"
-    "github.com/Jaro-c/authcore/auth/jwt"
-    "github.com/Jaro-c/authcore/auth/password"
+    "github.com/Glyndor/authcore"
+    "github.com/Glyndor/authcore/auth/jwt"
+    "github.com/Glyndor/authcore/auth/password"
 )
 
 type UserClaims struct {
@@ -233,8 +230,8 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 |---|---|---|
 | `AccessTokenTTL` | 15 minutes | 24 hours |
 | `RefreshTokenTTL` | 24 hours | 365 days |
-| `Issuer` | `"github.com/Jaro-c/authcore"` | — |
-| `Audience` | `["github.com/Jaro-c/authcore"]` | — |
+| `Issuer` | `"github.com/Glyndor/authcore"` | — |
+| `Audience` | `["github.com/Glyndor/authcore"]` | — |
 | `ClockSkewLeeway` | 0 (no leeway) | — |
 
 > [!NOTE]
@@ -710,8 +707,8 @@ import (
     "crypto/ed25519"
     "testing"
 
-    "github.com/Jaro-c/authcore"
-    "github.com/Jaro-c/authcore/auth/jwt"
+    "github.com/Glyndor/authcore"
+    "github.com/Glyndor/authcore/auth/jwt"
 )
 
 // stubProvider implements authcore.Provider with fixed, in-memory dependencies.
@@ -836,7 +833,7 @@ authcore/
 
 | Import path | Visibility | Purpose |
 |---|---|---|
-| `github.com/Jaro-c/authcore` | public | Core types and entry point |
+| `github.com/Glyndor/authcore` | public | Core types and entry point |
 | `…/auth/jwt` | public | JWT module |
 | `…/auth/password` | public | Argon2id password hashing module |
 | `…/auth/email` | public | Email validation, normalization, MX verification |
@@ -875,7 +872,7 @@ Minimal module skeleton:
 ```go
 package mypkg
 
-import "github.com/Jaro-c/authcore"
+import "github.com/Glyndor/authcore"
 
 type MyModule struct {
     log authcore.Logger
@@ -1057,16 +1054,6 @@ No — AuthCore gives you the primitives (hash, sign, verify, rotate) and stays 
 
 ---
 
-## Coverage
-
-<details>
-<summary><b>📊 Sunburst coverage graph</b> · <i>click to expand</i></summary>
-
-[![Sunburst](https://codecov.io/github/Jaro-c/AuthCore/graphs/sunburst.svg?token=YXE6LDJFCQ)](https://app.codecov.io/gh/Jaro-c/AuthCore)
-
-Each ring is a directory; each slice is a file. Greener wedges are better covered. Click through for the full per-line report on Codecov.
-
-</details>
 
 ---
 
@@ -1086,19 +1073,21 @@ Planned (no hard ETA — subject to community input):
 - 🚧 **Key rotation helpers** — zero-downtime rotation via the `kid` header
 - 🕐 **`auth/oauth`** — OAuth 2.0 / OIDC provider integration *(larger scope, later)*
 
-Have an opinion on priority, or a use case we haven't thought about? Open a [discussion](https://github.com/Jaro-c/authcore/discussions) — the roadmap bends toward real user needs.
+Have an opinion on priority, or a use case we haven't thought about? Open a [discussion](https://github.com/Glyndor/authcore/discussions) — the roadmap bends toward real user needs.
 
 ---
 
 ## API Stability
 
 <details>
-<summary><b>ℹ️ Versioning policy</b> — v1.x public API is frozen · <i>click to expand</i></summary>
+<summary><b>ℹ️ Versioning policy</b> — latest-only, always move forward · <i>click to expand</i></summary>
 
-authcore follows [Semantic Versioning](https://semver.org).
+authcore ships the **latest** API on a single import path — only the newest release is supported, and fixes (including security fixes) ship **forward** in a new release, never back-ported. A version that is behind is upgraded, not patched in place; the safe version is always the newest.
 
-- **`v1.x` (current)** — the public API is frozen under semver guarantees. Breaking changes only ship in a new major version (`v2.0.0`). Minor releases add features; patch releases fix bugs or harden existing code paths without changing public shapes.
-- **`v1.2.0`** shipped defence-in-depth hardenings: JWT TTL caps, `kid` header matching, Unicode NFC password normalisation, IDN email support, and a PEM file size cap. See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+- **Move forward freely.** Improvements land on the `v1.x` line; any breaking change ships with clear migration notes in the release. The import path never changes — `go get` always resolves the newest, and Dependabot keeps you current.
+- **No frozen API, no `/v2`.** The latest-only model is what keeps everyone on the fix; there is deliberately no parallel old-major path to linger on.
+
+See the [Releases](https://github.com/Glyndor/authcore/releases) for the full history and per-release migration notes.
 
 Internal packages (`internal/…`) carry no compatibility guarantees at any version and must not be imported from outside the module.
 
@@ -1110,10 +1099,10 @@ Internal packages (`internal/…`) carry no compatibility guarantees at any vers
 
 Ready to add secure auth to your Go app? Here's the 2-minute path:
 
-1. 📦 **Install** — `go get github.com/Jaro-c/authcore`
+1. 📦 **Install** — `go get github.com/Glyndor/authcore`
 2. ⚡ **Copy** the [Quick Start](#quick-start) above into your `main.go`
 3. 🧪 **Run** a module example end-to-end — [`examples/jwt`](examples/jwt/), [`examples/password`](examples/password/), [`examples/fiber`](examples/fiber/), [`examples/gin`](examples/gin/)
-4. 📖 **Reference** the [full API on pkg.go.dev](https://pkg.go.dev/github.com/Jaro-c/authcore)
+4. 📖 **Reference** the [full API on pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore)
 
 ⭐ **If AuthCore saved you from writing your own password hasher, please star the repo** — it helps others find it.
 
@@ -1123,7 +1112,7 @@ Ready to add secure auth to your Go app? Here's the 2-minute path:
 
 ## Contributing
 
-Contributions are welcome! Please read the [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request. Bug reports, feature ideas, and docs improvements are all valuable — open an [issue](https://github.com/Jaro-c/authcore/issues) or [discussion](https://github.com/Jaro-c/authcore/discussions) any time.
+Contributions are welcome! Please read the [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request. Bug reports, feature ideas, and docs improvements are all valuable — open an [issue](https://github.com/Glyndor/authcore/issues) or [discussion](https://github.com/Glyndor/authcore/discussions) any time.
 
 ## Security
 
@@ -1132,4 +1121,4 @@ Do not open a public issue for security bugs — coordinated disclosure keeps us
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [Apache-2.0 License](LICENSE).

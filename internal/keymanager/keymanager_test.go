@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Jaro-c/authcore/internal/keymanager"
+	"github.com/Glyndor/authcore/internal/keymanager"
 )
 
 // testLogger satisfies the unexported keymanager.logger interface via

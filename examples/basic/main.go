@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/auth/password"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/password"
 )
 
 func ExampleNew() {

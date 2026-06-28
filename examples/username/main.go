@@ -8,8 +8,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/Jaro-c/authcore"
-	"github.com/Jaro-c/authcore/auth/username"
+	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/username"
 )
 
 func main() {

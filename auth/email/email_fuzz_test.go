@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func FuzzValidateAndNormalize(f *testing.F) {

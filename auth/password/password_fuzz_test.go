@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 // FuzzValidatePolicy ensures the policy check never panics on arbitrary input.

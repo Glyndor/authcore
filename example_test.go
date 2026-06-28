@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Jaro-c/authcore"
+	"github.com/Glyndor/authcore"
 )
 
 func ExampleNew() {
