@@ -4,18 +4,12 @@
 
 **Auth is the code you only get wrong once. authcore does the dangerous parts for you.**
 
-Argon2id passwords · EdDSA tokens · refresh rotation · email + username validation —
-secure by default, in pure Go. No database. No framework. No crypto PhD.
-
-![secure by default](https://img.shields.io/badge/secure-by_default-3fb950)
-![passwords Argon2id](https://img.shields.io/badge/passwords-Argon2id-3fb950)
-![tokens EdDSA](https://img.shields.io/badge/tokens-EdDSA_Ed25519-3fb950)
-![timing-safe](https://img.shields.io/badge/comparisons-timing--safe-3fb950)
-![zero config](https://img.shields.io/badge/config-zero-3fb950)
+Argon2id passwords · EdDSA tokens · refresh rotation · API keys · social login
+(OIDC + OAuth2) · email + username validation — all secure by default, timing-safe,
+zero-config, in pure Go. No database. No framework. No crypto PhD. Apache-2.0.
 
 [![CI](https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/authcore/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg)](https://pkg.go.dev/github.com/Glyndor/authcore)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 [**Install**](#-install) · [**Quick start**](#-quick-start) · [**Why**](#-why) · [**Modules**](#-modules) · [**Examples**](examples/) · [**Docs**](docs/)
 
@@ -102,7 +96,7 @@ Pick only what you need — each is independent, testable, and safe by default.
 flowchart LR
     App["Your app"] -->|init once| Core["authcore"]
     Core -->|auto-generates| Keys[("🔑 Ed25519 + HMAC<br/>on disk")]
-    Core -->|Provider| M["password · jwt<br/>email · username"]
+    Core -->|Provider| M["password · jwt · apikey · oauth<br/>email · username"]
     M -->|hash · sign · verify| App
 ```
 
@@ -114,18 +108,6 @@ step-by-step flow that turns these primitives into a login an auditor accepts.
 [Secure login recipe](docs/secure-login.md) · [Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [API keys](docs/apikey.md) · [OIDC login](docs/oauth.md) · [Key management](docs/key-management.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
 
 Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore).
-
-<details>
-<summary><b>🗺️ Roadmap</b></summary>
-
-Shipped: `password`, `jwt`, `email`, `username`, automatic key management.
-
-Planned (no hard ETA): `apikey` (opaque keys + pluggable store), key-rotation
-helpers, an optional access-token revocation hook, a pluggable key source
-(KMS / env / in-memory), and `oauth` (OAuth2 / OIDC). Have a use case? Open an
-[issue](https://github.com/Glyndor/authcore/issues).
-
-</details>
 
 ## License
 

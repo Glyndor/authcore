@@ -122,7 +122,9 @@ authcore/
 │   ├── jwt/             # JSON Web Token authentication (EdDSA / Ed25519)
 │   ├── password/        # Argon2id password hashing
 │   ├── email/           # Email validation, normalization, DNS MX verification
-│   └── username/        # Username validation, normalization, reserved name blocklist
+│   ├── username/        # Username validation, normalization, reserved name blocklist
+│   ├── apikey/          # Opaque API keys (HMAC-SHA256 keyed hash)
+│   └── oauth/           # OpenID Connect / OAuth2 client (social login)
 │
 └── examples/
     ├── basic/           # authcore initialisation strategies
@@ -130,6 +132,8 @@ authcore/
     ├── password/        # Password: policy, hash, verify
     ├── email/           # Email: validate, normalize, DNS MX verification
     ├── username/        # Username: validate, normalize, reserved names
+    ├── apikey/          # API keys: generate, verify, parse
+    ├── oauth/           # Social login: OIDC + OAuth2 flow (separate module)
     ├── fiber/           # Full auth API with Fiber v3 (separate module)
     └── gin/             # Full auth API with Gin (separate module)
 ```
@@ -141,5 +145,7 @@ authcore/
 | `…/auth/password` | public | Argon2id password hashing module |
 | `…/auth/email` | public | Email validation, normalization, MX verification |
 | `…/auth/username` | public | Username validation, normalization, reserved names |
+| `…/auth/apikey` | public | Opaque API key generation and verification |
+| `…/auth/oauth` | public | OpenID Connect / OAuth2 client |
 | `…/internal/clock` | internal | Shared time abstraction |
 | `…/internal/keymanager` | internal | Key generation and persistence |
