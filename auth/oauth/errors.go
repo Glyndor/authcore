@@ -49,4 +49,10 @@ var (
 	//
 	// Safety: INTERNAL — a programming error.
 	ErrNoUserInfo = errors.New("oauth: no userinfo URL configured")
+
+	// ErrDiscovery is returned by Discover when the OIDC discovery document
+	// cannot be fetched or parsed, or its issuer does not match.
+	//
+	// Safety: INTERNAL.
+	ErrDiscovery = errors.New("oauth: OIDC discovery failed")
 )
