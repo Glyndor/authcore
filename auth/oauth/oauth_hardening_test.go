@@ -1,6 +1,7 @@
 package oauth_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -11,6 +12,31 @@ import (
 
 	"github.com/Glyndor/authcore/auth/oauth"
 )
+
+func TestVerifyIDToken_rsaBoundsRejected(t *testing.T) {
+	key := mustRSA(t)
+	goodN := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+	hugeN := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0xff}, 2049)) // ~16392 bits, over the cap
+	wideE := base64.RawURLEncoding.EncodeToString([]byte{0x01, 0, 0, 0, 0x03})      // 33-bit exponent
+
+	cases := map[string]string{
+		"oversized modulus": fmt.Sprintf(`{"keys":[{"kty":"RSA","kid":%q,"n":%q,"e":"AQAB"}]}`, testKID, hugeN),
+		"wide exponent":     fmt.Sprintf(`{"keys":[{"kty":"RSA","kid":%q,"n":%q,"e":%q}]}`, testKID, goodN, wideE),
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(doc))
+			}))
+			defer srv.Close()
+			c := newClient(t, srv)
+			tok := signIDToken(t, key, testKID, validClaims(srv.URL, "n"))
+			if _, err := c.VerifyIDToken(context.Background(), tok, "n"); err == nil {
+				t.Errorf("%s: out-of-range RSA key must be rejected", name)
+			}
+		})
+	}
+}
 
 // ---- HTTPS enforcement ------------------------------------------------------
 
