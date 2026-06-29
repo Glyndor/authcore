@@ -152,8 +152,8 @@ func (km *KeyManager) PublicKey() ed25519.PublicKey {
 // vs an "ak_<id>_<secret>" key), so there is no cross-protocol forgery. It is
 // not split into per-use subkeys (e.g. via HKDF) because the resulting hashes
 // are stored by the consumer: changing the derivation would invalidate every
-// stored refresh-token and API-key hash on upgrade — a forced mass logout the
-// evergreen rule forbids.
+// stored refresh-token and API-key hash on upgrade, forcing all users to
+// re-authenticate — a breaking change the library avoids by design.
 func (km *KeyManager) RefreshSecret() []byte {
 	return km.refreshSecret
 }
