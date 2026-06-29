@@ -81,7 +81,7 @@ func TestNew_oauth2ProviderValid(t *testing.T) {
 	// GitHub/Discord are valid even without issuer/JWKS (they supply userinfo).
 	for _, p := range []oauth.Provider{oauth.GitHub(), oauth.Discord()} {
 		if _, err := oauth.New(fakeProvider{}, oauth.Config{
-			ClientID: "x", RedirectURL: "y", Provider: p, Scopes: []string{"identify"},
+			ClientID: "x", RedirectURL: "https://app.example/cb", Provider: p, Scopes: []string{"identify"},
 		}); err != nil {
 			t.Errorf("OAuth2 preset rejected: %v", err)
 		}
@@ -91,7 +91,7 @@ func TestNew_oauth2ProviderValid(t *testing.T) {
 func TestNew_providerWithNoIdentitySourceRejected(t *testing.T) {
 	// Auth + token endpoints but neither issuer/JWKS nor userinfo.
 	_, err := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID: "x", RedirectURL: "y",
+		ClientID: "x", RedirectURL: "https://app.example/cb",
 		Provider: oauth.Provider{AuthURL: "a", TokenURL: "t"},
 	})
 	if err == nil {
@@ -154,6 +154,7 @@ func TestVerifyIDToken_audArrayAndStringEmailVerified(t *testing.T) {
 
 	cl := validClaims(srv.URL, "n")
 	cl["aud"] = []string{testClientID, "another"}
+	cl["azp"] = testClientID      // OIDC: multi-aud token must name us as authorized party
 	cl["email_verified"] = "true" // some providers send a string
 	tok := signIDToken(t, key, testKID, cl)
 
@@ -166,6 +167,23 @@ func TestVerifyIDToken_audArrayAndStringEmailVerified(t *testing.T) {
 	}
 	if !claims.EmailVerified {
 		t.Error("string email_verified \"true\" not parsed as true")
+	}
+}
+
+func TestVerifyIDToken_multiAudWrongAZPRejected(t *testing.T) {
+	key := mustRSA(t)
+	srv := jwksServer(t, &key.PublicKey)
+	defer srv.Close()
+	c := newClient(t, srv)
+
+	// Our client id is in aud, but the token was authorized for another client.
+	cl := validClaims(srv.URL, "n")
+	cl["aud"] = []string{testClientID, "another"}
+	cl["azp"] = "another"
+	tok := signIDToken(t, key, testKID, cl)
+
+	if _, err := c.VerifyIDToken(context.Background(), tok, "n"); err == nil {
+		t.Error("expected rejection of a multi-audience token whose azp is another client")
 	}
 }
 
@@ -202,7 +220,7 @@ func TestVerifyIDToken_jwksEmpty(t *testing.T) {
 func TestAuthCodeURL_defaultScopesIncludeOpenID(t *testing.T) {
 	// No scopes set -> the OIDC default set (with openid) is used.
 	c, _ := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID: "x", RedirectURL: "y", Provider: oauth.Google(),
+		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google(),
 	})
 	req, _ := c.AuthCodeURL()
 	if !strings.Contains(req.URL, "openid") {
@@ -214,7 +232,7 @@ func TestAuthCodeURL_callerScopesVerbatim(t *testing.T) {
 	// Caller-supplied scopes are used as-is (no openid injected) — required for
 	// plain-OAuth2 providers like GitHub.
 	c, _ := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID: "x", RedirectURL: "y", Provider: oauth.GitHub(),
+		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.GitHub(),
 		Scopes: []string{"read:user", "user:email"},
 	})
 	req, _ := c.AuthCodeURL()

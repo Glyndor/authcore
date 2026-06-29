@@ -29,8 +29,9 @@ const (
 type jwk struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
-	N   string `json:"n"` // RSA modulus (base64url)
-	E   string `json:"e"` // RSA exponent (base64url)
+	Use string `json:"use"` // "sig" or "enc"; only signing keys are used here
+	N   string `json:"n"`   // RSA modulus (base64url)
+	E   string `json:"e"`   // RSA exponent (base64url)
 	Crv string `json:"crv"`
 	X   string `json:"x"` // EC x (base64url)
 	Y   string `json:"y"` // EC y (base64url)
@@ -111,6 +112,11 @@ func (c *jwksCache) refresh(ctx context.Context) error {
 
 	keys := make(map[string]crypto.PublicKey, len(doc.Keys))
 	for _, k := range doc.Keys {
+		// Only signature keys are eligible. A key explicitly published for
+		// encryption must never be selected to verify a token signature.
+		if k.Use != "" && k.Use != "sig" {
+			continue
+		}
 		pub, err := parseJWK(k)
 		if err != nil {
 			continue // skip keys we cannot use (unsupported type/curve); others remain usable
@@ -145,6 +151,11 @@ func parseJWK(k jwk) (crypto.PublicKey, error) {
 		e := new(big.Int).SetBytes(eBytes)
 		if !e.IsInt64() || e.Int64() < 2 {
 			return nil, fmt.Errorf("invalid RSA exponent")
+		}
+		// Reject undersized moduli — a small (potentially factorable) RSA key
+		// must never be trusted to verify a signature.
+		if n.BitLen() < 2048 {
+			return nil, fmt.Errorf("RSA modulus too small: %d bits", n.BitLen())
 		}
 		return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 	case "EC":

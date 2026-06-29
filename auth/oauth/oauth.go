@@ -23,7 +23,7 @@
 //	http.Redirect(w, r, req.URL, http.StatusFound)
 //
 //	// 2. Callback: check state, exchange the code, validate the ID token.
-//	if r.FormValue("state") != savedState { return /* 400 */ }
+//	if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(savedState)) != 1 { return /* 400 */ }
 //	tok, _ := mod.Exchange(r.Context(), r.FormValue("code"), savedVerifier)
 //	claims, err := mod.VerifyIDToken(r.Context(), tok.IDToken, savedNonce)
 //	if err != nil { return /* 401 */ }
@@ -139,9 +139,10 @@ type Tokens struct {
 // Exchange swaps an authorization code for tokens at the token endpoint, sending
 // the PKCE code_verifier. ctx bounds the request.
 //
-// It returns ErrExchange on a transport error or a non-2xx response, and
-// ErrNoIDToken if the provider returned no id_token. Validate Tokens.IDToken
-// with VerifyIDToken before trusting any of it.
+// It returns ErrExchange on a transport error or a non-2xx response. For an
+// OIDC provider it also returns ErrNoIDToken when the response carried no
+// id_token; validate that token with VerifyIDToken before trusting it. For a
+// plain-OAuth2 provider (no issuer/JWKS) there is no id_token — call UserInfo.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -179,8 +180,18 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
 	}
-	if tok.IDToken == "" {
+	// An ID token is required only for an OIDC provider (one that has an issuer
+	// and JWKS to validate it against). A plain-OAuth2 provider (GitHub,
+	// Discord) returns no id_token — identity comes from UserInfo — so requiring
+	// one here would make every such login fail.
+	if c.isOIDC() && tok.IDToken == "" {
 		return nil, ErrNoIDToken
 	}
 	return &tok, nil
+}
+
+// isOIDC reports whether the provider issues an ID token (issuer + JWKS set),
+// as opposed to a plain-OAuth2 provider identified via UserInfo.
+func (c *Client) isOIDC() bool {
+	return c.cfg.Provider.Issuer != "" && c.cfg.Provider.JWKSURL != ""
 }
