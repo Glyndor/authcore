@@ -112,6 +112,32 @@ db.ReplaceRefreshHash(session.ID, newPair.RefreshTokenHash)
 // 6. Send the new tokens to the client.
 ```
 
+## Revocation & logout
+
+Access tokens are **stateless JWTs**: once issued, an access token stays valid
+until its `exp` (the `AccessTokenTTL`, 15 minutes by default). The library holds
+no session store, so there is no way to invalidate an individual access token
+before it expires.
+
+This matters for logout. Deleting the stored refresh-token hash on logout stops
+the session from being **renewed**, but it does **not** kill the access token
+the client already holds — that token keeps working until it expires.
+
+```go
+// Logout: delete the refresh hash so the session cannot be renewed.
+db.DeleteSessionByHash(jwtMod.HashRefreshToken(clientToken))
+// The current access token still works for up to AccessTokenTTL. Plan for it.
+```
+
+What to do about it:
+
+- **Good enough for most apps:** keep `AccessTokenTTL` short (the 15-minute
+  default) so a logged-out token dies quickly on its own.
+- **Need instant kill** (logout-everywhere, compromised account): maintain your
+  own denylist keyed by the `SessionID`/`jti` (it is stable across rotations)
+  and check it in your middleware after `VerifyAccessToken`, or shorten
+  `AccessTokenTTL` further.
+
 ## Clock skew tolerance
 
 In distributed systems, server clocks may drift by a few seconds. Set
