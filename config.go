@@ -79,24 +79,18 @@ func validateConfig(cfg Config) error {
 	return nil
 }
 
-// validateKeysDir ensures KeysDir can be created and written to.
-// Catching this early gives a clear error before the key manager tries to
-// generate or load key files.
+// validateKeysDir ensures KeysDir exists (creating it if possible).
+//
+// It deliberately does NOT probe for writability. A read-only KeysDir is a
+// valid and recommended deployment: pre-generated keys mounted read-only into
+// a container (see docs/key-management.md). Whether the directory needs to be
+// written to depends on whether the key files already exist — that is the key
+// manager's concern. When generation is actually required, the key manager
+// surfaces a clear write error (wrapped as ErrKeyManager); when the keys are
+// already present, no write happens and a read-only mount loads fine.
 func validateKeysDir(dir string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("cannot create keys directory %q: %w", dir, err)
-	}
-	tmp, err := os.CreateTemp(dir, ".authcore-write-check-*")
-	if err != nil {
-		return fmt.Errorf("keys directory %q is not writable: %w", dir, err)
-	}
-	name := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return fmt.Errorf("keys directory %q write check failed: %w", dir, err)
-	}
-	if err := os.Remove(name); err != nil {
-		return fmt.Errorf("keys directory %q write check cleanup failed: %w", dir, err)
 	}
 	return nil
 }

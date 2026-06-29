@@ -83,8 +83,11 @@ func New(dir string, log logger) (*KeyManager, error) {
 		log.Warn("authcore/keymanager: could not tighten key directory %q to %o: %v", dir, dirMode, err)
 	}
 
+	// The .gitignore is a convenience guard against committing keys; it is not
+	// security-critical. On a read-only KeysDir (a mounted secret) the write
+	// fails harmlessly — warn and carry on rather than refusing to start.
 	if err := ensureGitignore(dir); err != nil {
-		return nil, fmt.Errorf("write .gitignore in %q: %w", dir, err)
+		log.Warn("authcore/keymanager: could not write .gitignore in %q (continuing): %v", dir, err)
 	}
 
 	// Fail closed on a partially-populated directory before generating anything,
