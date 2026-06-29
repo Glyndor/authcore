@@ -33,6 +33,11 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Prov
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
+	// Never fetch discovery over plaintext — the whole trust chain (the jwks_uri
+	// the ID-token signature hangs on) comes from this document.
+	if err := requireHTTPS("issuer", issuer); err != nil {
+		return Provider{}, fmt.Errorf("%w: %w", ErrDiscovery, err)
+	}
 	trimmed := strings.TrimRight(issuer, "/")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, trimmed+discoveryPath, nil)
@@ -72,6 +77,22 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Prov
 	}
 	if doc.Auth == "" || doc.Token == "" || doc.JWKS == "" {
 		return Provider{}, fmt.Errorf("%w: document missing required endpoints", ErrDiscovery)
+	}
+	// The endpoints are not constrained to the issuer's origin, so a substituted
+	// (or simply misconfigured) document could point them at plaintext hosts —
+	// require https on each.
+	for label, raw := range map[string]string{
+		"authorization_endpoint": doc.Auth,
+		"token_endpoint":         doc.Token,
+		"jwks_uri":               doc.JWKS,
+		"userinfo_endpoint":      doc.UserInfo,
+	} {
+		if raw == "" {
+			continue
+		}
+		if err := requireHTTPS(label, raw); err != nil {
+			return Provider{}, fmt.Errorf("%w: %w", ErrDiscovery, err)
+		}
 	}
 
 	return Provider{

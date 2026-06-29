@@ -3,6 +3,7 @@ package oauth
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -99,5 +100,47 @@ func validateConfig(cfg Config) error {
 	if !oauth2 && (cfg.Provider.Issuer == "") != (cfg.Provider.JWKSURL == "") {
 		return fmt.Errorf("OIDC provider needs both issuer and JWKS URL")
 	}
+
+	// Every endpoint and the redirect must be https (loopback excepted), so a
+	// MITM cannot intercept the code/token exchange or substitute the JWKS.
+	for label, raw := range map[string]string{
+		"redirect URL":          cfg.RedirectURL,
+		"provider auth URL":     cfg.Provider.AuthURL,
+		"provider token URL":    cfg.Provider.TokenURL,
+		"provider JWKS URL":     cfg.Provider.JWKSURL,
+		"provider userinfo URL": cfg.Provider.UserInfoURL,
+		"provider issuer":       cfg.Provider.Issuer,
+	} {
+		if raw == "" {
+			continue
+		}
+		if err := requireHTTPS(label, raw); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// requireHTTPS rejects a URL whose scheme is not https. Plain http is allowed
+// only for an explicit loopback host (local development), and that is the loud
+// exception — the secure transport is the default everywhere else.
+func requireHTTPS(label, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s is not a valid URL: %w", label, err)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if isLoopbackHost(u.Hostname()) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s must use https (got %q in %q)", label, u.Scheme, raw)
+}
+
+// isLoopbackHost reports whether host is a loopback address (dev-only http).
+func isLoopbackHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
