@@ -26,7 +26,23 @@ mod, err := oauth.New(auth, oauth.Config{
 })
 ```
 
-A custom provider is just four endpoints (from its `.well-known/openid-configuration`):
+### Any OIDC provider — discovery
+
+You don't need a preset or hand-written endpoints. `Discover` reads the
+provider's `.well-known/openid-configuration` and builds the `Provider` for you
+— always-current endpoints, works for Apple, Okta, Auth0, GitLab, Cognito,
+Keycloak, any standard OIDC issuer:
+
+```go
+p, err := oauth.Discover(ctx, "https://accounts.google.com", nil)
+if err != nil { log.Fatal(err) }
+mod, _ := oauth.New(auth, oauth.Config{ClientID: id, ClientSecret: secret, RedirectURL: cb, Provider: p})
+```
+
+Discovery enforces that the document's issuer matches the one you asked for, so
+a substituted document cannot redirect the client to attacker endpoints.
+
+Or hand-write the four endpoints if you prefer:
 
 ```go
 Provider: oauth.Provider{
