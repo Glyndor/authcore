@@ -30,13 +30,6 @@ type Config struct {
 	// Set this to the minimum number of CPU cores guaranteed to your service.
 	// Defaults to 2. Minimum 1.
 	Parallelism uint8
-
-	// BreachChecker enables the opt-in known-breach check exposed by
-	// CheckBreached. It is nil by default, keeping the module fully offline and
-	// zero-config; set it to NewHIBPChecker() (network, k-anonymity) or
-	// NewListChecker(...) (offline list) to reject passwords that have already
-	// appeared in a public breach. It does not affect Hash or Verify.
-	BreachChecker BreachChecker
 }
 
 // DefaultConfig returns a Config with OWASP-recommended Argon2id defaults.

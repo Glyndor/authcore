@@ -28,20 +28,6 @@
 // Memory, Iterations, and Parallelism can be increased to match your hardware.
 // The algorithm and output format are never configurable — that's the point.
 //
-// # Rejecting breached passwords (opt-in)
-//
-// Length and composition rules keep out structurally weak passwords; they do
-// not catch a strong-looking password that has already leaked in a public
-// breach. Set Config.BreachChecker to enable an opt-in breach check via
-// CheckBreached — off by default, so the module stays offline and zero-config:
-//
-//	cfg := password.DefaultConfig()
-//	cfg.BreachChecker = password.NewHIBPChecker() // HaveIBeenPwned, k-anonymity
-//	pwdMod, _ := password.New(auth, cfg)
-//	if err := pwdMod.CheckBreached(ctx, userPassword); errors.Is(err, password.ErrBreachedPassword) {
-//	    // ask the user for a different password
-//	}
-//
 // # Full usage
 //
 //	// Startup — one instance, shared across all goroutines.
