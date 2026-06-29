@@ -69,6 +69,8 @@ type Provider interface {
 //	                  email.New(p authcore.Provider) (*email.Email, error)
 //	auth/username — username validation, normalization, reserved name blocklist
 //	                  username.New(p authcore.Provider) (*username.Username, error)
+//	auth/apikey   — opaque API key generation, hashing, and verification
+//	                  apikey.New(p authcore.Provider, cfg ...apikey.Config) (*apikey.APIKey, error)
 //
 // Conventions shared by every module:
 //
