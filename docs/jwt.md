@@ -133,10 +133,36 @@ What to do about it:
 
 - **Good enough for most apps:** keep `AccessTokenTTL` short (the 15-minute
   default) so a logged-out token dies quickly on its own.
-- **Need instant kill** (logout-everywhere, compromised account): maintain your
-  own denylist keyed by the `SessionID`/`jti` (it is stable across rotations)
-  and check it in your middleware after `VerifyAccessToken`, or shorten
-  `AccessTokenTTL` further.
+- **Need instant kill** (logout-everywhere, compromised account): set a
+  `Denylist` on the config. `VerifyAccessToken` then checks it on every
+  otherwise-valid access token, keyed by the `jti`/`SessionID` (stable across
+  rotations), and returns `ErrTokenRevoked` for a killed session.
+
+```go
+// Your store — in-memory, Redis, a DB table. Must fail closed.
+type myDenylist struct{ /* ... */ }
+func (d *myDenylist) IsRevoked(ctx context.Context, jti string) (bool, error) {
+    return d.store.Exists(ctx, "revoked:"+jti)
+}
+
+cfg := jwt.DefaultConfig()
+cfg.Denylist = &myDenylist{ /* ... */ }
+jwtMod, _ := jwt.New[MyClaims](auth, cfg)
+
+// On logout / force-logout: add the session id to the store.
+d.store.Add(ctx, "revoked:"+pair.SessionID, pair.RefreshTokenExpiresAt)
+
+// Verification rejects it from then on:
+claims, err := jwtMod.VerifyAccessTokenContext(ctx, token)
+if errors.Is(err, jwt.ErrTokenRevoked) { /* 401, re-authenticate */ }
+```
+
+The denylist is opt-in: leave `Denylist` nil and verification stays fully
+stateless (no per-request lookup). The lookup runs only for tokens that already
+passed signature and expiry, so a garbage token never touches your store. Use
+`VerifyAccessTokenContext` to pass a request context to the lookup; a store
+error fails closed (the token is rejected). Size the store entries to expire at
+the access token's `exp` — past that the token is dead anyway.
 
 ## Clock skew tolerance
 

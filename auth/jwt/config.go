@@ -47,6 +47,12 @@ type Config struct {
 	// Defaults to 0 (no leeway). A value of 30 seconds is typical for production deployments.
 	// Must not be negative.
 	ClockSkewLeeway time.Duration
+
+	// Denylist optionally makes access tokens revocable before they expire.
+	// It is nil by default, keeping the stateless fast path (no per-request
+	// lookup). Set it to consult your own revocation store on each
+	// VerifyAccessToken, keyed by the session jti. See the Denylist type.
+	Denylist Denylist
 }
 
 // DefaultConfig returns a Config with safe, production-ready defaults.
