@@ -151,6 +151,17 @@ func TestValidate_withDisplayName(t *testing.T) {
 	}
 }
 
+func TestValidate_addressLiteralRejected(t *testing.T) {
+	for _, addr := range []string{
+		"user@[192.168.1.1]",
+		"user@[IPv6:2001:db8::1]",
+	} {
+		if err := validate(addr); !errors.Is(err, ErrInvalidEmail) {
+			t.Errorf("expected ErrInvalidEmail for address literal %q, got %v", addr, err)
+		}
+	}
+}
+
 // ---- ErrInvalidEmail wraps a reason -----------------------------------------
 
 func TestValidate_wrapsReason(t *testing.T) {

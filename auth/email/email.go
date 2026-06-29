@@ -249,6 +249,14 @@ func validate(address string) error {
 		return &emailViolation{reason: fmt.Errorf("local part must be at most 64 characters")}
 	}
 
+	// Reject address literals like "user@[192.168.1.1]" or "user@[IPv6:...]".
+	// net/mail accepts them, but they are almost never wanted in an account
+	// system, cannot be MX-verified, and would otherwise slip through the
+	// dot/label checks below (the bracketed octets look like labels).
+	if strings.HasPrefix(domain, "[") {
+		return &emailViolation{reason: fmt.Errorf("domain must not be an address literal")}
+	}
+
 	// Domain: at least one dot, no leading/trailing/consecutive dots,
 	// each label 1–63 characters.
 	hasDot := false

@@ -52,6 +52,32 @@ func readCapped(path string) ([]byte, error) {
 	return data, nil
 }
 
+// checkKeyDirConsistency verifies that the key directory is either empty of all
+// managed key files or holds the full set. A partially-populated directory —
+// for example the Ed25519 pair present but refresh_secret.key deleted — is
+// rejected before anything is generated, so the manager never silently mints a
+// new refresh secret that would invalidate every refresh-token hash already
+// stored by the consumer (forcing all users to log in again).
+func checkKeyDirConsistency(dir string) error {
+	files := []string{filePrivateKey, filePublicKey, fileRefreshSecret}
+	var present, missing []string
+	for _, name := range files {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			present = append(present, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	if len(present) > 0 && len(missing) > 0 {
+		return fmt.Errorf(
+			"key directory %q is in an inconsistent state: present {%s}, missing {%s}; "+
+				"restore the missing file(s), or delete all key files to trigger a clean regeneration",
+			dir, strings.Join(present, ", "), strings.Join(missing, ", "),
+		)
+	}
+	return nil
+}
+
 // ----- Ed25519 key pair -------------------------------------------------------
 
 // loadOrGenerateEd25519 returns an Ed25519 key pair, generating and
