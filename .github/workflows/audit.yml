@@ -15,7 +15,4 @@ jobs:
       # G104 (errcheck on logger Output) and G306 (public-key 0644) are justified
       # in code with //nolint:gosec; standalone gosec ignores those pragmas.
       # G115 mirrors the .golangci.yml exclusion for UUID/time math.
-      # G401/G505 (SHA-1) are the HaveIBeenPwned k-anonymity prefix hash in
-      # auth/password/breach.go — required by the HIBP range API, never used for
-      # password storage (that is Argon2id) or any security decision on its own.
-      gosec-exclude: "G104,G115,G306,G401,G505"
+      gosec-exclude: "G104,G115,G306"
