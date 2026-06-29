@@ -37,7 +37,7 @@ mod, err := oauth.New(auth, oauth.Config{
     ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
     ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
     RedirectURL:  "https://app.example.com/auth/callback",
-    Provider:     oauth.Google(), // or oauth.Microsoft("common"), or a custom Provider
+    Provider:     oauth.Google(), // or oauth.Microsoft("<your-tenant-id>"), or a custom Provider
 })
 ```
 

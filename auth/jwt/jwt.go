@@ -216,11 +216,18 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 //	claims, err := jwtMod.VerifyAccessToken(token)
 //	if errors.Is(err, jwt.ErrTokenExpired) { ... }
 //
-// When a Denylist is configured (Config.Denylist), this uses a background
-// context for the revocation lookup. Use VerifyAccessTokenContext to pass your
-// own context (recommended for a network-backed denylist).
+// When a Denylist is configured (Config.Denylist), the revocation lookup runs
+// under a background context bounded by a default timeout (defaultDenylistTimeout)
+// so a slow or hung store cannot block the verifying goroutine forever. Use
+// VerifyAccessTokenContext to pass your own context (recommended for a
+// network-backed denylist, e.g. to inherit the request deadline).
 func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {
-	return j.VerifyAccessTokenContext(context.Background(), token)
+	if j.denylist == nil {
+		return j.VerifyAccessTokenContext(context.Background(), token)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultDenylistTimeout)
+	defer cancel()
+	return j.VerifyAccessTokenContext(ctx, token)
 }
 
 // VerifyAccessTokenContext is VerifyAccessToken with an explicit context that

@@ -23,7 +23,7 @@ Register `http://localhost:8080/callback` as the redirect URI with your provider
 | `OAUTH_PROVIDER` | Kind | Identity from |
 |---|---|---|
 | `google` (default) | OIDC | `VerifyIDToken` |
-| `microsoft` | OIDC | `VerifyIDToken` (set `OAUTH_TENANT`, default `common`) |
+| `microsoft` | OIDC | `VerifyIDToken` (set `OAUTH_TENANT` to a specific tenant id — the `common`/`organizations` aliases fail exact-issuer validation) |
 | `github` | OAuth2 | `UserInfo` |
 | `discord` | OAuth2 | `UserInfo` |
 

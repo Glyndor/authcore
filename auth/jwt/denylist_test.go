@@ -3,6 +3,7 @@ package jwt
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -87,6 +88,39 @@ func TestVerifyAccessToken_noDenylistSkipsLookup(t *testing.T) {
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 	if _, err := j.VerifyAccessToken(pair.AccessToken); err != nil {
 		t.Fatalf("verify without a denylist must succeed, got %v", err)
+	}
+}
+
+// deadlineStub records whether the context it was handed carried a deadline.
+type deadlineStub struct{ hadDeadline bool }
+
+func (s *deadlineStub) IsRevoked(ctx context.Context, _ string) (bool, error) {
+	_, s.hadDeadline = ctx.Deadline()
+	return false, nil
+}
+
+func TestVerifyAccessToken_denylistRunsUnderDeadline(t *testing.T) {
+	// The context-less convenience method must bound the denylist lookup with a
+	// default timeout so a hung store cannot block forever.
+	stub := &deadlineStub{}
+	cfg := DefaultConfig()
+	cfg.Denylist = stub
+	j := newTestJWT[struct{}](t, newFakeProvider(t), cfg)
+	pair, _ := j.CreateTokens(testSubject, struct{}{})
+
+	if _, err := j.VerifyAccessToken(pair.AccessToken); err != nil {
+		t.Fatalf("VerifyAccessToken: %v", err)
+	}
+	if !stub.hadDeadline {
+		t.Error("denylist lookup should run under a deadline when called via VerifyAccessToken")
+	}
+}
+
+func TestVerifyAccessToken_oversizedTokenRejected(t *testing.T) {
+	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
+	oversized := strings.Repeat("a", 9000) // over the 8 KiB cap
+	if _, err := j.VerifyAccessToken(oversized); !errors.Is(err, ErrTokenMalformed) {
+		t.Errorf("expected ErrTokenMalformed for an oversized token, got %v", err)
 	}
 }
 

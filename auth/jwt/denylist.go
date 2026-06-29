@@ -1,6 +1,15 @@
 package jwt
 
-import "context"
+import (
+	"context"
+	"time"
+)
+
+// defaultDenylistTimeout bounds the revocation lookup when VerifyAccessToken is
+// called (the context-less convenience method). It keeps a slow or hung
+// Denylist store from blocking the verifying goroutine indefinitely. Use
+// VerifyAccessTokenContext to supply your own deadline instead.
+const defaultDenylistTimeout = 5 * time.Second
 
 // Denylist is the optional, opt-in hook that makes a stateless access token
 // revocable before it expires.

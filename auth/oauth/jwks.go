@@ -22,6 +22,11 @@ const (
 	jwksTTL = time.Hour
 	// jwksMaxBytes caps a JWKS response so a hostile endpoint cannot exhaust memory.
 	jwksMaxBytes = 1 << 20
+	// minRefreshInterval throttles refreshes triggered by an unknown kid. Without
+	// it, a flood of tokens carrying bogus kids would force one outbound JWKS GET
+	// per verification (request amplification). A genuine key rotation is still
+	// picked up within this window.
+	minRefreshInterval = time.Minute
 )
 
 // jwk is one JSON Web Key. Only the fields needed to build an RSA or EC public
@@ -46,9 +51,10 @@ type jwksCache struct {
 	url  string
 	http *http.Client
 
-	mu        sync.RWMutex
-	keys      map[string]crypto.PublicKey
-	expiresAt time.Time
+	mu          sync.RWMutex
+	keys        map[string]crypto.PublicKey
+	expiresAt   time.Time
+	lastAttempt time.Time // last refresh attempt, to throttle unknown-kid-driven fetches
 }
 
 func newJWKSCache(url string, h *http.Client) *jwksCache {
@@ -62,9 +68,16 @@ func (c *jwksCache) key(ctx context.Context, kid string) (crypto.PublicKey, erro
 	c.mu.RLock()
 	k, ok := c.keys[kid]
 	fresh := time.Now().Before(c.expiresAt)
+	throttled := time.Since(c.lastAttempt) < minRefreshInterval
 	c.mu.RUnlock()
 	if ok && fresh {
 		return k, nil
+	}
+	// An unknown kid normally triggers a refresh (to pick up rotation), but only
+	// if we have not just refreshed — otherwise bogus kids would force a fetch
+	// per request. A known-but-stale key still refreshes (gated by the TTL).
+	if !ok && throttled {
+		return nil, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
 	}
 
 	if err := c.refresh(ctx); err != nil {
@@ -85,6 +98,12 @@ func (c *jwksCache) key(ctx context.Context, kid string) (crypto.PublicKey, erro
 
 // refresh fetches the JWKS and replaces the cached key set.
 func (c *jwksCache) refresh(ctx context.Context) error {
+	// Record the attempt up front (success or failure) so the unknown-kid path
+	// is throttled to at most one fetch per minRefreshInterval.
+	c.mu.Lock()
+	c.lastAttempt = time.Now()
+	c.mu.Unlock()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
 		return fmt.Errorf("%w: build request: %w", ErrJWKS, err)
