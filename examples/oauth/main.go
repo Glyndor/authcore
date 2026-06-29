@@ -41,7 +41,14 @@ func main() {
 	case "google":
 		cfg.Provider = oauth.Google()
 	case "microsoft":
-		cfg.Provider = oauth.Microsoft(env("OAUTH_TENANT", "common"))
+		// A specific tenant id is required: the multi-tenant aliases
+		// (common/organizations/consumers) fail exact-issuer validation.
+		tenant := env("OAUTH_TENANT", "")
+		switch tenant {
+		case "", "common", "organizations", "consumers":
+			log.Fatal("set OAUTH_TENANT to a specific Microsoft tenant id (GUID or verified domain); the common/organizations aliases do not pass exact-issuer validation")
+		}
+		cfg.Provider = oauth.Microsoft(tenant)
 	case "github":
 		cfg.Provider = oauth.GitHub()
 		cfg.Scopes = []string{"read:user", "user:email"}
