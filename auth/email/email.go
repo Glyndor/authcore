@@ -96,13 +96,14 @@ type cacheEntry struct {
 // Call [Email.Close] when the module is no longer needed to stop the
 // background cache eviction goroutine.
 type Email struct {
-	log      authcore.Logger
-	resolver *net.Resolver
-	cacheTTL time.Duration
-	mu       sync.RWMutex
-	cache    map[string]cacheEntry
-	group    singleflight.Group
-	done     chan struct{}
+	log       authcore.Logger
+	resolver  *net.Resolver
+	cacheTTL  time.Duration
+	mu        sync.RWMutex
+	cache     map[string]cacheEntry
+	group     singleflight.Group
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New creates an Email module using the provider's logger and starts a
@@ -129,15 +130,12 @@ func New(p authcore.Provider) (*Email, error) {
 }
 
 // Close stops the background cache eviction goroutine.
-// It is safe to call Close multiple times; subsequent calls are no-ops.
+// It is safe to call Close multiple times and from multiple goroutines
+// concurrently; the channel is closed exactly once via sync.Once.
 // After Close, VerifyDomain continues to work but expired entries are no
 // longer evicted automatically.
 func (e *Email) Close() {
-	select {
-	case <-e.done: // already closed
-	default:
-		close(e.done)
-	}
+	e.closeOnce.Do(func() { close(e.done) })
 }
 
 // evictLoop runs in a background goroutine and periodically removes expired
@@ -249,6 +247,14 @@ func validate(address string) error {
 
 	if len(local) > 64 {
 		return &emailViolation{reason: fmt.Errorf("local part must be at most 64 characters")}
+	}
+
+	// Reject address literals like "user@[192.168.1.1]" or "user@[IPv6:...]".
+	// net/mail accepts them, but they are almost never wanted in an account
+	// system, cannot be MX-verified, and would otherwise slip through the
+	// dot/label checks below (the bracketed octets look like labels).
+	if strings.HasPrefix(domain, "[") {
+		return &emailViolation{reason: fmt.Errorf("domain must not be an address literal")}
 	}
 
 	// Domain: at least one dot, no leading/trailing/consecutive dots,

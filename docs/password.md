@@ -76,6 +76,46 @@ hash cannot force `argon2.IDKey` into an unbounded memory allocation.
 > on macOS (precomposed `é`) or Linux (decomposed `e` + combining acute), so
 > cross-platform account access works out of the box.
 
+## Rejecting breached passwords (optional)
+
+A password can satisfy every composition rule and still be terrible because it
+has already leaked in a public breach. That check is opt-in and **off by
+default**, so the module stays fully offline and zero-config until you ask for
+it — exactly like the email module's DNS check.
+
+Enable it by setting a `BreachChecker` on the config, then call `CheckBreached`
+at registration or password change (after `ValidatePolicy`, before `Hash`):
+
+```go
+cfg := password.DefaultConfig()
+cfg.BreachChecker = password.NewHIBPChecker() // HaveIBeenPwned, k-anonymity
+pwdMod, _ := password.New(auth, cfg)
+
+ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+defer cancel()
+switch err := pwdMod.CheckBreached(ctx, req.Password); {
+case errors.Is(err, password.ErrBreachedPassword):
+    // 400 — ask the user to choose a different password
+case err != nil:
+    // network/lookup error — log it and decide your policy (fail open or closed)
+}
+```
+
+`NewHIBPChecker` never transmits the password or its full hash: it sends only
+the first **five** hex characters of the SHA-1 digest to the HaveIBeenPwned
+range API and compares the returned suffixes locally (k-anonymity). The SHA-1
+here guards that prefix lookup — it is **not** password storage, which is always
+Argon2id.
+
+For an air-gapped deployment, use a local list instead — no network at all:
+
+```go
+cfg.BreachChecker = password.NewListChecker(myCommonPasswordList)
+```
+
+You can also supply your own backend by implementing the `BreachChecker`
+interface (`IsBreached(ctx, plaintext) (bool, error)`).
+
 ## Tuning work parameters (optional)
 
 The defaults are sized for 2 vCPUs / 4 GiB RAM. On more powerful hardware, crank

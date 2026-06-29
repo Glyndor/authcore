@@ -223,6 +223,20 @@ func TestNew_negativeLeewayReturnsErrInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNew_emptyAudienceEntryReturnsErrInvalidConfig(t *testing.T) {
+	for _, aud := range [][]string{
+		{""},
+		{"   "},
+		{"valid", ""},
+	} {
+		cfg := DefaultConfig()
+		cfg.Audience = aud
+		if _, err := New[struct{}](newFakeProvider(t), cfg); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("Audience %q: expected ErrInvalidConfig, got %v", aud, err)
+		}
+	}
+}
+
 func TestVerifyAccessToken_tokenWithinLeewayIsAccepted(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AccessTokenTTL = 10 * time.Minute

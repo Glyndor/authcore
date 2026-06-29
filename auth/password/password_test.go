@@ -445,6 +445,30 @@ func TestVerify_malformedStoredHashIsRejectedBeforeKeyDerivation(t *testing.T) {
 	}
 }
 
+func TestVerify_emptyKeySegmentRejectedNotPanic(t *testing.T) {
+	p := newMod(t)
+
+	// A truncated hash with an empty key segment reaches argon2.IDKey with
+	// keyLen=0, which panics (nil dereference) and crashes the process.
+	// parsePHC must reject it as ErrInvalidHash, never derive a key.
+	cases := map[string]string{
+		"empty key":  "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$",
+		"empty salt": "$argon2id$v=19$m=65536,t=3,p=2$$" + strings.Repeat("A", 43),
+		"short key":  "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$a2V5",
+	}
+	for name, h := range cases {
+		t.Run(name, func(t *testing.T) {
+			ok, err := p.Verify("any-password-we-do-not-care", h)
+			if ok {
+				t.Fatalf("%s: malformed hash must never verify true", name)
+			}
+			if !errors.Is(err, ErrInvalidHash) {
+				t.Errorf("%s: expected ErrInvalidHash, got %v", name, err)
+			}
+		})
+	}
+}
+
 // ---- DefaultConfig() --------------------------------------------------------
 
 func TestDefaultConfig_values(t *testing.T) {
