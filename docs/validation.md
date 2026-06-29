@@ -14,7 +14,8 @@ emailMod, err := email.New(auth)
 if err != nil {
     log.Fatal(err)
 }
-defer emailMod.Close() // stops the background cache eviction goroutine
+// Close is an optional no-op kept for backward compatibility — the module runs
+// no background goroutine, so no cleanup is required.
 ```
 
 ### Validating and normalizing
