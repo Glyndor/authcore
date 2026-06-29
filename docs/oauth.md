@@ -8,9 +8,11 @@ audience, expiry, and nonce). It is a client only — authcore is not an OAuth
 server. It stores nothing and runs no HTTP server; you own the two routes.
 
 > [!NOTE]
-> This covers OIDC providers (Google, Microsoft, Auth0, Keycloak…) that issue an
-> ID token. Pure-OAuth2 providers that don't (e.g. GitHub) need a userinfo
-> fetch and are not yet covered.
+> Two kinds of provider are supported. **OIDC** providers (Google, Microsoft,
+> Auth0, Keycloak…) issue an ID token — validate it with `VerifyIDToken`.
+> **Plain-OAuth2** providers (GitHub, Discord…) issue no ID token — fetch the
+> profile with `UserInfo` instead. The authorization + PKCE + exchange steps are
+> identical for both.
 
 ## Setup
 
@@ -62,6 +64,35 @@ if err != nil { /* 401 — never show the reason */ }
 // claims.Subject is the stable user id AT THIS PROVIDER.
 // Key your account on (claims.Issuer, claims.Subject), not on email.
 ```
+
+## Plain-OAuth2 providers (GitHub, Discord, …)
+
+Providers that issue no ID token use the same start/exchange steps, then
+`UserInfo` instead of `VerifyIDToken`:
+
+```go
+mod, _ := oauth.New(auth, oauth.Config{
+    ClientID: id, ClientSecret: secret,
+    RedirectURL: "https://app.example.com/auth/callback",
+    Provider:    oauth.GitHub(),            // or oauth.Discord()
+    Scopes:      []string{"read:user", "user:email"}, // provider's own scopes
+})
+
+// Callback: check state, exchange, then fetch the profile.
+tok, _ := mod.Exchange(r.Context(), code, savedVerifier)
+info, err := mod.UserInfo(r.Context(), tok.AccessToken)
+if err != nil { /* 401 */ }
+// info is the provider's raw JSON: GitHub "id"/"login", Discord "id"/"username".
+// Key your account on (provider, info["id"]).
+```
+
+`UserInfo` sends the access token as a Bearer credential, caps the response, and
+returns the decoded JSON. There is no ID token to validate here — identity is
+whatever the userinfo endpoint returns, so trust only the provider's stable id.
+
+> Custom OAuth2 provider: set `Provider{AuthURL, TokenURL, UserInfoURL}` (no
+> issuer/JWKS). A provider with neither issuer+JWKS nor a userinfo URL is
+> rejected at `New` — it could not identify the user.
 
 ## What it guarantees
 

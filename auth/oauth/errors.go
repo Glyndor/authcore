@@ -37,4 +37,16 @@ var (
 	//
 	// Safety: INTERNAL.
 	ErrJWKS = errors.New("oauth: cannot obtain provider signing keys")
+
+	// ErrUserInfo is returned when the userinfo request to a plain-OAuth2
+	// provider fails (network error, non-2xx, or undecodable body).
+	//
+	// Safety: INTERNAL.
+	ErrUserInfo = errors.New("oauth: userinfo request failed")
+
+	// ErrNoUserInfo is returned by UserInfo when the provider has no
+	// UserInfoURL configured (it is an OIDC provider — use VerifyIDToken).
+	//
+	// Safety: INTERNAL — a programming error.
+	ErrNoUserInfo = errors.New("oauth: no userinfo URL configured")
 )
