@@ -69,33 +69,41 @@ type JWT[T any] struct {
 // New creates and returns a JWT module.
 //
 // T is the application-specific claims type embedded in access tokens.
-// Use struct{} if no custom claims are needed:
+// Use struct{} if no custom claims are needed.
 //
-//	jwtMod, err := jwt.New[struct{}](auth, jwt.DefaultConfig())
+// cfg is optional — omit it to use safe defaults (15-minute access tokens,
+// 24-hour refresh tokens, EdDSA), matching the zero-config shape of the other
+// modules. Pass a Config only to override lifetimes, issuer, or audience:
+//
+//	jwtMod, err := jwt.New[struct{}](auth)                    // defaults
+//	jwtMod, err := jwt.New[MyClaims](auth, jwt.DefaultConfig()) // explicit/custom
 //
 // p provides the Ed25519 signing keys, the HMAC secret, the logger, and the
 // timezone — all sourced from the parent AuthCore instance.
-// cfg controls token lifetimes and the issuer claim.
-func New[T any](p authcore.Provider, cfg Config) (*JWT[T], error) {
-	cfg = applyDefaults(cfg)
+func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
+	var resolved Config
+	if len(cfg) > 0 {
+		resolved = cfg[0]
+	}
+	resolved = applyDefaults(resolved)
 
-	if err := validateConfig(cfg); err != nil {
+	if err := validateConfig(resolved); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
 	j := &JWT[T]{
-		cfg:             cfg,
+		cfg:             resolved,
 		log:             p.Logger(),
 		priv:            p.Keys().PrivateKey(),
 		pub:             p.Keys().PublicKey(),
 		secret:          p.Keys().RefreshSecret(),
 		kid:             p.Keys().KeyID(),
 		clock:           clock.New(p.Config().Timezone),
-		primaryAudience: cfg.Audience[0], // validateConfig guarantees len >= 1
+		primaryAudience: resolved.Audience[0], // validateConfig guarantees len >= 1
 	}
 
 	j.log.Info("jwt: module initialised (issuer=%s, access_ttl=%s, refresh_ttl=%s)",
-		cfg.Issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+		resolved.Issuer, resolved.AccessTokenTTL, resolved.RefreshTokenTTL)
 
 	return j, nil
 }

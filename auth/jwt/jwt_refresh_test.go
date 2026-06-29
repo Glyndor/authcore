@@ -223,6 +223,29 @@ func TestNew_negativeLeewayReturnsErrInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNew_zeroConfigUsesDefaults(t *testing.T) {
+	// jwt.New is variadic: omitting Config must apply safe defaults, matching
+	// the zero-config shape of the other modules.
+	j, err := New[struct{}](newFakeProvider(t))
+	if err != nil {
+		t.Fatalf("New without config error = %v", err)
+	}
+	if j.cfg.AccessTokenTTL != DefaultConfig().AccessTokenTTL {
+		t.Errorf("AccessTokenTTL = %s, want default %s", j.cfg.AccessTokenTTL, DefaultConfig().AccessTokenTTL)
+	}
+	if j.cfg.Issuer != DefaultConfig().Issuer {
+		t.Errorf("Issuer = %q, want default %q", j.cfg.Issuer, DefaultConfig().Issuer)
+	}
+	// And it must actually work end-to-end with no config.
+	pair, err := j.CreateTokens(testSubject, struct{}{})
+	if err != nil {
+		t.Fatalf("CreateTokens error = %v", err)
+	}
+	if _, err := j.VerifyAccessToken(pair.AccessToken); err != nil {
+		t.Errorf("VerifyAccessToken error = %v", err)
+	}
+}
+
 func TestNew_emptyAudienceEntryReturnsErrInvalidConfig(t *testing.T) {
 	for _, aud := range [][]string{
 		{""},

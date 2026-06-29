@@ -75,6 +75,14 @@ func New(dir string, log logger) (*KeyManager, error) {
 		return nil, fmt.Errorf("create key directory %q: %w", dir, err)
 	}
 
+	// MkdirAll does not tighten a directory that already exists, so a pre-created
+	// or volume-mounted KeysDir could sit at a looser mode (e.g. 0755). Tighten
+	// it to owner-only. A failure here is not fatal — the private key and refresh
+	// secret are still written 0600 — so warn rather than abort.
+	if err := os.Chmod(dir, dirMode); err != nil {
+		log.Warn("authcore/keymanager: could not tighten key directory %q to %o: %v", dir, dirMode, err)
+	}
+
 	if err := ensureGitignore(dir); err != nil {
 		return nil, fmt.Errorf("write .gitignore in %q: %w", dir, err)
 	}
