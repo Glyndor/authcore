@@ -194,7 +194,8 @@ func TestCreateTokens_refreshTokenHasIat(t *testing.T) {
 // ---- kid header -------------------------------------------------------------
 
 func TestCreateTokens_accessTokenHeaderContainsKid(t *testing.T) {
-	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
+	prov := newFakeProvider(t)
+	j := newTestJWT[struct{}](t, prov, DefaultConfig())
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
 	h := tokenHeader(t, pair.AccessToken)
@@ -202,13 +203,14 @@ func TestCreateTokens_accessTokenHeaderContainsKid(t *testing.T) {
 	if !ok || kid == "" {
 		t.Errorf("access token header missing or empty kid: %v", h)
 	}
-	if kid != "test0000test0000" {
-		t.Errorf("kid = %q, want %q", kid, "test0000test0000")
+	if want := prov.Keys().KeyID(); kid != want {
+		t.Errorf("kid = %q, want %q", kid, want)
 	}
 }
 
 func TestCreateTokens_refreshTokenHeaderContainsKid(t *testing.T) {
-	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
+	prov := newFakeProvider(t)
+	j := newTestJWT[struct{}](t, prov, DefaultConfig())
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
 	h := tokenHeader(t, pair.RefreshToken)
@@ -216,8 +218,8 @@ func TestCreateTokens_refreshTokenHeaderContainsKid(t *testing.T) {
 	if !ok || kid == "" {
 		t.Errorf("refresh token header missing or empty kid: %v", h)
 	}
-	if kid != "test0000test0000" {
-		t.Errorf("kid = %q, want %q", kid, "test0000test0000")
+	if want := prov.Keys().KeyID(); kid != want {
+		t.Errorf("kid = %q, want %q", kid, want)
 	}
 }
 
