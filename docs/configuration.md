@@ -6,10 +6,15 @@
 type Config struct {
     EnableLogs bool             // emit log output; default true via DefaultConfig()
     Timezone   *time.Location   // time zone for all operations; default time.UTC
-    Logger     authcore.Logger  // custom logger (slog, zap, zerolog, …); overrides EnableLogs
-    KeysDir    string           // key storage directory; default ".authcore"
+    Logger     authcore.Logger   // custom logger (slog, zap, zerolog, …); overrides EnableLogs
+    KeysDir    string            // key storage directory; default ".authcore"; ignored when KeyStore is set
+    KeyStore   authcore.KeyStore // optional: source keys from a secret manager / env / KMS instead of disk
 }
 ```
+
+`KeyStore` lets you supply key material instead of using the disk under
+`KeysDir` — see [Key management](key-management.md) (`NewKeyStoreFromKeys`,
+`NewKeyStoreFromPEM`). Leave it nil for the zero-config disk default.
 
 Always start from `DefaultConfig()` and override only what you need:
 
