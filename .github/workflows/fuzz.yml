@@ -20,5 +20,6 @@ jobs:
           {"package":"./auth/jwt","func":"FuzzVerifyAccessToken"},
           {"package":"./auth/jwt","func":"FuzzIsUUIDv7"},
           {"package":"./auth/password","func":"FuzzValidatePolicy"},
-          {"package":"./auth/password","func":"FuzzParsePHC"}
+          {"package":"./auth/password","func":"FuzzParsePHC"},
+          {"package":"./internal/keymanager","func":"FuzzFromPEM"}
         ]
