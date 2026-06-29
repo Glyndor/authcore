@@ -177,19 +177,7 @@ func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM block found in %q", path)
-	}
-	raw, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse PKCS#8 private key from %q: %w", path, err)
-	}
-	key, ok := raw.(ed25519.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("key in %q is not an Ed25519 private key (got %T)", path, raw)
-	}
-	return key, nil
+	return decodeEd25519PrivatePEM(data, path)
 }
 
 // readPublicKey parses a PKIX PEM file and returns the Ed25519 public key.
@@ -198,17 +186,41 @@ func readPublicKey(path string) (ed25519.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeEd25519PublicPEM(data, path)
+}
+
+// decodeEd25519PrivatePEM parses a PKCS#8 PEM block into an Ed25519 private key.
+// src names the origin (a path or "input") for error messages.
+func decodeEd25519PrivatePEM(data []byte, src string) (ed25519.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return nil, fmt.Errorf("no PEM block found in %q", path)
+		return nil, fmt.Errorf("no PEM block found in %q", src)
+	}
+	raw, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse PKCS#8 private key from %q: %w", src, err)
+	}
+	key, ok := raw.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("key in %q is not an Ed25519 private key (got %T)", src, raw)
+	}
+	return key, nil
+}
+
+// decodeEd25519PublicPEM parses a PKIX PEM block into an Ed25519 public key.
+// src names the origin (a path or "input") for error messages.
+func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %q", src)
 	}
 	raw, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse PKIX public key from %q: %w", path, err)
+		return nil, fmt.Errorf("parse PKIX public key from %q: %w", src, err)
 	}
 	key, ok := raw.(ed25519.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("key in %q is not an Ed25519 public key (got %T)", path, raw)
+		return nil, fmt.Errorf("key in %q is not an Ed25519 public key (got %T)", src, raw)
 	}
 	return key, nil
 }

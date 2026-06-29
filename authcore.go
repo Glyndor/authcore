@@ -89,7 +89,12 @@ func New(cfg Config) (*AuthCore, error) {
 
 	log := newLogger(cfg)
 
-	km, err := keymanager.New(cfg.KeysDir, log)
+	store := cfg.KeyStore
+	if store == nil {
+		// Default: the zero-config secure-disk store under KeysDir.
+		store = diskKeyStore{dir: cfg.KeysDir, log: log}
+	}
+	keys, err := store.Load()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
 	}
@@ -97,7 +102,7 @@ func New(cfg Config) (*AuthCore, error) {
 	ac := &AuthCore{
 		config: cfg,
 		log:    log,
-		keys:   km,
+		keys:   keys,
 	}
 
 	ac.log.Info("authcore initialised (timezone=%s, logs=%v, keys=%s)",
