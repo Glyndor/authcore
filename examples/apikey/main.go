@@ -36,8 +36,8 @@ func main() {
 		log.Fatalf("parse id: %v", err)
 	}
 	fmt.Println("\nIncoming request key parsed to id:", id)
-	fmt.Println("Verify correct key  :", keyMod.Verify(key.Key, key.Hash))       // true
-	fmt.Println("Verify tampered key :", keyMod.Verify(key.Key+"x", key.Hash))   // false
+	fmt.Println("Verify correct key  :", keyMod.Verify(key.Key, key.Hash))     // true
+	fmt.Println("Verify tampered key :", keyMod.Verify(key.Key+"x", key.Hash)) // false
 
 	// A malformed key is rejected before any lookup.
 	if _, err := keyMod.ParseID("not-a-key"); err != nil {
