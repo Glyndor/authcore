@@ -149,13 +149,17 @@ func parseJWK(k jwk) (crypto.PublicKey, error) {
 			return nil, err
 		}
 		e := new(big.Int).SetBytes(eBytes)
-		if !e.IsInt64() || e.Int64() < 2 {
+		// Bound the exponent to 31 bits: it must fit an int on a 32-bit build
+		// (int(e.Int64()) would otherwise silently truncate), and a real RSA
+		// exponent is tiny (commonly 65537).
+		if !e.IsInt64() || e.Int64() < 2 || e.BitLen() > 31 {
 			return nil, fmt.Errorf("invalid RSA exponent")
 		}
-		// Reject undersized moduli — a small (potentially factorable) RSA key
-		// must never be trusted to verify a signature.
-		if n.BitLen() < 2048 {
-			return nil, fmt.Errorf("RSA modulus too small: %d bits", n.BitLen())
+		// Bound the modulus: reject undersized (potentially factorable) keys, and
+		// cap the upper end so a hostile JWKS cannot publish a multi-megabit
+		// modulus that turns every verification into a heavy modexp (CPU DoS).
+		if bits := n.BitLen(); bits < 2048 || bits > 16384 {
+			return nil, fmt.Errorf("RSA modulus out of range: %d bits", bits)
 		}
 		return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 	case "EC":
