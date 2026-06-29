@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"crypto/ed25519"
 	"fmt"
 	"strings"
 	"time"
@@ -53,6 +54,17 @@ type Config struct {
 	// lookup). Set it to consult your own revocation store on each
 	// VerifyAccessToken, keyed by the session jti. See the Denylist type.
 	Denylist Denylist
+
+	// PreviousPublicKeys holds Ed25519 public keys that should still be accepted
+	// for verification in addition to the current signing key. This is the
+	// verification side of zero-downtime key rotation: deploy the new key as the
+	// active one and list the old public key here, so tokens already signed by
+	// it keep verifying through their lifetime; remove it once they have all
+	// expired. New tokens are always signed with the current key only.
+	//
+	// Empty by default. Each key is indexed by its derived "kid", so a token
+	// selects the right key automatically.
+	PreviousPublicKeys []ed25519.PublicKey
 }
 
 // DefaultConfig returns a Config with safe, production-ready defaults.
@@ -131,6 +143,11 @@ func validateConfig(cfg Config) error {
 	}
 	if cfg.ClockSkewLeeway < 0 {
 		return fmt.Errorf("clock skew leeway must not be negative, got %s", cfg.ClockSkewLeeway)
+	}
+	for i, pk := range cfg.PreviousPublicKeys {
+		if len(pk) != ed25519.PublicKeySize {
+			return fmt.Errorf("previous public key %d has wrong length: got %d, want %d", i, len(pk), ed25519.PublicKeySize)
+		}
 	}
 	return nil
 }

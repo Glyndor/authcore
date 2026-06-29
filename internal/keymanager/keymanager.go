@@ -116,6 +116,12 @@ func New(dir string, log logger) (*KeyManager, error) {
 	}, nil
 }
 
+// KeyID derives the stable key identifier for pub — the same value a
+// KeyManager reports for its own key. It is exported so the JWT module can
+// index additional verification keys (during rotation) by the same id without
+// duplicating the derivation.
+func KeyID(pub ed25519.PublicKey) string { return computeKeyID(pub) }
+
 // computeKeyID derives a stable identifier from a public key.
 // It returns the first 8 bytes of the SHA-256 digest of the raw public key
 // bytes, hex-encoded (16 lowercase characters). The value changes automatically
