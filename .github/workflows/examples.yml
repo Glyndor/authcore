@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [basic, email, fiber, gin, jwt, password, username]
+        example: [basic, email, fiber, gin, jwt, oauth, password, username]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
