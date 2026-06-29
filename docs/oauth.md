@@ -156,6 +156,10 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
   are refused, closing the algorithm-confusion forgery.
 - **Issuer, audience, expiry, and nonce** are all enforced. A mismatch fails
   closed with `ErrIDTokenInvalid`.
+- **Safe redirects.** The default HTTP client refuses redirects that are
+  cross-origin (the token POST replays the client secret on a 307/308),
+  downgrade to `http`, or target a loopback / link-local / private host (SSRF).
+  If you set `Config.HTTPClient`, you own that policy.
 
 ## What is yours
 

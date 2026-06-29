@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -51,6 +53,8 @@ type jwksCache struct {
 	url  string
 	http *http.Client
 
+	group singleflight.Group // collapses concurrent refreshes into one outbound fetch
+
 	mu          sync.RWMutex
 	keys        map[string]crypto.PublicKey
 	expiresAt   time.Time
@@ -80,7 +84,10 @@ func (c *jwksCache) key(ctx context.Context, kid string) (crypto.PublicKey, erro
 		return nil, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
 	}
 
-	if err := c.refresh(ctx); err != nil {
+	// Collapse concurrent refreshes: a burst of tokens carrying distinct unknown
+	// kids triggers a single outbound JWKS fetch, not one per request.
+	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	if err != nil {
 		if ok {
 			return k, nil // serve the stale key rather than fail the login on a transient JWKS outage
 		}
