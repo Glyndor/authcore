@@ -58,4 +58,12 @@ var (
 	//
 	// Safety: INTERNAL — programming error in the caller. Treat as a 500.
 	ErrInvalidSubject = errors.New("jwt: subject must be a valid UUID v7")
+
+	// ErrTokenRevoked is returned by VerifyAccessToken when a configured
+	// Denylist reports the token's session as revoked. The token's signature
+	// and expiry were valid; it was explicitly killed.
+	//
+	// Safety: INTERNAL — return a generic "unauthorized" to the client, which
+	// should re-authenticate.
+	ErrTokenRevoked = errors.New("jwt: token has been revoked")
 )
