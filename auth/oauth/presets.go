@@ -52,7 +52,7 @@ func Discord() Provider {
 // signed-in user's own tenant GUID, never the alias, and VerifyIDToken enforces
 // an exact issuer match — so an alias-based config rejects every token. Verifying
 // across arbitrary tenants needs per-tenant issuer validation, which exact-match
-// does not provide (tracked separately); pin a single tenant here.
+// does not provide and which is not currently supported; pin a single tenant here.
 func Microsoft(tenant string) Provider {
 	base := fmt.Sprintf("https://login.microsoftonline.com/%s", tenant)
 	return Provider{
