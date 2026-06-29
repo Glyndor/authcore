@@ -12,6 +12,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"log"
@@ -80,7 +81,7 @@ func main() {
 			http.Error(w, "missing or bad flow cookie", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("state") != state {
+		if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(state)) != 1 {
 			http.Error(w, "state mismatch", http.StatusBadRequest)
 			return
 		}

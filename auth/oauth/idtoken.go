@@ -62,6 +62,7 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		gjwt.WithIssuer(c.cfg.Provider.Issuer),
 		gjwt.WithAudience(c.cfg.ClientID),
 		gjwt.WithExpirationRequired(),
+		gjwt.WithIssuedAt(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
@@ -73,10 +74,21 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		return nil, fmt.Errorf("%w: nonce mismatch", ErrIDTokenInvalid)
 	}
 
+	// WithAudience only requires that our client id is *present* in "aud". When
+	// the token names more than one audience, or carries an authorized-party
+	// claim, OIDC Core §3.1.3.7 requires "azp" to equal our client id — so a
+	// token a provider minted for a different client cannot be replayed here.
+	aud := audienceClaim(claims)
+	if azp, hasAZP := claims["azp"]; len(aud) > 1 || hasAZP {
+		if s, _ := azp.(string); s != c.cfg.ClientID {
+			return nil, fmt.Errorf("%w: azp does not match client id", ErrIDTokenInvalid)
+		}
+	}
+
 	out := &IDClaims{
 		Subject:       stringClaim(claims, "sub"),
 		Issuer:        stringClaim(claims, "iss"),
-		Audience:      audienceClaim(claims),
+		Audience:      aud,
 		Email:         stringClaim(claims, "email"),
 		EmailVerified: boolClaim(claims, "email_verified"),
 		Name:          stringClaim(claims, "name"),

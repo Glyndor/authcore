@@ -67,7 +67,7 @@ http.Redirect(w, r, req.URL, http.StatusFound)
 **Callback** — check `state`, exchange the code, validate the ID token:
 
 ```go
-if r.FormValue("state") != savedState {
+if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(savedState)) != 1 {
     http.Error(w, "bad state", http.StatusBadRequest) // CSRF / stale
     return
 }

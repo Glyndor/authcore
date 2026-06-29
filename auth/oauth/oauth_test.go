@@ -130,7 +130,7 @@ func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
 }
 
 func TestAuthCodeURL_independentPerCall(t *testing.T) {
-	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "y", Provider: oauth.Google()})
+	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
 	a, _ := c.AuthCodeURL()
 	b, _ := c.AuthCodeURL()
 	if a.State == b.State || a.Nonce == b.Nonce || a.Verifier == b.Verifier {
@@ -142,9 +142,9 @@ func TestAuthCodeURL_independentPerCall(t *testing.T) {
 
 func TestNew_invalidConfigRejected(t *testing.T) {
 	cases := map[string]oauth.Config{
-		"no client id": {RedirectURL: "y", Provider: oauth.Google()},
+		"no client id": {RedirectURL: "https://app.example/cb", Provider: oauth.Google()},
 		"no redirect":  {ClientID: "x", Provider: oauth.Google()},
-		"no provider":  {ClientID: "x", RedirectURL: "y"},
+		"no provider":  {ClientID: "x", RedirectURL: "https://app.example/cb"},
 	}
 	for name, cfg := range cases {
 		if _, err := oauth.New(fakeProvider{}, cfg); err == nil {
@@ -287,7 +287,7 @@ func TestExchange_errors(t *testing.T) {
 }
 
 func TestName(t *testing.T) {
-	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "y", Provider: oauth.Google()})
+	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
 	if c.Name() != "oauth" {
 		t.Errorf("Name() = %q, want oauth", c.Name())
 	}
