@@ -57,6 +57,27 @@ mod, _ := oauth.New(auth, oauth.Config{ClientID: id, ClientSecret: secret, Redir
 Discovery enforces that the document's issuer matches the one you asked for, so
 a substituted document cannot redirect the client to attacker endpoints.
 
+### Multi-tenant providers (Azure AD common)
+
+By default the ID token's `iss` must match `Provider.Issuer` exactly. A
+multi-tenant provider gives each user a token whose issuer carries their own
+tenant id, so no fixed string matches. Set `Config.IssuerValidator` to accept
+the issuer by predicate instead:
+
+```go
+cfg := oauth.Config{
+    ClientID: id, ClientSecret: secret, RedirectURL: cb,
+    Provider:        oauth.Microsoft("common"),
+    IssuerValidator: oauth.AzureMultiTenantIssuer(), // any Azure v2.0 tenant
+}
+```
+
+`AzureMultiTenantIssuer()` accepts any `https://login.microsoftonline.com/<tenant>/v2.0`
+issuer. It trusts users from **every** tenant — to restrict to specific tenants,
+also check the `tid` claim via `IDClaims.Raw` against your allowlist. The
+predicate replaces only the issuer check; signature, audience, expiry and nonce
+are still enforced.
+
 Or hand-write the four endpoints if you prefer:
 
 ```go
