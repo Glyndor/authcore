@@ -15,4 +15,6 @@ jobs:
       # G104 (errcheck on logger Output) and G306 (public-key 0644) are justified
       # in code with //nolint:gosec; standalone gosec ignores those pragmas.
       # G115 mirrors the .golangci.yml exclusion for UUID/time math.
-      gosec-exclude: "G104,G115,G306"
+      # G101 is a false positive on the OAuth provider preset URLs (a field named
+      # *TokenURL* holding a public endpoint, not a credential).
+      gosec-exclude: "G104,G115,G306,G101"
