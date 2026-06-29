@@ -21,5 +21,6 @@ jobs:
           {"package":"./auth/jwt","func":"FuzzIsUUIDv7"},
           {"package":"./auth/password","func":"FuzzValidatePolicy"},
           {"package":"./auth/password","func":"FuzzParsePHC"},
+          {"package":"./auth/apikey","func":"FuzzParseID"},
           {"package":"./internal/keymanager","func":"FuzzFromPEM"}
         ]
