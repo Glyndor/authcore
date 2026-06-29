@@ -96,6 +96,7 @@ Pick only what you need — each is independent, testable, and safe by default.
 | 📧 | **[email](docs/validation.md)** | Validate + normalize. RFC 5321/5322, optional cached DNS MX check. |
 | 👤 | **[username](docs/validation.md)** | Validate + normalize. Reserved-name blocklist, character rules. |
 | 🗝️ | **[apikey](docs/apikey.md)** | Opaque API keys. Generate, keyed-hash for storage, constant-time verify. |
+| 🌐 | **[oauth](docs/oauth.md)** | OIDC client — log in with Google/Microsoft/any OIDC. Auth Code + PKCE, ID-token validation. |
 
 ```mermaid
 flowchart LR
@@ -110,7 +111,7 @@ flowchart LR
 **New here? Start with the [Secure login recipe](docs/secure-login.md)** — the
 step-by-step flow that turns these primitives into a login an auditor accepts.
 
-[Secure login recipe](docs/secure-login.md) · [Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [API keys](docs/apikey.md) · [Key management](docs/key-management.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
+[Secure login recipe](docs/secure-login.md) · [Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [API keys](docs/apikey.md) · [OIDC login](docs/oauth.md) · [Key management](docs/key-management.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
 
 Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore).
 
