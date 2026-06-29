@@ -62,19 +62,21 @@ type Provider interface {
 // Available implementations and their concrete constructors:
 //
 //	auth/jwt      — JSON Web Token authentication (EdDSA / Ed25519)
-//	                  jwt.New[T any](p authcore.Provider, cfg jwt.Config) (*jwt.JWT[T], error)
+//	                  jwt.New[T any](p authcore.Provider, cfg ...jwt.Config) (*jwt.JWT[T], error)
 //	auth/password — Argon2id password hashing
 //	                  password.New(p authcore.Provider, cfg ...password.Config) (*password.Password, error)
 //	auth/email    — email validation, normalization, DNS MX verification
-//	                  email.New(p authcore.Provider, cfg ...email.Config) (*email.Email, error)
+//	                  email.New(p authcore.Provider) (*email.Email, error)
 //	auth/username — username validation, normalization, reserved name blocklist
 //	                  username.New(p authcore.Provider) (*username.Username, error)
 //
 // Conventions shared by every module:
 //
 //  1. The first argument is always an authcore.Provider (never a concrete *AuthCore).
-//  2. Omitting cfg (where variadic) or passing a zero-value Config applies safe,
-//     production-ready defaults via each module's applyDefaults helper.
+//  2. Where a module takes a Config, it is variadic-optional: omit it, or pass a
+//     zero-value Config, to apply safe production defaults via applyDefaults.
+//     The email and username modules need no Config. Construct any module and
+//     use it — none requires cleanup.
 //  3. Constructors return a pointer receiver; concrete types are safe for
 //     concurrent use across goroutines after construction completes.
 type Module interface {
