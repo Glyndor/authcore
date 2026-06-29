@@ -1,6 +1,6 @@
 module github.com/Glyndor/authcore/examples/oauth
 
-go 1.26.3
+go 1.26.4
 
 require github.com/Glyndor/authcore v1.9.0
 
