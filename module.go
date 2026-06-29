@@ -71,6 +71,8 @@ type Provider interface {
 //	                  username.New(p authcore.Provider) (*username.Username, error)
 //	auth/apikey   — opaque API key generation, hashing, and verification
 //	                  apikey.New(p authcore.Provider, cfg ...apikey.Config) (*apikey.APIKey, error)
+//	auth/oauth    — OpenID Connect client (login with Google / Microsoft / OIDC)
+//	                  oauth.New(p authcore.Provider, cfg oauth.Config) (*oauth.Client, error)
 //
 // Conventions shared by every module:
 //
