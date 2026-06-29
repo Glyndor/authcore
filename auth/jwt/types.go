@@ -33,9 +33,13 @@ type TokenPair struct {
 	RefreshTokenHash string
 
 	// SessionID is the UUID v7 shared by both the access and refresh tokens as their "jti" claim.
-	// It uniquely identifies the session. Use it as the primary key for your session store
-	// to associate metadata such as device, IP address, or last-seen time, and as
-	// the lookup key for access token revocation.
+	// It uniquely identifies the session and is stable across rotations. Use it as the
+	// primary key for your session store to associate metadata such as device, IP address,
+	// or last-seen time, and as the lookup/revocation key for the session as a whole.
+	//
+	// Note: the jti identifies the session, not an individual access token. All access
+	// tokens issued within one session (including across rotations) share this jti, so
+	// you cannot single out one access token by it — revocation is per-session.
 	SessionID string
 }
 
@@ -57,7 +61,9 @@ type Claims[T any] struct {
 	// as configured in jwt.Config.Audience.
 	Audience []string
 
-	// TokenID is the "jti" claim — the unique identifier of this access token.
+	// TokenID is the "jti" claim — the session identifier. It equals the
+	// TokenPair.SessionID returned at creation and is shared by the refresh
+	// token and every rotation, so it names the session, not this single token.
 	TokenID string
 
 	// IssuedAt is when the token was created (the "iat" claim).

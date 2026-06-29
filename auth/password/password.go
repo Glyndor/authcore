@@ -56,6 +56,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore"
 	"golang.org/x/crypto/argon2"
@@ -142,6 +143,10 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 // checkPolicy validates plaintext against the built-in password policy.
 // It runs in O(n) with a single pass and no memory allocations.
 //
+// Length is measured in Unicode characters (runes), not bytes, so a
+// multibyte passphrase is counted the way a user perceives it: a 4-character
+// CJK password is 4 characters, not 12 bytes.
+//
 // Rules:
 //   - Length between 12 and 64 characters.
 //   - At least one uppercase letter (Unicode-aware).
@@ -149,10 +154,11 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 //   - At least one digit.
 //   - At least one special character (anything that is not a letter or digit).
 func checkPolicy(plaintext string) error {
-	if len(plaintext) < 12 {
+	count := utf8.RuneCountInString(plaintext)
+	if count < 12 {
 		return fmt.Errorf("must be at least 12 characters")
 	}
-	if len(plaintext) > 64 {
+	if count > 64 {
 		return fmt.Errorf("must be at most 64 characters")
 	}
 
@@ -254,11 +260,15 @@ func (p *Password) Hash(plaintext string) (string, error) {
 //   - Memory:      8 MiB – 4 GiB (8192 – 4194304 KiB)
 //   - Iterations:  1 – 20
 //   - Parallelism: ≥ 1
+//   - Salt:        exactly 16 bytes
+//   - Key:         exactly 32 bytes
 //
 // The comparison is performed in constant time to prevent timing attacks.
 //
 // Returns ErrInvalidHash when phcHash is malformed, uses a non-Argon2id
-// algorithm, or carries parameters outside the ranges above.
+// algorithm, or carries parameters or salt/key lengths outside the ranges
+// above. A truncated hash never reaches the KDF, so it can neither verify
+// true nor crash the process.
 //
 //	ok, err := pwdMod.Verify(submittedPassword, storedHash)
 //	if errors.Is(err, password.ErrInvalidHash) { ... } // hash is malformed or out of range
@@ -333,6 +343,18 @@ func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 	key, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
 		return Config{}, nil, nil, fmt.Errorf("decode key: %w", err)
+	}
+
+	// Reject hashes whose salt or key are not the fixed sizes Hash produces.
+	// A truncated hash with an empty key segment would otherwise reach
+	// argon2.IDKey with keyLen=0, which panics (nil dereference) and crashes
+	// the process. Enforcing the exact lengths fails closed on any corrupted
+	// or attacker-supplied PHC string before it can reach the KDF.
+	if len(salt) != saltLen {
+		return Config{}, nil, nil, fmt.Errorf("salt has wrong length: got %d bytes, want %d", len(salt), saltLen)
+	}
+	if len(key) != keyLen {
+		return Config{}, nil, nil, fmt.Errorf("derived key has wrong length: got %d bytes, want %d", len(key), keyLen)
 	}
 
 	return cfg, salt, key, nil

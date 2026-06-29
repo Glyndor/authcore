@@ -123,7 +123,10 @@ func (j *JWT[T]) Name() string { return "jwt" }
 //	pair.RefreshTokenHash      — store in your database; never store the raw token
 //	pair.SessionID             — UUID v7 jti shared by both tokens; primary key for session store
 //
-// The access token's individual jti is available as claims.TokenID after VerifyAccessToken.
+// The same jti is carried by the access token, the refresh token, and every
+// rotation of the session, so claims.TokenID after VerifyAccessToken equals
+// pair.SessionID. It identifies the session, not an individual access token —
+// access tokens within one session are not distinguishable by jti.
 //
 // The library does not persist any of these values.
 func (j *JWT[T]) CreateTokens(subject string, extra T) (*TokenPair, error) {
