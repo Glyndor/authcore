@@ -33,6 +33,12 @@ const (
 	tokenTypeRefresh = "refresh"
 )
 
+// maxTokenLen caps the length of a token string before it is parsed. A genuine
+// access/refresh token is a few hundred bytes; refusing anything over 8 KiB
+// stops an attacker from forcing base64+JSON work on a multi-megabyte string
+// before the signature is even checked.
+const maxTokenLen = 8 * 1024
+
 // accessClaims is the internal claim set for access tokens.
 // T carries the application-specific fields stored under the "extra" key.
 type accessClaims[T any] struct {
@@ -99,6 +105,9 @@ func signToken(claims gjwt.Claims, key ed25519.PrivateKey, kid string) (string, 
 // accepted here.
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*accessClaims[T], error) {
+	if len(tokenStr) > maxTokenLen {
+		return nil, ErrTokenMalformed
+	}
 	var c accessClaims[T]
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
@@ -123,6 +132,9 @@ func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey
 // accepted here.
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyRefreshToken(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*refreshClaims, error) {
+	if len(tokenStr) > maxTokenLen {
+		return nil, ErrTokenMalformed
+	}
 	var c refreshClaims
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,

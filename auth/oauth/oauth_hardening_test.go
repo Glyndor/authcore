@@ -3,6 +3,9 @@ package oauth_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"math/big"
@@ -12,6 +15,41 @@ import (
 
 	"github.com/Glyndor/authcore/auth/oauth"
 )
+
+func TestVerifyIDToken_ecOffCurveAndBadCurveRejected(t *testing.T) {
+	signKey := mustRSA(t)
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ec: %v", err)
+	}
+	raw, err := ec.PublicKey.Bytes()
+	if err != nil {
+		t.Fatalf("ec bytes: %v", err)
+	}
+	x := base64.RawURLEncoding.EncodeToString(raw[1:33])
+	yGood := raw[33:65]
+	yBad := append([]byte(nil), yGood...)
+	yBad[len(yBad)-1] ^= 0xff // perturb y so the point is no longer on the curve
+	xB64 := x
+
+	cases := map[string]string{
+		"off-curve point":   fmt.Sprintf(`{"keys":[{"kty":"EC","kid":%q,"crv":"P-256","x":%q,"y":%q}]}`, testKID, xB64, base64.RawURLEncoding.EncodeToString(yBad)),
+		"unsupported curve": fmt.Sprintf(`{"keys":[{"kty":"EC","kid":%q,"crv":"P-999","x":%q,"y":%q}]}`, testKID, xB64, base64.RawURLEncoding.EncodeToString(yGood)),
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(doc))
+			}))
+			defer srv.Close()
+			c := newClient(t, srv)
+			tok := signIDToken(t, signKey, testKID, validClaims(srv.URL, "n"))
+			if _, err := c.VerifyIDToken(context.Background(), tok, "n"); err == nil {
+				t.Errorf("%s: invalid EC key must be rejected", name)
+			}
+		})
+	}
+}
 
 func TestVerifyIDToken_rsaBoundsRejected(t *testing.T) {
 	key := mustRSA(t)

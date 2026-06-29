@@ -44,10 +44,15 @@ func Discord() Provider {
 }
 
 // Microsoft returns the Provider endpoints for the Microsoft identity platform
-// (Azure AD) for the given tenant. Use "common" for multi-tenant + personal
-// accounts, "organizations" for any work/school account, or a specific tenant
-// id. The issuer for the multi-tenant endpoints contains the tenant id of the
-// signed-in user, so prefer a single-tenant id when you can pin the issuer.
+// (Azure AD) for a SPECIFIC tenant id.
+//
+// Pass your concrete tenant id (a GUID, or a verified domain like
+// "contoso.onmicrosoft.com"). Do NOT pass the multi-tenant aliases "common",
+// "organizations", or "consumers": a real ID token's "iss" carries the
+// signed-in user's own tenant GUID, never the alias, and VerifyIDToken enforces
+// an exact issuer match — so an alias-based config rejects every token. Verifying
+// across arbitrary tenants needs per-tenant issuer validation, which exact-match
+// does not provide (tracked separately); pin a single tenant here.
 func Microsoft(tenant string) Provider {
 	base := fmt.Sprintf("https://login.microsoftonline.com/%s", tenant)
 	return Provider{
