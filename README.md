@@ -96,7 +96,7 @@ Pick only what you need — each is independent, testable, and safe by default.
 | 📧 | **[email](docs/validation.md)** | Validate + normalize. RFC 5321/5322, optional cached DNS MX check. |
 | 👤 | **[username](docs/validation.md)** | Validate + normalize. Reserved-name blocklist, character rules. |
 | 🗝️ | **[apikey](docs/apikey.md)** | Opaque API keys. Generate, keyed-hash for storage, constant-time verify. |
-| 🌐 | **[oauth](docs/oauth.md)** | OIDC client — log in with Google/Microsoft/any OIDC. Auth Code + PKCE, ID-token validation. |
+| 🌐 | **[oauth](docs/oauth.md)** | Social login — Google, Microsoft (OIDC) and GitHub, Discord (OAuth2). Auth Code + PKCE, ID-token validation or userinfo. |
 
 ```mermaid
 flowchart LR
