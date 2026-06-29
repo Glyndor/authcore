@@ -18,7 +18,6 @@
 // Always store and query emails using this canonical form:
 //
 //	emailMod, _ := email.New(auth)
-//	defer emailMod.Close()
 //
 //	// Registration
 //	normalized, err := emailMod.ValidateAndNormalize(req.Email)
@@ -91,78 +90,51 @@ type cacheEntry struct {
 
 // Email is the email validation and normalization module.
 // Create one instance at startup via New and reuse it — it is safe for
-// concurrent use after construction.
-//
-// Call [Email.Close] when the module is no longer needed to stop the
-// background cache eviction goroutine.
+// concurrent use after construction. It owns no background goroutine and
+// needs no cleanup; like the other modules, you construct it and use it.
 type Email struct {
-	log       authcore.Logger
-	resolver  *net.Resolver
-	cacheTTL  time.Duration
-	mu        sync.RWMutex
-	cache     map[string]cacheEntry
-	group     singleflight.Group
-	done      chan struct{}
-	closeOnce sync.Once
+	log      authcore.Logger
+	resolver *net.Resolver
+	cacheTTL time.Duration
+	mu       sync.RWMutex
+	cache    map[string]cacheEntry
+	group    singleflight.Group
 }
 
-// New creates an Email module using the provider's logger and starts a
-// background goroutine that evicts expired cache entries.
-//
-// Always call [Email.Close] when the module is no longer needed — typically
-// via defer at the call site — to stop the background goroutine and prevent
-// a goroutine leak:
+// New creates an Email module using the provider's logger.
 //
 //	emailMod, err := email.New(auth)
 //	if err != nil { ... }
-//	defer emailMod.Close()
 func New(p authcore.Provider) (*Email, error) {
 	e := &Email{
 		log:      p.Logger(),
 		resolver: net.DefaultResolver,
 		cacheTTL: DefaultCacheTTL,
 		cache:    make(map[string]cacheEntry),
-		done:     make(chan struct{}),
 	}
-	go e.evictLoop()
 	e.log.Info("email: module initialised")
 	return e, nil
 }
 
-// Close stops the background cache eviction goroutine.
-// It is safe to call Close multiple times and from multiple goroutines
-// concurrently; the channel is closed exactly once via sync.Once.
-// After Close, VerifyDomain continues to work but expired entries are no
-// longer evicted automatically.
-func (e *Email) Close() {
-	e.closeOnce.Do(func() { close(e.done) })
-}
+// Close is a no-op retained for backward compatibility.
+//
+// The module no longer runs a background goroutine: the MX cache evicts
+// expired entries lazily when it fills (see store), and reads always ignore
+// expired entries. Nothing needs to be released, so calling Close is optional
+// and always safe — including multiple times and from multiple goroutines.
+func (e *Email) Close() {}
 
-// evictLoop runs in a background goroutine and periodically removes expired
-// cache entries. This keeps memory bounded without touching the hot path.
-func (e *Email) evictLoop() {
-	ticker := time.NewTicker(e.cacheTTL / 2)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			e.evictExpired()
-		case <-e.done:
-			return
-		}
-	}
-}
-
-// evictExpired deletes all expired entries from the cache.
+// evictExpired deletes all expired entries from the cache, taking the write
+// lock itself.
 func (e *Email) evictExpired() {
-	now := time.Now()
 	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := time.Now()
 	for k, v := range e.cache {
 		if now.After(v.expiresAt) {
 			delete(e.cache, k)
 		}
 	}
-	e.mu.Unlock()
 }
 
 // Name implements authcore.Module.
@@ -350,15 +322,24 @@ func (e *Email) cached(domain string) (cacheEntry, bool) {
 	return entry, ok && time.Now().Before(entry.expiresAt)
 }
 
-// store writes entry into the cache under write lock.
-// If the cache is at maxCacheSize the entry is silently dropped —
-// background eviction will free space and the next lookup retries DNS.
+// store writes entry into the cache under write lock. When the cache is full,
+// it first drops expired entries to make room (lazy eviction — this is what
+// replaces the old background goroutine); if it is still full afterwards the
+// entry is dropped and the next lookup retries DNS.
 func (e *Email) store(domain string, entry cacheEntry) {
 	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.cache) >= maxCacheSize {
+		now := time.Now()
+		for k, v := range e.cache {
+			if now.After(v.expiresAt) {
+				delete(e.cache, k)
+			}
+		}
+	}
 	if len(e.cache) < maxCacheSize {
 		e.cache[domain] = entry
 	}
-	e.mu.Unlock()
 }
 
 // entryErr converts a cache entry into the appropriate sentinel error.
