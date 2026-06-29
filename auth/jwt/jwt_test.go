@@ -16,6 +16,7 @@ import (
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/keymanager"
 )
 
 // ---- test infrastructure ----------------------------------------------------
@@ -30,7 +31,7 @@ type fakeKeys struct {
 func (k *fakeKeys) PrivateKey() ed25519.PrivateKey { return k.priv }
 func (k *fakeKeys) PublicKey() ed25519.PublicKey   { return k.pub }
 func (k *fakeKeys) RefreshSecret() []byte          { return k.secret }
-func (k *fakeKeys) KeyID() string                  { return "test0000test0000" }
+func (k *fakeKeys) KeyID() string                  { return keymanager.KeyID(k.pub) }
 
 // fakeProvider satisfies authcore.Provider using in-memory state.
 type fakeProvider struct{ keys *fakeKeys }

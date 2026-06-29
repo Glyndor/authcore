@@ -53,14 +53,64 @@ auth, err := authcore.New(cfg)
 > loads and validates them — it never writes. It writes only when generating a
 > missing file on first run, which a pre-generated mount avoids entirely.
 
-A pluggable key source (env / secret manager / KMS instead of files) is on the
-roadmap for deployments that prefer not to use a mounted volume.
+## Sourcing keys without a volume (KeyStore)
+
+If mounting a volume is awkward — serverless, or keys that live only in a secret
+manager — set `Config.KeyStore` to source the material directly instead of from
+disk. `KeysDir` is then ignored.
+
+```go
+cfg := authcore.DefaultConfig()
+
+// Keys arrive as PEM strings from env / a secret manager.
+ks, err := authcore.NewKeyStoreFromPEM(
+    []byte(os.Getenv("AUTHCORE_PRIVATE_PEM")),
+    []byte(os.Getenv("AUTHCORE_PUBLIC_PEM")),
+    refreshSecretBytes, // raw 32 bytes
+)
+if err != nil { log.Fatal(err) }
+cfg.KeyStore = ks
+
+auth, err := authcore.New(cfg)
+```
+
+`NewKeyStoreFromKeys(priv, pub, secret)` takes already-parsed Ed25519 values for
+the same purpose. Both validate that the public key matches the private key and
+that the refresh secret is 32 bytes, so a misconfigured secret fails loudly at
+startup rather than producing tokens no replica can verify. Inject the **same**
+material into every replica, exactly as with a shared volume.
+
+To implement a fully custom source (KMS that signs without exposing the private
+key would need more than this), satisfy the one-method `KeyStore` interface
+yourself: `Load() (authcore.Keys, error)`.
 
 The `KeyID()` accessor returns a 16-character hex digest derived from the public
-key. It is embedded in every token's `kid` JOSE header, enabling zero-downtime
-key rotation. Verification rejects tokens whose `kid` does not match the module's
-current key id, so a future multi-key deployment only ever accepts tokens minted
-under an authorised key.
+key. It is embedded in every token's `kid` JOSE header. Verification selects the
+key by `kid` and rejects any token whose `kid` is not one the module accepts.
+
+## Rotating the signing key (zero downtime)
+
+Rotating the Ed25519 key without logging everyone out is a two-phase move that
+relies on `kid`: tokens already in the wild were signed by the old key, so the
+verifier must keep accepting it until they expire.
+
+1. **Overlap.** Make the new key the active one (new `KeysDir` / `KeyStore`
+   material) and list the **old public key** in `jwt.Config.PreviousPublicKeys`.
+   New tokens are signed only with the new key; tokens still bearing the old
+   `kid` keep verifying.
+
+   ```go
+   cfg := jwt.DefaultConfig()
+   cfg.PreviousPublicKeys = []ed25519.PublicKey{oldPublicKey}
+   jwtMod, _ := jwt.New[MyClaims](auth, cfg)
+   ```
+
+2. **Retire.** Once every token signed by the old key has expired (at most one
+   `RefreshTokenTTL`), deploy again without it. The old key is gone.
+
+Each listed key is indexed by its derived `kid`, so a token picks the right key
+automatically. A `kid` that is neither the current key nor a listed previous key
+is rejected as `ErrTokenInvalid`.
 
 > [!NOTE]
 > Key-file loaders enforce a **4 KiB size cap**. A healthy Ed25519 PEM is ~200

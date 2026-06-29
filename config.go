@@ -30,7 +30,15 @@ type Config struct {
 	//
 	// The directory is created automatically on first use. A .gitignore is
 	// written inside it to prevent accidental commits of key material.
+	//
+	// Ignored when KeyStore is set.
 	KeysDir string
+
+	// KeyStore optionally overrides where cryptographic keys come from. When
+	// nil (the default), authcore uses the disk store under KeysDir. Set it to
+	// source keys from a secret manager, environment, or KMS instead — see
+	// NewKeyStoreFromKeys and NewKeyStoreFromPEM. When set, KeysDir is ignored.
+	KeyStore KeyStore
 }
 
 // DefaultConfig returns a Config populated with safe, production-ready defaults.
@@ -73,8 +81,12 @@ func validateConfig(cfg Config) error {
 	if cfg.Timezone == nil {
 		return ErrInvalidTimezone
 	}
-	if err := validateKeysDir(cfg.KeysDir); err != nil {
-		return err
+	// KeysDir only matters for the default disk store; a custom KeyStore does
+	// not use it, so skip the directory check entirely.
+	if cfg.KeyStore == nil {
+		if err := validateKeysDir(cfg.KeysDir); err != nil {
+			return err
+		}
 	}
 	return nil
 }

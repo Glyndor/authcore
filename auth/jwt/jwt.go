@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/subtle"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/keymanager"
 )
 
 // isUUIDv7 reports whether s is a valid UUID v7 string (RFC 9562 §5.7).
@@ -64,6 +66,13 @@ type JWT[T any] struct {
 	kid             string      // JOSE "kid" header value, derived from the public key
 	clock           clock.Clock // injected; replaced by clock.Fixed in tests
 	primaryAudience string      // cfg.Audience[0] snapshotted at construction; immune to post-init mutation
+	denylist        Denylist    // optional; nil means access tokens are never checked for revocation
+
+	// verifyKeys maps each accepted "kid" to its public key. It always holds
+	// the current signing key and additionally any Config.PreviousPublicKeys,
+	// so a verifier accepts tokens minted under a key being rotated out while
+	// new tokens are signed only with the current key.
+	verifyKeys map[string]ed25519.PublicKey
 }
 
 // New creates and returns a JWT module.
@@ -100,10 +109,18 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 		kid:             p.Keys().KeyID(),
 		clock:           clock.New(p.Config().Timezone),
 		primaryAudience: resolved.Audience[0], // validateConfig guarantees len >= 1
+		denylist:        resolved.Denylist,
 	}
 
-	j.log.Info("jwt: module initialised (issuer=%s, access_ttl=%s, refresh_ttl=%s)",
-		resolved.Issuer, resolved.AccessTokenTTL, resolved.RefreshTokenTTL)
+	// Build the verification key set: the current key plus any previous public
+	// keys still in their rotation overlap. Signing always uses the current key.
+	j.verifyKeys = map[string]ed25519.PublicKey{j.kid: j.pub}
+	for _, prev := range resolved.PreviousPublicKeys {
+		j.verifyKeys[keymanager.KeyID(prev)] = prev
+	}
+
+	j.log.Info("jwt: module initialised (issuer=%s, access_ttl=%s, refresh_ttl=%s, verify_keys=%d)",
+		resolved.Issuer, resolved.AccessTokenTTL, resolved.RefreshTokenTTL, len(j.verifyKeys))
 
 	return j, nil
 }
@@ -192,18 +209,41 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 //	                        or iss/aud claim does not match Config
 //	jwt.ErrTokenMalformed — not a valid three-part JWT string
 //	jwt.ErrWrongTokenType — token is a refresh token, not an access token
+//	jwt.ErrTokenRevoked   — a configured Denylist reports the token's session revoked
 //
 // Use errors.Is for error inspection:
 //
 //	claims, err := jwtMod.VerifyAccessToken(token)
 //	if errors.Is(err, jwt.ErrTokenExpired) { ... }
+//
+// When a Denylist is configured (Config.Denylist), this uses a background
+// context for the revocation lookup. Use VerifyAccessTokenContext to pass your
+// own context (recommended for a network-backed denylist).
 func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {
-	c, err := verifyAccessToken[T](token, j.pub, j.kid, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
+	return j.VerifyAccessTokenContext(context.Background(), token)
+}
+
+// VerifyAccessTokenContext is VerifyAccessToken with an explicit context that
+// is passed to the configured Denylist (if any). The context bounds only the
+// revocation lookup; signature and expiry checks are local and never block.
+func (j *JWT[T]) VerifyAccessTokenContext(ctx context.Context, token string) (*Claims[T], error) {
+	c, err := verifyAccessToken[T](token, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {
 		return nil, err
 	}
 	if c.Type != tokenTypeAccess {
 		return nil, ErrWrongTokenType
+	}
+	// Revocation is checked last — only an otherwise-valid access token is worth
+	// a denylist lookup, so a garbage or expired token never reaches the store.
+	if j.denylist != nil {
+		revoked, err := j.denylist.IsRevoked(ctx, c.ID)
+		if err != nil {
+			return nil, fmt.Errorf("jwt: denylist lookup: %w", err)
+		}
+		if revoked {
+			return nil, ErrTokenRevoked
+		}
 	}
 	return accessClaimsToClaims(c), nil
 }
@@ -258,7 +298,7 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 //
 // Returns the same errors as VerifyAccessToken.
 func (j *JWT[T]) RotateTokens(refreshToken string, extra T) (*TokenPair, error) {
-	c, err := verifyRefreshToken(refreshToken, j.pub, j.kid, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
+	c, err := verifyRefreshToken(refreshToken, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {
 		return nil, err
 	}

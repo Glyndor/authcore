@@ -157,9 +157,10 @@ db.DeleteSession(session.ID) // stops renewal
 > default). See [JWT — Revocation & logout](jwt.md#revocation--logout).
 
 - **Most apps:** the short access TTL is enough — the token dies on its own.
-- **Need instant kill** (logout-everywhere, account compromise): keep your own
-  denylist keyed by `SessionID`/`jti` (stable across rotations) and check it in
-  middleware after `VerifyAccessToken`, or shorten `AccessTokenTTL`.
+- **Need instant kill** (logout-everywhere, account compromise): set a
+  `jwt.Denylist` on the config and add the `SessionID` to your store on logout —
+  `VerifyAccessToken` then returns `ErrTokenRevoked`. See
+  [JWT — Revocation & logout](jwt.md#revocation--logout).
 
 ## 7. Brute force & lockout
 
