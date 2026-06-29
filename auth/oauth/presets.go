@@ -1,6 +1,30 @@
 package oauth
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
+
+// azureV2Issuer matches an Azure AD v2.0 issuer for any tenant:
+// https://login.microsoftonline.com/<tenant-guid>/v2.0
+var azureV2Issuer = regexp.MustCompile(`^https://login\.microsoftonline\.com/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/v2\.0$`)
+
+// AzureMultiTenantIssuer returns an IssuerValidator that accepts any Azure AD
+// v2.0 issuer, i.e. tokens from any tenant. Use it with the Microsoft "common"
+// or "organizations" endpoints, where each user's token carries their own
+// tenant id in "iss" and no fixed issuer string can match:
+//
+//	cfg := oauth.Config{
+//	    ClientID: id, ClientSecret: secret, RedirectURL: cb,
+//	    Provider:        oauth.Microsoft("common"),
+//	    IssuerValidator: oauth.AzureMultiTenantIssuer(),
+//	}
+//
+// This trusts users from EVERY Azure tenant. To restrict to specific tenants,
+// also check the "tid" claim via IDClaims.Raw against your allowlist.
+func AzureMultiTenantIssuer() func(issuer string) bool {
+	return azureV2Issuer.MatchString
+}
 
 // Google returns the Provider endpoints for Google's OIDC service.
 //
@@ -50,9 +74,10 @@ func Discord() Provider {
 // "contoso.onmicrosoft.com"). Do NOT pass the multi-tenant aliases "common",
 // "organizations", or "consumers": a real ID token's "iss" carries the
 // signed-in user's own tenant GUID, never the alias, and VerifyIDToken enforces
-// an exact issuer match — so an alias-based config rejects every token. Verifying
-// across arbitrary tenants needs per-tenant issuer validation, which exact-match
-// does not provide and which is not currently supported; pin a single tenant here.
+// an exact issuer match — so an alias-based config rejects every token. To
+// accept users from any tenant, pass Microsoft("common") and set
+// Config.IssuerValidator to AzureMultiTenantIssuer() (which approves any Azure
+// v2.0 per-tenant issuer); otherwise pin a single tenant here.
 func Microsoft(tenant string) Provider {
 	base := fmt.Sprintf("https://login.microsoftonline.com/%s", tenant)
 	return Provider{

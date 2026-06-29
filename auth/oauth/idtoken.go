@@ -52,20 +52,37 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		return nil, fmt.Errorf("%w: no nonce supplied to verify against", ErrIDTokenInvalid)
 	}
 
+	opts := []gjwt.ParserOption{
+		gjwt.WithValidMethods(idTokenAlgs),
+		gjwt.WithAudience(c.cfg.ClientID),
+		gjwt.WithExpirationRequired(),
+		gjwt.WithIssuedAt(),
+	}
+	// Exact issuer match unless a validator is configured (multi-tenant), in
+	// which case the issuer is checked by the predicate after parsing.
+	if c.cfg.IssuerValidator == nil {
+		opts = append(opts, gjwt.WithIssuer(c.cfg.Provider.Issuer))
+	}
+
 	var claims gjwt.MapClaims
 	_, err := gjwt.ParseWithClaims(idToken, &claims,
 		func(t *gjwt.Token) (any, error) {
 			kid, _ := t.Header["kid"].(string)
 			return c.jwks.key(ctx, kid)
 		},
-		gjwt.WithValidMethods(idTokenAlgs),
-		gjwt.WithIssuer(c.cfg.Provider.Issuer),
-		gjwt.WithAudience(c.cfg.ClientID),
-		gjwt.WithExpirationRequired(),
-		gjwt.WithIssuedAt(),
+		opts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
+	}
+
+	// Custom issuer validation (multi-tenant): the iss claim must be approved by
+	// the configured predicate.
+	if c.cfg.IssuerValidator != nil {
+		iss, _ := claims["iss"].(string)
+		if iss == "" || !c.cfg.IssuerValidator(iss) {
+			return nil, fmt.Errorf("%w: issuer %q rejected", ErrIDTokenInvalid, iss)
+		}
 	}
 
 	// Bind the token to this login: the nonce must match the one we issued.
