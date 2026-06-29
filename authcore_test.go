@@ -2,6 +2,8 @@ package authcore_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -39,6 +41,25 @@ func TestNew_badKeysDirReturnsErrInvalidConfig(t *testing.T) {
 	_, err := authcore.New(cfg)
 	if !errors.Is(err, authcore.ErrInvalidConfig) {
 		t.Errorf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestNew_partialKeysDirReturnsErrKeyManager(t *testing.T) {
+	// A writable but partially-populated key directory passes the early
+	// writability check, then fails inside the key manager. New must wrap that
+	// as ErrKeyManager, not ErrInvalidConfig.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "refresh_secret.key"), []byte("deadbeef\n"), 0600); err != nil {
+		t.Fatalf("seed partial key dir: %v", err)
+	}
+
+	cfg := authcore.DefaultConfig()
+	cfg.KeysDir = dir
+	cfg.EnableLogs = false
+
+	_, err := authcore.New(cfg)
+	if !errors.Is(err, authcore.ErrKeyManager) {
+		t.Errorf("expected ErrKeyManager for a partial key dir, got %v", err)
 	}
 }
 
