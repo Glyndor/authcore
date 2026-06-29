@@ -69,7 +69,7 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		setFlowCookie(w, req.State+"|"+req.Nonce+"|"+req.Verifier)
+		setFlowCookie(w, r, req.State+"|"+req.Nonce+"|"+req.Verifier)
 		http.Redirect(w, r, req.URL, http.StatusFound)
 	})
 
@@ -124,15 +124,24 @@ func env(key, def string) string {
 	return def
 }
 
-func setFlowCookie(w http.ResponseWriter, value string) {
+func setFlowCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauthflow",
 		Value:    base64.RawURLEncoding.EncodeToString([]byte(value)),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   300,
 	})
+}
+
+// isSecureRequest reports whether the request reached us over TLS — directly or
+// via a TLS-terminating proxy. The cookie is marked Secure whenever it is, so it
+// is never sent in cleartext in production; on a plain-http localhost dev run it
+// is not, so the demo still works.
+func isSecureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func readFlowCookie(r *http.Request) (state, nonce, verifier string, ok bool) {
