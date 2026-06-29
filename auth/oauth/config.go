@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -78,9 +79,55 @@ func applyDefaults(cfg Config) Config {
 		cfg.Scopes = defaultScopes
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 10 * time.Second}
+		cfg.HTTPClient = newSafeHTTPClient()
 	}
 	return cfg
+}
+
+// newSafeHTTPClient is the default HTTP client for the OAuth fetches. Its
+// CheckRedirect closes the SSRF / credential-exfiltration vectors that bare
+// redirect-following opens (see safeRedirect). A caller who supplies their own
+// HTTPClient owns this policy.
+func newSafeHTTPClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second, CheckRedirect: safeRedirect}
+}
+
+// safeRedirect is the redirect policy for every OAuth fetch (token, JWKS,
+// userinfo, discovery). It refuses:
+//   - more than a few hops,
+//   - a downgrade to plaintext http,
+//   - a redirect to a loopback / link-local / private host (SSRF to cloud
+//     metadata or internal services),
+//   - a cross-origin redirect — the token POST replays the client secret on a
+//     307/308, so it must never leave the configured host; legitimate OAuth
+//     endpoints do not redirect across hosts.
+func safeRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return fmt.Errorf("too many redirects")
+	}
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing redirect to non-https %q", req.URL.Redacted())
+	}
+	if isPrivateHost(req.URL.Hostname()) {
+		return fmt.Errorf("refusing redirect to private host %q", req.URL.Hostname())
+	}
+	if prev := via[len(via)-1]; req.URL.Host != prev.URL.Host {
+		return fmt.Errorf("refusing cross-origin redirect to %q", req.URL.Host)
+	}
+	return nil
+}
+
+// isPrivateHost reports whether host is an IP literal in a loopback, private,
+// link-local, or unspecified range. Hostnames (non-literals) return false — the
+// scheme and cross-origin checks still apply, and the initial endpoint was
+// https-validated.
+func isPrivateHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 // validateConfig returns an error if cfg is missing anything required.

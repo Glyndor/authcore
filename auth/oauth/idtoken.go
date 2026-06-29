@@ -37,6 +37,12 @@ type IDClaims struct {
 	Raw map[string]any
 }
 
+// maxIDTokenLen caps an ID token before parsing. Real ID tokens are a few KiB
+// (larger than an access token because of profile claims and an RSA signature);
+// 16 KiB is generous while refusing a multi-megabyte string that would force
+// base64+JSON work before the signature is checked.
+const maxIDTokenLen = 16 * 1024
+
 // VerifyIDToken validates an ID token and returns its claims.
 //
 // It verifies the signature against the provider's JWKS (asymmetric algorithms
@@ -50,6 +56,9 @@ type IDClaims struct {
 func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDClaims, error) {
 	if nonce == "" {
 		return nil, fmt.Errorf("%w: no nonce supplied to verify against", ErrIDTokenInvalid)
+	}
+	if len(idToken) > maxIDTokenLen {
+		return nil, fmt.Errorf("%w: token too large", ErrIDTokenInvalid)
 	}
 
 	opts := []gjwt.ParserOption{

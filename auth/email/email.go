@@ -264,6 +264,12 @@ func validate(address string) error {
 // Results are cached per domain for the duration of the DNS TTL, capped at
 // [DefaultCacheTTL], to avoid repeated lookups for the same domain.
 //
+// The cache and the single-flight de-duplication bound repeated and concurrent
+// lookups for the SAME domain, but each uncached distinct domain still costs one
+// outbound DNS query — a flood of unique domains is not bounded here. Rate-limit
+// the endpoint that calls VerifyDomain (registration) so an attacker cannot turn
+// it into a DNS-amplification vector.
+//
 // On success it returns nil.
 // On failure it returns one of:
 //

@@ -11,10 +11,88 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/oauth"
 )
+
+// tokenServerRedirectingTo returns a token endpoint that 307-redirects to loc.
+func tokenServerRedirectingTo(t *testing.T, loc string) *oauth.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, loc, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := oauth.New(fakeProvider{}, oauth.Config{
+		ClientID:    testClientID,
+		RedirectURL: "https://app.example/cb",
+		Scopes:      []string{"read:user"},
+		Provider:    oauth.Provider{AuthURL: srv.URL + "/a", TokenURL: srv.URL + "/token", UserInfoURL: srv.URL + "/u"},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return c
+}
+
+func TestExchange_refusesUnsafeRedirect(t *testing.T) {
+	for name, loc := range map[string]string{
+		"cross-origin (leaks the secret)": "https://evil.example/steal",
+		"private metadata host (SSRF)":    "https://169.254.169.254/latest",
+		"plaintext downgrade":             "http://127.0.0.1/x",
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := tokenServerRedirectingTo(t, loc)
+			if _, err := c.Exchange(context.Background(), "code", "verifier"); err == nil {
+				t.Errorf("token exchange must refuse the redirect to %q", loc)
+			}
+		})
+	}
+}
+
+func TestJWKS_concurrentUnknownKidsCollapse(t *testing.T) {
+	key := mustRSA(t)
+	n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
+	doc := fmt.Sprintf(`{"keys":[{"kty":"RSA","kid":%q,"n":%q,"e":%q}]}`, testKID, n, e)
+
+	var fetches int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&fetches, 1)
+		_, _ = w.Write([]byte(doc))
+	}))
+	defer srv.Close()
+	c := newClient(t, srv)
+
+	// A burst of tokens with distinct unknown kids must not fan out to one
+	// outbound JWKS fetch each — singleflight + the throttle collapse them.
+	var wg sync.WaitGroup
+	for i := 0; i < 25; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			tok := signIDToken(t, key, fmt.Sprintf("bogus-%d", i), validClaims(srv.URL, "n"))
+			_, _ = c.VerifyIDToken(context.Background(), tok, "n")
+		}(i)
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&fetches); got > 3 {
+		t.Errorf("burst of unknown kids caused %d JWKS fetches, want few", got)
+	}
+}
+
+func TestVerifyIDToken_oversizedRejected(t *testing.T) {
+	key := mustRSA(t)
+	srv := jwksServer(t, &key.PublicKey)
+	defer srv.Close()
+	c := newClient(t, srv)
+	if _, err := c.VerifyIDToken(context.Background(), strings.Repeat("a", 20000), "n"); err == nil {
+		t.Error("an oversized id token must be rejected before parsing")
+	}
+}
 
 func TestVerifyIDToken_issuerValidatorMultiTenant(t *testing.T) {
 	key := mustRSA(t)

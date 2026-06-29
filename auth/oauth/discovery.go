@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const (
@@ -31,7 +30,7 @@ const (
 //	mod, _ := oauth.New(auth, oauth.Config{ClientID: id, RedirectURL: cb, Provider: p})
 func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Provider, error) {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = newSafeHTTPClient()
 	}
 	// Never fetch discovery over plaintext — the whole trust chain (the jwks_uri
 	// the ID-token signature hangs on) comes from this document.
