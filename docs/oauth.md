@@ -14,6 +14,21 @@ server. It stores nothing and runs no HTTP server; you own the two routes.
 > profile with `UserInfo` instead. The authorization + PKCE + exchange steps are
 > identical for both.
 
+## Providers
+
+Four presets ship; practically any provider works beyond them.
+
+| Provider | Kind | How |
+|---|---|---|
+| Google | OIDC | `oauth.Google()` |
+| Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenant)` |
+| GitHub | OAuth2 | `oauth.GitHub()` |
+| Discord | OAuth2 | `oauth.Discord()` |
+| **Any OIDC** (Apple, Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
+| **Any OAuth2** (Facebook, Spotify, Twitch…) | OAuth2 | `oauth.Provider{AuthURL, TokenURL, UserInfoURL}` |
+
+Identity is `VerifyIDToken` for OIDC, `UserInfo` for OAuth2.
+
 ## Setup
 
 ```go
