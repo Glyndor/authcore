@@ -217,8 +217,8 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 //	if errors.Is(err, jwt.ErrTokenExpired) { ... }
 //
 // When a Denylist is configured (Config.Denylist), the revocation lookup runs
-// under a background context bounded by a default timeout (defaultDenylistTimeout)
-// so a slow or hung store cannot block the verifying goroutine forever. Use
+// under a background context bounded by a default 5-second timeout so a slow or
+// hung store cannot block the verifying goroutine forever. Use
 // VerifyAccessTokenContext to pass your own context (recommended for a
 // network-backed denylist, e.g. to inherit the request deadline).
 func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {

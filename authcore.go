@@ -14,9 +14,12 @@
 // independent package that accepts an authcore.Provider — the narrow interface
 // that *AuthCore satisfies — so modules remain independently testable.
 //
-//	auth/jwt    — JSON Web Tokens
-//	auth/apikey — opaque API key generation and validation
-//	auth/oauth  — OAuth 2.0 / OIDC
+//	auth/jwt      — JSON Web Tokens (access + refresh, EdDSA)
+//	auth/password — Argon2id password hashing
+//	auth/email    — email validation and normalization
+//	auth/username — username validation and normalization
+//	auth/apikey   — opaque API key generation and validation
+//	auth/oauth    — OpenID Connect / OAuth 2.0 client (social login)
 //
 // # Key management
 //
