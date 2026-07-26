@@ -8,6 +8,9 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
 
   # The examples are standalone Go modules (own go.mod + local replace), so the
   # root entry above does not see them. Track them too — otherwise an example
@@ -21,6 +24,9 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -31,3 +37,6 @@ updates:
       - "type:deps"
       - "type:ci"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "ci"
+      include: "scope"
