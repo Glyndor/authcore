@@ -8,7 +8,7 @@ module is independent and safe by default.
 [![CI](https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/authcore/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg)](https://pkg.go.dev/github.com/Glyndor/authcore)
 
-License: Apache-2.0.
+License: MIT.
 
 ---
 
@@ -99,4 +99,4 @@ Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcor
 
 ## License
 
-[Apache-2.0](LICENSE) — report vulnerabilities privately via the **Security** tab, never in a public issue.
+[MIT](LICENSE) — report vulnerabilities privately via the **Security** tab, never in a public issue.
