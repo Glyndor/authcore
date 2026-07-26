@@ -1,19 +1,14 @@
-<div align="center">
+# authcore
 
-# 🛡️ authcore
-
-**Auth is the code you only get wrong once. authcore does the dangerous parts for you.**
-
-Argon2id passwords · EdDSA tokens · refresh rotation · API keys · social login
-(OIDC + OAuth2) · email + username validation — all secure by default, timing-safe,
-zero-config, in pure Go. No database. No framework. No crypto PhD. Apache-2.0.
+Go authentication library: Argon2id password hashing, EdDSA access/refresh
+tokens with rotation, opaque API keys, OIDC/OAuth2 social login, and
+email/username validation. No database and no framework required — each
+module is independent and safe by default.
 
 [![CI](https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/authcore/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg)](https://pkg.go.dev/github.com/Glyndor/authcore)
 
-[**Install**](#-install) · [**Quick start**](#-quick-start) · [**Why**](#-why) · [**Modules**](#-modules) · [**Examples**](examples/) · [**Docs**](docs/)
-
-</div>
+License: MIT.
 
 ---
 
@@ -31,7 +26,7 @@ ok,   _ := pwd.Verify(attempt, hash)         // constant-time, always
 pair, _ := tokens.CreateTokens(userID, claims) // EdDSA-signed access + refresh
 ```
 
-## 📦 Install
+## Install
 
 ```bash
 go get github.com/Glyndor/authcore
@@ -40,7 +35,7 @@ go get github.com/Glyndor/authcore
 Requires **Go 1.26+**. On first run, Ed25519 keys + an HMAC secret are generated
 under `./.authcore/` — point `KeysDir` at a secrets volume in production.
 
-## 🚀 Quick start
+## Quick start
 
 ```go
 // One-time setup at startup. Keys are created on first run.
@@ -65,21 +60,14 @@ if ok, _ := pwd.Verify("Str0ng-P@ssword!", hash); ok {
 > Full, runnable versions live in [`examples/`](examples/) — `go run ./examples/jwt/`.
 > Wiring into a real HTTP stack: [Fiber](examples/fiber/) · [Gin](examples/gin/).
 
-## ⚡ Why
+## Design
 
-Roll your own and own every footgun. Run a full identity platform for a login
-form. Or reach for authcore — **the dangerous primitives, done right, in-process**.
+authcore is an in-process library, not a hosted identity platform: it ships no
+database and no HTTP server of its own, generates and manages its own signing
+keys on first run, and each module (password, jwt, apikey, oauth, email,
+username) can be used independently.
 
-| | Roll your own | Full IdP (Ory, Keycloak) | **authcore** |
-|---|:---:|:---:|:---:|
-| Time to first login | Hours – days | Hours (+ ops) | **~5 minutes** |
-| Argon2id · EdDSA · timing-safe | Manual, easy to slip | ✅ | ✅ **by default** |
-| Automatic key management | Manual | ✅ | ✅ |
-| Database / HTTP server | You build it | Theirs (locked in) | **Bring your own** |
-| Extra service to run | No | **Yes** | No |
-| You own the data model | ✅ | ❌ | ✅ |
-
-## 🔐 Modules
+## Modules
 
 Pick only what you need — each is independent, testable, and safe by default.
 
@@ -100,7 +88,7 @@ flowchart LR
     M -->|hash · sign · verify| App
 ```
 
-## 📖 Docs
+## Docs
 
 **New here? Start with the [Secure login recipe](docs/secure-login.md)** — the
 step-by-step flow that turns these primitives into a login an auditor accepts.
@@ -111,4 +99,4 @@ Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcor
 
 ## License
 
-[Apache-2.0](LICENSE) — report vulnerabilities privately via the **Security** tab, never in a public issue.
+[MIT](LICENSE) — report vulnerabilities privately via the **Security** tab, never in a public issue.
