@@ -8,6 +8,9 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
 
   # The examples are standalone Go modules (own go.mod + local replace), so the
   # root entry above does not see them. Track them too — otherwise an example
@@ -21,6 +24,9 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -31,9 +37,6 @@ updates:
       - "type:deps"
       - "type:ci"
     open-pull-requests-limit: 10
-    ignore:
-      # The org reusable workflows move on my schedule, not Dependabot's: a bump
-      # changes what the whole CI matrix does, so I adopt a new version when I
-      # have measured it, not when a bot notices the tag. Third-party actions
-      # (checkout, setup-go) are NOT ignored — those I do want proposed.
-      - dependency-name: "Glyndor/.github/*"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
