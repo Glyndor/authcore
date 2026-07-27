@@ -23,7 +23,8 @@ type Config struct {
 	Logger Logger
 
 	// KeysDir is the directory where authcore creates and stores cryptographic
-	// key files (ed25519_private.pem, ed25519_public.pem, refresh_secret.key).
+	// key files (ed25519_private.pem, ed25519_public.pem, refresh_secret.key),
+	// alongside a metadata.json recording the on-disk layout version.
 	//
 	// Defaults to ".authcore" relative to the current working directory.
 	// Use an absolute path in containerised or restricted environments.

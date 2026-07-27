@@ -8,9 +8,18 @@
 //	ed25519_private.pem  — Ed25519 private key, PKCS#8 PEM, mode 0600
 //	ed25519_public.pem   — Ed25519 public key,  PKIX  PEM, mode 0644
 //	refresh_secret.key   — 32-byte HMAC-SHA256 secret, hex-encoded, mode 0600
+//	metadata.json        — on-disk layout version, mode 0600
 //
 // On subsequent calls the existing files are loaded and validated; no new
 // material is generated unless a file is missing.
+//
+// metadata.json records which layout wrote the directory, so a future release
+// that changes the on-disk format can migrate what is there instead of
+// regenerating it — regenerating would invalidate every refresh-token and
+// API-key hash the consumer has stored, logging out all of their users. A
+// directory written before this file existed carries no marker; it is adopted
+// in place, keys untouched. A directory reporting a newer format is refused
+// rather than parsed on a guess.
 //
 // Key-file loading is size-capped at 4 KiB. A healthy Ed25519 PEM is ~200
 // bytes and a hex-encoded HMAC secret is 65 bytes, so the cap leaves
@@ -94,6 +103,14 @@ func New(dir string, log logger) (*KeyManager, error) {
 		log.Warn("authcore/keymanager: could not write .gitignore in %q (continuing): %v", dir, err)
 	}
 
+	// Read the layout marker before anything is parsed or generated: a directory
+	// written by a newer authcore must be refused while its files are still
+	// untouched, not after a loader from this build has interpreted them.
+	meta, err := readMetadata(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	// Fail closed on a partially-populated directory before generating anything,
 	// so a missing refresh secret beside an existing key pair is reported rather
 	// than silently regenerated (which would invalidate stored refresh hashes).
@@ -111,12 +128,19 @@ func New(dir string, log logger) (*KeyManager, error) {
 		return nil, fmt.Errorf("refresh secret: %w", err)
 	}
 
+	keyID := computeKeyID(pub)
+
+	// Record the layout last, once the keys it describes are known good. A
+	// directory from before this file existed is adopted in place here — the
+	// key material is never rewritten, only described.
+	syncMetadata(dir, meta, keyID, log)
+
 	return &KeyManager{
 		dir:           dir,
 		privateKey:    priv,
 		publicKey:     pub,
 		refreshSecret: secret,
-		keyID:         computeKeyID(pub),
+		keyID:         keyID,
 	}, nil
 }
 
