@@ -15,7 +15,7 @@
 // them against the versions gin and fiber elevate rather than the ones authcore
 // declares. One level down, the library is tested as a consumer gets it.
 
-go 1.26.4
+go 1.26.5
 
 use (
 	../
