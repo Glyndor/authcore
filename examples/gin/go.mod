@@ -3,7 +3,7 @@ module github.com/Glyndor/authcore/examples/gin
 go 1.26.4
 
 require (
-	github.com/Glyndor/authcore v1.1.1
+	github.com/Glyndor/authcore v1.11.3
 	github.com/gin-gonic/gin v1.12.0
 )
 
@@ -40,4 +40,3 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 )
 
-replace github.com/Glyndor/authcore => ../../

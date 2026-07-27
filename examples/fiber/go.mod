@@ -3,7 +3,7 @@ module github.com/Glyndor/authcore/examples/fiber
 go 1.26.4
 
 require (
-	github.com/Glyndor/authcore v1.1.1
+	github.com/Glyndor/authcore v1.11.3
 	github.com/gofiber/fiber/v3 v3.4.0
 )
 
@@ -26,4 +26,3 @@ require (
 	golang.org/x/text v0.38.0 // indirect
 )
 
-replace github.com/Glyndor/authcore => ../../
