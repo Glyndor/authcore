@@ -10,11 +10,13 @@
 
 # Compiled example binaries (each example is `package main`; `go build ./...`
 # drops a binary named after its directory). Extensionless, so list them.
+/examples/apikey/apikey
 /examples/basic/basic
 /examples/email/email
 /examples/fiber/fiber
 /examples/gin/gin
 /examples/jwt/jwt
+/examples/oauth/oauth
 /examples/password/password
 /examples/username/username
 
@@ -27,8 +29,14 @@ profile.cov
 # Dependency directories
 vendor/
 
-# Go workspace file
+# Go workspace files. A stray local workspace stays out of the tree, but
+# examples/go.work is committed — it is what lets the examples resolve authcore
+# from the checkout without a `replace`. The sum file stays ignored: it holds
+# only go.mod hashes the go command derives on demand, and committing it would
+# put yet another file in the tree that every root dependency bump has to
+# update, which is the coupling the workspace exists to remove.
 go.work
+!/examples/go.work
 go.work.sum
 
 # env file
