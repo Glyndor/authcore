@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -280,5 +281,39 @@ func TestNew_recordsARotatedKeyID(t *testing.T) {
 	}
 	if got := readMetadataFile(t, dir).KeyID; got != rotated.KeyID() {
 		t.Errorf("descriptor key_id = %q, want the rotated %q", got, rotated.KeyID())
+	}
+}
+
+// End to end now that the directory mode survives: a KeysDir the operator has
+// closed to 0500 holds its keys, cannot take the descriptor, and still starts.
+// This became testable through New only once it stopped chmodding the
+// directory back to 0700 (#222) — before that the mode never reached the write.
+func TestNew_readOnlyDirectoryStillLoads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits do not apply on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory write permissions")
+	}
+
+	dir, keyID := preMetadataDir(t)
+	before := snapshotKeys(t, dir)
+
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatalf("restrict directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
+
+	km, err := keymanager.New(dir, testLogger{t})
+	if err != nil {
+		t.Fatalf("a read-only key directory must still load, got: %v", err)
+	}
+	if km.KeyID() != keyID {
+		t.Errorf("key id = %q, want %q", km.KeyID(), keyID)
+	}
+	assertKeysUnchanged(t, dir, before)
+
+	if _, err := os.Stat(filepath.Join(dir, metadataFile)); !os.IsNotExist(err) {
+		t.Errorf("the descriptor should not exist after an impossible write, stat gave: %v", err)
 	}
 }
