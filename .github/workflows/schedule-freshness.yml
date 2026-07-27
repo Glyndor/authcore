@@ -15,20 +15,24 @@ on:
   push:
     branches: [main, develop]
 
+# A called workflow cannot elevate beyond what the caller grants, so the
+# actions: read the freshness job needs to query run history has to be granted
+# here too.
 permissions:
   contents: read
+  actions: read
 
 jobs:
   audit:
     name: audit freshness
-    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@0c615b27eb8485554ac1506e4a0509e813444a47
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@86532aaf0963099b06b186a1a31381f72b0b7415
     with:
       workflow: audit.yml
       max-age-days: 15 # weekly cron, so two periods of slack
 
   fuzz:
     name: fuzz freshness
-    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@0c615b27eb8485554ac1506e4a0509e813444a47
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@86532aaf0963099b06b186a1a31381f72b0b7415
     with:
       workflow: fuzz.yml
       max-age-days: 15 # weekly cron, so two periods of slack
