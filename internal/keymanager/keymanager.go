@@ -8,9 +8,18 @@
 //	ed25519_private.pem  — Ed25519 private key, PKCS#8 PEM, mode 0600
 //	ed25519_public.pem   — Ed25519 public key,  PKIX  PEM, mode 0644
 //	refresh_secret.key   — 32-byte HMAC-SHA256 secret, hex-encoded, mode 0600
+//	metadata.json        — on-disk layout version, mode 0600
 //
 // On subsequent calls the existing files are loaded and validated; no new
 // material is generated unless a file is missing.
+//
+// metadata.json records which layout wrote the directory, so a future release
+// that changes the on-disk format can migrate what is there instead of
+// regenerating it — regenerating would invalidate every refresh-token and
+// API-key hash the consumer has stored, logging out all of their users. A
+// directory written before this file existed carries no marker; it is adopted
+// in place, keys untouched. A directory reporting a newer format is refused
+// rather than parsed on a guess.
 //
 // Key-file loading is size-capped at 4 KiB. A healthy Ed25519 PEM is ~200
 // bytes and a hex-encoded HMAC secret is 65 bytes, so the cap leaves
@@ -77,9 +86,13 @@ func New(dir string, log logger) (*KeyManager, error) {
 
 	// MkdirAll does not tighten a directory that already exists, so a pre-created
 	// or volume-mounted KeysDir could sit at a looser mode (e.g. 0755). Tighten
-	// it to owner-only. A failure here is not fatal — the private key and refresh
-	// secret are still written 0600 — so warn rather than abort.
-	if err := os.Chmod(dir, dirMode); err != nil {
+	// it to owner-only — but only ever tighten. An operator who hands over a
+	// stricter directory (0500 for a read-only mounted secret) means it, and
+	// widening the permissions on the directory that holds the private key would
+	// be the opposite of what this exists for. A failure here is not fatal — the
+	// private key and refresh secret are still written 0600 — so warn rather than
+	// abort.
+	if err := tightenDirMode(dir); err != nil {
 		log.Warn("authcore/keymanager: could not tighten key directory %q to %o: %v", dir, dirMode, err)
 	}
 
@@ -88,6 +101,14 @@ func New(dir string, log logger) (*KeyManager, error) {
 	// fails harmlessly — warn and carry on rather than refusing to start.
 	if err := ensureGitignore(dir); err != nil {
 		log.Warn("authcore/keymanager: could not write .gitignore in %q (continuing): %v", dir, err)
+	}
+
+	// Read the layout marker before anything is parsed or generated: a directory
+	// written by a newer authcore must be refused while its files are still
+	// untouched, not after a loader from this build has interpreted them.
+	meta, err := readMetadata(dir)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fail closed on a partially-populated directory before generating anything,
@@ -107,12 +128,19 @@ func New(dir string, log logger) (*KeyManager, error) {
 		return nil, fmt.Errorf("refresh secret: %w", err)
 	}
 
+	keyID := computeKeyID(pub)
+
+	// Record the layout last, once the keys it describes are known good. A
+	// directory from before this file existed is adopted in place here — the
+	// key material is never rewritten, only described.
+	syncMetadata(dir, meta, keyID, log)
+
 	return &KeyManager{
 		dir:           dir,
 		privateKey:    priv,
 		publicKey:     pub,
 		refreshSecret: secret,
-		keyID:         computeKeyID(pub),
+		keyID:         keyID,
 	}, nil
 }
 
@@ -167,6 +195,25 @@ func (km *KeyManager) KeyID() string {
 // Dir returns the absolute path of the key directory.
 func (km *KeyManager) Dir() string {
 	return km.dir
+}
+
+// tightenDirMode removes any permission bit outside dirMode from dir, and
+// leaves a directory that is already at or below dirMode untouched.
+//
+// Chmodding unconditionally would also *raise* a stricter mode to 0700, which
+// is why the current mode is read first: 0755 becomes 0700, while 0500 stays
+// 0500. On a platform without Unix permission bits the mode carries no group
+// or world bits to strip, so this is a no-op there.
+func tightenDirMode(dir string) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	mode := fi.Mode().Perm()
+	if mode&^dirMode == 0 {
+		return nil // already at least this strict
+	}
+	return os.Chmod(dir, mode&dirMode)
 }
 
 // ensureGitignore writes a catch-all .gitignore inside dir if one does
