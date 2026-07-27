@@ -1,0 +1,31 @@
+// The examples are standalone modules so that gin, fiber and friends never
+// reach a consumer's dependency graph through authcore's own go.mod. That split
+// used to be held together by a `replace` in every example, which forced each
+// one to carry hashes for the root module's requirements too — so a bump landing
+// in the root go.mod alone left all nine examples unbuildable until they were
+// tidied one by one.
+//
+// The workspace resolves authcore from the checkout instead, and satisfies the
+// external dependencies from the union of the member go.sum files, where the
+// bumped root hashes already are.
+//
+// It lives here rather than at the repository root deliberately: go.work is
+// discovered by walking up from the working directory, and a root-level
+// workspace would also capture the root module's own build and tests, resolving
+// them against the versions gin and fiber elevate rather than the ones authcore
+// declares. One level down, the library is tested as a consumer gets it.
+
+go 1.26.5
+
+use (
+	../
+	./apikey
+	./basic
+	./email
+	./fiber
+	./gin
+	./jwt
+	./oauth
+	./password
+	./username
+)

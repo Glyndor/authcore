@@ -1,7 +1,6 @@
 module github.com/Glyndor/authcore/examples/apikey
 
-go 1.26.4
+go 1.26.5
 
-require github.com/Glyndor/authcore v1.10.6
+require github.com/Glyndor/authcore v1.11.3
 
-replace github.com/Glyndor/authcore => ../../
