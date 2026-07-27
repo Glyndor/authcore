@@ -299,3 +299,25 @@ func TestVerifyIDToken_encUseKeySkipped(t *testing.T) {
 		t.Error("an enc-use key must not verify a token signature")
 	}
 }
+
+// An ID token with no "sub" identifies nobody. Accepting one hands the consumer
+// an empty subject, which their storage layer is liable to treat as a real
+// account key. The guard that rejects it survived being deleted with the suite
+// green — every other test signs a token that has a subject.
+func TestVerifyIDToken_rejectsATokenWithNoSubject(t *testing.T) {
+	key := mustRSA(t)
+	srv := jwksServer(t, &key.PublicKey)
+	c := newClient(t, srv)
+
+	claims := validClaims(srv.URL, "n")
+	delete(claims, "sub")
+	tok := signIDToken(t, key, testKID, claims)
+
+	_, err := c.VerifyIDToken(context.Background(), tok, "n")
+	if err == nil {
+		t.Fatal("an ID token without a subject must be refused")
+	}
+	if !strings.Contains(err.Error(), "subject") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+}
