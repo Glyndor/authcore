@@ -1,0 +1,34 @@
+name: Schedule freshness
+
+# The weekly audit and fuzz runs are the only guards here that can fail by
+# silence: a cron that stops firing emits nothing, and no alert reads exactly
+# like all clear. That is how this repository went four weeks without a
+# security scan in July 2026, and how GO-2026-5856 ended up being found by
+# hand instead of by the audit that exists for it.
+#
+# Asserting freshness from ordinary CI turns that absence into a red check on
+# everyday work.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit freshness
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@0c615b27eb8485554ac1506e4a0509e813444a47
+    with:
+      workflow: audit.yml
+      max-age-days: 15 # weekly cron, so two periods of slack
+
+  fuzz:
+    name: fuzz freshness
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@0c615b27eb8485554ac1506e4a0509e813444a47
+    with:
+      workflow: fuzz.yml
+      max-age-days: 15 # weekly cron, so two periods of slack
