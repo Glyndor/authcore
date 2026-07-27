@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
@@ -30,60 +31,73 @@ func newKM(t *testing.T) *keymanager.KeyManager {
 
 // ----- generation -------------------------------------------------------------
 
+// seedValidDir returns a key directory holding a complete, valid set of key
+// files. The oversized-file tests start from one because New checks the
+// directory for consistency *before* it loads anything: a directory with two of
+// the three files is rejected as partially populated and never reaches the
+// capped reader at all.
+func seedValidDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
+		t.Fatalf("seed keymanager.New(): %v", err)
+	}
+	return dir
+}
+
+// assertSizeCapError fails unless err is the size-cap rejection. Asserting only
+// that some error came back is what let these tests pass for three releases
+// while never executing the cap they are named for.
+func assertSizeCapError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error for a file over the size cap, got nil")
+	}
+	if !strings.Contains(err.Error(), "cap") {
+		t.Fatalf("expected the size-cap error, got a different failure: %v", err)
+	}
+}
+
 func TestNew_oversizedKeyFileRejected(t *testing.T) {
 	// A valid Ed25519 PEM is ~200 bytes. An attacker-replaced key file
-	// several megabytes long would previously be loaded whole into
-	// memory before pem.Decode rejected it. The capped reader must
-	// surface a size error before the allocation.
-	dir := t.TempDir()
+	// several megabytes long would otherwise be loaded whole into memory
+	// before pem.Decode rejected it. The capped reader must surface a size
+	// error before the allocation.
+	dir := seedValidDir(t)
 	oversized := make([]byte, 100*1024) // 100 KiB, well above the 4 KiB cap
-	// Pair both key files so New() takes the "load existing" branch.
 	if err := os.WriteFile(filepath.Join(dir, "ed25519_private.pem"), oversized, 0600); err != nil {
-		t.Fatalf("seed oversized private key: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_public.pem"), []byte("fake"), 0644); err != nil {
-		t.Fatalf("seed public key: %v", err)
+		t.Fatalf("replace private key with an oversized file: %v", err)
 	}
 
 	_, err := keymanager.New(dir, testLogger{t})
-	if err == nil {
-		t.Fatal("expected error when private key file exceeds size cap, got nil")
-	}
+	assertSizeCapError(t, err)
 }
 
 func TestNew_oversizedPublicKeyFileRejected(t *testing.T) {
 	// Regression guard for the public-key read path. Both key files must
 	// be size-capped; if only the private side is checked an attacker who
 	// can swap the public file still breaks startup.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_private.pem"), []byte("fake-but-small"), 0600); err != nil {
-		t.Fatalf("seed private key: %v", err)
-	}
+	dir := seedValidDir(t)
 	oversized := make([]byte, 100*1024)
 	if err := os.WriteFile(filepath.Join(dir, "ed25519_public.pem"), oversized, 0644); err != nil {
-		t.Fatalf("seed oversized public key: %v", err)
+		t.Fatalf("replace public key with an oversized file: %v", err)
 	}
 
 	_, err := keymanager.New(dir, testLogger{t})
-	if err == nil {
-		t.Fatal("expected error when public key file exceeds size cap, got nil")
-	}
+	assertSizeCapError(t, err)
 }
 
 func TestNew_oversizedRefreshSecretRejected(t *testing.T) {
 	// The refresh secret loader shares the same capped reader. A ~100 KiB
 	// secret file must be refused before it is hex-decoded.
-	dir := t.TempDir()
-	// Let the key-pair step succeed by letting New() generate fresh keys.
+	dir := seedValidDir(t)
 	oversized := make([]byte, 100*1024)
 	if err := os.WriteFile(filepath.Join(dir, "refresh_secret.key"), oversized, 0600); err != nil {
-		t.Fatalf("seed oversized refresh secret: %v", err)
+		t.Fatalf("replace refresh secret with an oversized file: %v", err)
 	}
 
 	_, err := keymanager.New(dir, testLogger{t})
-	if err == nil {
-		t.Fatal("expected error when refresh secret file exceeds size cap, got nil")
-	}
+	assertSizeCapError(t, err)
 }
 
 func TestNew_generatesAllFiles(t *testing.T) {
