@@ -7,11 +7,49 @@ On first run authcore creates `KeysDir` (default `.authcore`) and generates:
 | `ed25519_private.pem` | PKCS#8 PEM | `0600` | Signing key |
 | `ed25519_public.pem` | PKIX PEM | `0644` | Verification key |
 | `refresh_secret.key` | 32-byte hex | `0600` | HMAC-SHA256 key for refresh token hashing |
+| `metadata.json` | JSON | `0600` | Records which on-disk layout wrote the directory |
 | `.gitignore` | `*` | `0600` | Prevents accidental commits |
 
 On subsequent starts the files are loaded and the key pair is validated for
 consistency. If only one PEM file is present, `New()` returns `ErrKeyManager` —
 delete both to regenerate.
+
+## The layout marker
+
+`metadata.json` holds no key material — a format version, when the keys were
+first written, and the id of the current signing key:
+
+```json
+{
+  "format": 1,
+  "created": "2026-07-27T02:41:09Z",
+  "key_id": "3f9a1c07d5b2e846"
+}
+```
+
+It exists so that a release which changes the on-disk format can **migrate what
+is already there** rather than regenerate it. Regenerating would invalidate
+every refresh-token and API-key hash you have stored, logging out all of your
+users — which authcore treats as a defect, not an acceptable breaking change.
+
+What that means in practice:
+
+- A directory created **before this file existed** carries no marker. It is
+  adopted in place on the next start: the marker is written, the keys are not
+  touched. Nothing is required of you.
+- A directory reporting a **newer** format than the running build understands is
+  **refused**, keys untouched. Upgrade authcore rather than downgrading the
+  directory.
+- A **corrupt** marker is also refused, because a loader that cannot tell what
+  wrote the keys must not guess at them. The file holds no secret, so deleting
+  it is safe and makes the next start re-adopt the existing keys — the error
+  says so.
+- If the marker **cannot be written** (a read-only mounted secret, for example)
+  authcore logs a warning and carries on. It is bookkeeping; it never blocks
+  startup.
+
+The recorded `key_id` follows the keys: rotate them by replacing the PEM files
+and the marker is updated on the next start.
 
 ## Containers & multiple replicas
 
