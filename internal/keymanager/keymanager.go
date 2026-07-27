@@ -77,9 +77,13 @@ func New(dir string, log logger) (*KeyManager, error) {
 
 	// MkdirAll does not tighten a directory that already exists, so a pre-created
 	// or volume-mounted KeysDir could sit at a looser mode (e.g. 0755). Tighten
-	// it to owner-only. A failure here is not fatal — the private key and refresh
-	// secret are still written 0600 — so warn rather than abort.
-	if err := os.Chmod(dir, dirMode); err != nil {
+	// it to owner-only — but only ever tighten. An operator who hands over a
+	// stricter directory (0500 for a read-only mounted secret) means it, and
+	// widening the permissions on the directory that holds the private key would
+	// be the opposite of what this exists for. A failure here is not fatal — the
+	// private key and refresh secret are still written 0600 — so warn rather than
+	// abort.
+	if err := tightenDirMode(dir); err != nil {
 		log.Warn("authcore/keymanager: could not tighten key directory %q to %o: %v", dir, dirMode, err)
 	}
 
@@ -167,6 +171,25 @@ func (km *KeyManager) KeyID() string {
 // Dir returns the absolute path of the key directory.
 func (km *KeyManager) Dir() string {
 	return km.dir
+}
+
+// tightenDirMode removes any permission bit outside dirMode from dir, and
+// leaves a directory that is already at or below dirMode untouched.
+//
+// Chmodding unconditionally would also *raise* a stricter mode to 0700, which
+// is why the current mode is read first: 0755 becomes 0700, while 0500 stays
+// 0500. On a platform without Unix permission bits the mode carries no group
+// or world bits to strip, so this is a no-op there.
+func tightenDirMode(dir string) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	mode := fi.Mode().Perm()
+	if mode&^dirMode == 0 {
+		return nil // already at least this strict
+	}
+	return os.Chmod(dir, mode&dirMode)
 }
 
 // ensureGitignore writes a catch-all .gitignore inside dir if one does
