@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   audit:
-    uses: Glyndor/.github/.github/workflows/go-audit.yml@7099f8a9c8be91fa1732fe2402268b338771233f # v1.10.1
+    uses: Glyndor/.github/.github/workflows/go-audit.yml@41d31f18d3ed3bb1a8cbbc44c68030e4867488b2 # v1.11.0
     with:
       # G104 (errcheck on logger Output) and G306 (public-key 0644) are justified
       # in code with //nolint:gosec; standalone gosec ignores those pragmas.
