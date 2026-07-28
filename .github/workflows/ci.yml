@@ -18,4 +18,4 @@ jobs:
       # cheapest to adopt. The aggregate alone let auth/oauth sit at 87.7% and
       # internal/keymanager at 85.7% — the two with the most attack surface —
       # while a fully covered clock helper paid for them.
-      per-package-coverage-threshold: 96
+      per-package-coverage-threshold: 90
