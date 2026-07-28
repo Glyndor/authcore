@@ -428,3 +428,44 @@ func TestVerifyDomain_dnsFailureCachesNegativeBriefly(t *testing.T) {
 		t.Errorf("negative DNS failure TTL should be ≤30 s, got %v", time.Until(entry.expiresAt))
 	}
 }
+
+// TestValidate_tooLong above builds a ~249-character local part, so it is
+// refused by the 64-character local-part rule and never reaches the total
+// length check — deleting the 254 guard leaves it green. A total over 254 has
+// to be assembled from parts that are each individually legal.
+func TestValidate_tooLongWithEveryPartIndividuallyLegal(t *testing.T) {
+	local := strings.Repeat("a", 60) // under the 64 limit
+	label := strings.Repeat("b", 60) // under the 63-byte DNS label limit
+	domain := label + "." + label + "." + label + "." + label + ".com"
+	address := local + "@" + domain
+
+	if len(address) <= 254 {
+		t.Fatalf("fixture is only %d characters, it has to exceed 254 to test anything", len(address))
+	}
+	if len(local) > 64 {
+		t.Fatal("fixture's local part breaks its own premise")
+	}
+
+	err := validate(address)
+	if !errors.Is(err, ErrInvalidEmail) {
+		t.Fatalf("an address over 254 characters must be refused, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "254") {
+		t.Fatalf("refused for the wrong reason — the length guard is not what caught it: %v", err)
+	}
+}
+
+// The companion: the same shape just under the limit has to be accepted, or
+// the test above would pass for any address at all.
+func TestValidate_acceptsALongButLegalAddress(t *testing.T) {
+	local := strings.Repeat("a", 60)
+	label := strings.Repeat("b", 60)
+	address := local + "@" + label + "." + label + ".com"
+
+	if len(address) > 254 {
+		t.Fatalf("fixture is %d characters, it has to stay under 254", len(address))
+	}
+	if err := validate(address); err != nil {
+		t.Fatalf("a long but legal address must be accepted: %v", err)
+	}
+}
