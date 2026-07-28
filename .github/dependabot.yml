@@ -12,9 +12,15 @@ updates:
       prefix: "build"
       include: "scope"
 
-  # The examples are standalone Go modules (own go.mod + local replace), so the
-  # root entry above does not see them. Track them too — otherwise an example
+  # The examples are standalone Go modules with their own go.mod, so the root
+  # entry above does not see them. Track them too — otherwise an example
   # dependency drifts and accumulates advisories unmonitored.
+  #
+  # Grouped, because there are nine of them and they move together. Since the
+  # examples stopped using a `replace` and started requiring the published
+  # version (#213), every release makes authcore itself a dependency that has
+  # drifted in all nine at once: v1.11.6 produced ten separate pull requests
+  # that all said the same thing. One group is one review.
   - package-ecosystem: "gomod"
     directories:
       - "/examples/*"
@@ -24,6 +30,10 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    groups:
+      examples:
+        patterns:
+          - "*"
     commit-message:
       prefix: "build"
       include: "scope"
