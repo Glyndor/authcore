@@ -11,6 +11,11 @@ permissions:
 
 jobs:
   go:
-    uses: Glyndor/.github/.github/workflows/go-ci.yml@7099f8a9c8be91fa1732fe2402268b338771233f # v1.10.1
+    uses: Glyndor/.github/.github/workflows/go-ci.yml@045903bf83a58651f119bc7d952aa45242b897c5
     with:
       coverage-threshold: 90
+      # Every package clears this today, which is exactly when a floor is
+      # cheapest to adopt. The aggregate alone let auth/oauth sit at 87.7% and
+      # internal/keymanager at 85.7% — the two with the most attack surface —
+      # while a fully covered clock helper paid for them.
+      per-package-coverage-threshold: 90
