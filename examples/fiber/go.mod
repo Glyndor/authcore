@@ -3,7 +3,7 @@ module github.com/Glyndor/authcore/examples/fiber
 go 1.26.5
 
 require (
-	github.com/Glyndor/authcore v1.11.6
+	github.com/Glyndor/authcore v1.11.7
 	github.com/gofiber/fiber/v3 v3.4.0
 )
 
