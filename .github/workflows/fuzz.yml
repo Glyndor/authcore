@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   fuzz:
-    uses: Glyndor/.github/.github/workflows/go-fuzz.yml@7099f8a9c8be91fa1732fe2402268b338771233f # v1.10.1
+    uses: Glyndor/.github/.github/workflows/go-fuzz.yml@045903bf83a58651f119bc7d952aa45242b897c5
     with:
       fuzztime: "60s"
       targets: >-
