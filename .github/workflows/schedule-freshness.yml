@@ -25,14 +25,14 @@ permissions:
 jobs:
   audit:
     name: audit freshness
-    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@045903bf83a58651f119bc7d952aa45242b897c5 # v1.12.0
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@c958978687af37dc2d826a967d9c549589afb39f # v1.14.1
     with:
       workflow: audit.yml
       max-age-days: 15 # weekly cron, so two periods of slack
 
   fuzz:
     name: fuzz freshness
-    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@045903bf83a58651f119bc7d952aa45242b897c5 # v1.12.0
+    uses: Glyndor/.github/.github/workflows/schedule-freshness.yml@c958978687af37dc2d826a967d9c549589afb39f # v1.14.1
     with:
       workflow: fuzz.yml
       max-age-days: 15 # weekly cron, so two periods of slack
