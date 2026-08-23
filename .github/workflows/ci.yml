@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   go:
-    uses: Glyndor/.github/.github/workflows/go-ci.yml@045903bf83a58651f119bc7d952aa45242b897c5 # v1.12.0
+    uses: Glyndor/.github/.github/workflows/go-ci.yml@d4bbc5b6ec0c351ca4cb17d948ceaad818da4078 # v1.18.1
     with:
       coverage-threshold: 90
       # Every package clears this today, which is exactly when a floor is
@@ -19,3 +19,11 @@ jobs:
       # internal/keymanager at 85.7% — the two with the most attack surface —
       # while a fully covered clock helper paid for them.
       per-package-coverage-threshold: 90
+
+  pin-policy:
+    uses: Glyndor/.github/.github/workflows/pin-policy-reusable.yml@d4bbc5b6ec0c351ca4cb17d948ceaad818da4078 # v1.18.1
+
+  dependabot-freshness:
+    uses: Glyndor/.github/.github/workflows/dependabot-freshness.yml@d4bbc5b6ec0c351ca4cb17d948ceaad818da4078 # v1.18.1
+    with:
+      max-age-days: 15
