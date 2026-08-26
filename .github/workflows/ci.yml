@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   go:
-    uses: Glyndor/.github/.github/workflows/go-ci.yml@d4bbc5b6ec0c351ca4cb17d948ceaad818da4078 # v1.18.1
+    uses: Glyndor/.github/.github/workflows/go-ci.yml@8ae47ccd49ffdbf59d1acf7e6f9c18165bfba959 # v1.19.0
     with:
       coverage-threshold: 90
       # Every package clears this today, which is exactly when a floor is
