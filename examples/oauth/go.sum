@@ -1,5 +1,5 @@
-github.com/Glyndor/authcore v1.11.8 h1:W3z/61d0vJzN60Gzn5GhfKQKYW6fDHjdw0fv+p6M+zE=
-github.com/Glyndor/authcore v1.11.8/go.mod h1:ogLDwp4TBEGQbQ39dSrl1EJNbvafHyJfBy3kefUbnCA=
+github.com/Glyndor/authcore v1.12.0 h1:SoOdryZo4e2uJEJU0Sx60e02h+dCCvV5CjmOR0ckTQY=
+github.com/Glyndor/authcore v1.12.0/go.mod h1:mqT/bdihwhCXTIj2kSNEqyM3PK73NhxYwdU73uKmSm8=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
