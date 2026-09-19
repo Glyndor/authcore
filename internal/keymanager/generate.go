@@ -62,10 +62,14 @@ func checkKeyDirConsistency(dir string) error {
 	files := []string{filePrivateKey, filePublicKey, fileRefreshSecret}
 	var present, missing []string
 	for _, name := range files {
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
-			present = append(present, name)
-		} else {
+		state, err := inspect(dir, name)
+		if err != nil {
+			return err
+		}
+		if state == fileAbsent {
 			missing = append(missing, name)
+		} else {
+			present = append(present, name)
 		}
 	}
 	if len(present) > 0 && len(missing) > 0 {
@@ -86,16 +90,16 @@ func loadOrGenerateEd25519(dir string, log logger) (ed25519.PrivateKey, ed25519.
 	privPath := filepath.Join(dir, filePrivateKey)
 	pubPath := filepath.Join(dir, filePublicKey)
 
-	_, privErr := os.Stat(privPath)
-	_, pubErr := os.Stat(pubPath)
+	privFound := exists(dir, filePrivateKey)
+	pubFound := exists(dir, filePublicKey)
 
 	switch {
-	case privErr == nil && pubErr == nil:
+	case privFound && pubFound:
 		// Both files exist — load and validate them.
 		log.Info("authcore/keymanager: loading existing Ed25519 key pair from %s", dir)
 		return loadEd25519(privPath, pubPath)
 
-	case privErr != nil && pubErr != nil:
+	case !privFound && !pubFound:
 		// Neither exists — generate a fresh pair.
 		log.Warn("authcore/keymanager: Ed25519 key pair not found, generating new keys in %s", dir)
 		return generateAndSaveEd25519(privPath, pubPath)
@@ -157,7 +161,7 @@ func writePrivateKey(path string, key ed25519.PrivateKey) error {
 		return fmt.Errorf("marshal Ed25519 private key: %w", err)
 	}
 	block := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
-	return os.WriteFile(path, pem.EncodeToMemory(block), 0600)
+	return createExclusive(path, pem.EncodeToMemory(block), 0600)
 }
 
 // writePublicKey serialises key to PKIX PEM and writes it with mode 0644.
@@ -167,7 +171,7 @@ func writePublicKey(path string, key ed25519.PublicKey) error {
 		return fmt.Errorf("marshal Ed25519 public key: %w", err)
 	}
 	block := &pem.Block{Type: "PUBLIC KEY", Bytes: der}
-	return os.WriteFile(path, pem.EncodeToMemory(block), 0644) //nolint:gosec // public key intended to be world-readable
+	return createExclusive(path, pem.EncodeToMemory(block), 0644) //nolint:gosec // public key intended to be world-readable
 
 }
 
@@ -232,7 +236,7 @@ func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) 
 func loadOrGenerateRefreshSecret(dir string, log logger) ([]byte, error) {
 	path := filepath.Join(dir, fileRefreshSecret)
 
-	if _, err := os.Stat(path); err == nil {
+	if exists(dir, fileRefreshSecret) {
 		log.Info("authcore/keymanager: loading existing refresh secret from %s", dir)
 		return loadRefreshSecret(path)
 	}
@@ -250,7 +254,7 @@ func generateAndSaveRefreshSecret(path string) ([]byte, error) {
 	}
 	// Hex-encode so the file survives editors that mangle binary content.
 	content := hex.EncodeToString(secret) + "\n"
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+	if err := createExclusive(path, []byte(content), 0600); err != nil {
 		return nil, fmt.Errorf("write refresh secret to %q: %w", path, err)
 	}
 	return secret, nil
