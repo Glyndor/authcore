@@ -6,26 +6,39 @@ package credential
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
 // TestValidateConfig_Rejects covers the three TTLs that must be refused:
-// zero TTL, negative TTL, and 25 hours (one past the 24h cap).
+// zero TTL, negative TTL, and 25 hours (one past the 24h cap). The
+// acceptance twin for each limit (1ns just above zero, 24h just below
+// the cap) lives in TestValidateConfig_NanosecondFloor and
+// TestValidateConfig_Accepts; the two checks together pin both sides
+// of every boundary the validator enforces.
 func TestValidateConfig_Rejects(t *testing.T) {
+	// Each case names the rule that must refuse it, never only the value
+	// echoed back: "got 0s" would still match if the cap check fired
+	// instead, or if a later change reworded the rule.
 	cases := []struct {
 		name string
 		ttl  time.Duration
+		want string
 	}{
-		{"zero", 0},
-		{"negative", -time.Second},
-		{"25 hours", 25 * time.Hour},
+		{"zero", 0, "ttl must be positive, got 0s"},
+		{"negative", -time.Second, "ttl must be positive, got -1s"},
+		{"25 hours", 25 * time.Hour, "ttl must be at most 24h0m0s, got 25h0m0s"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := validateConfig(Config{TTL: c.ttl})
 			if err == nil {
 				t.Errorf("validateConfig(TTL=%s) = nil, want error", c.ttl)
+				return
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("validateConfig(TTL=%s) = %q, want error containing %q", c.ttl, err, c.want)
 			}
 		})
 	}
@@ -40,9 +53,11 @@ func TestValidateConfig_Accepts(t *testing.T) {
 	}
 }
 
-// TestValidateConfig_NanosecondFloor: the smallest positive TTL that is
-// allowed. Below 1ns the value rounds to zero on some platforms, so this
-// is the floor validateConfig must accept.
+// TestValidateConfig_NanosecondFloor: the smallest positive TTL that
+// is allowed. time.Duration is an int64 nanosecond count on every
+// platform, so there is no positive value between 0 and 1ns; 1ns is
+// the tightest acceptance case next to the zero rejection, and it
+// pins the floor validateConfig must accept.
 func TestValidateConfig_NanosecondFloor(t *testing.T) {
 	if err := validateConfig(Config{TTL: time.Nanosecond}); err != nil {
 		t.Errorf("TTL=1ns: validateConfig = %v, want nil", err)
