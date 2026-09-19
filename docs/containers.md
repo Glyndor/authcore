@@ -80,20 +80,19 @@ Every line of that file matters:
   With `RequireExistingKeys` true, a volume that failed to mount, a volume
   mounted at the wrong path, or an empty read-only bind stops the service at
   startup rather than silently giving every replica new keys and invalidating
-  every issued token. The one-off init container below runs without the flag
-  so the keys are created exactly once, into the same volume the replicas will
-  later mount read-only.
+  every issued token. The `authcore-keygen` recipe below populates the same
+  volume the replicas will later mount read-only.
 
 - `external: true` and `name: authcore-production-keys` point at a named volume
   that already exists. `podup down -v` left it in place when measured; a
   volume that is not declared `external` is removed by `-v`, keys included.
 
 To create the keys **once** into that volume: install `authcore-keygen` on
-the host, point it at an empty directory, then copy the resulting files into
-the volume. `authcore-keygen` is a small tool that exists precisely for this
-step: it writes the three key files into a new directory and never overwrites
-an existing one, so the application image no longer needs to perform the
-one-off generation itself.
+the host, point it at a directory that does not exist yet, then copy the
+resulting files into the volume. `authcore-keygen` is a small tool that exists
+precisely for this step: it writes the three key files into a new directory
+and never overwrites an existing one, so the application image no longer
+needs to perform the one-off generation itself.
 
 ```bash
 # Install once (Go 1.26+).
@@ -106,11 +105,23 @@ authcore-keygen -out ./keys
 
 # Create the volume and copy the files in from a container that runs with the
 # same uid and user namespace as the application, so ownership is right.
-podman volume create authcore-production-keys
-podman run --rm --user 1000:1000 --userns=keep-id \
-  -v ./keys:/src:ro -v authcore-production-keys:/dst \
-  docker.io/library/debian:trixie-slim sh -c 'cp -p /src/* /dst/'
+# The && is the control: if the volume already exists, podman volume create
+# fails and the copy never runs, which is what protects a populated volume
+# in production from being overwritten.
+podman volume create authcore-production-keys \
+  && podman run --rm --user 1000:1000 --userns=keep-id \
+       -v ./keys:/src:ro -v authcore-production-keys:/dst \
+       docker.io/library/debian:trixie-slim sh -c 'cp -p /src/* /dst/'
 ```
+
+Creation fails when the volume already exists, and that is deliberate: this
+recipe only ever populates a new volume. To replace the keys of a running
+deployment, plan a key rotation instead.
+
+On an SELinux-enforcing host, add `,z` to the `/src` bind
+(`-v ./keys:/src:ro,z`). The shared label keeps the directory readable to
+you and to any later container; without it, the bind mounts but the
+container cannot read the files and the error looks like `permission denied`.
 
 Do not use `podman volume import` for this step under rootless Podman: when
 measured, a tar made on the host as uid 1000 and imported that way showed up

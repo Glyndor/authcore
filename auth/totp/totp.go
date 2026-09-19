@@ -68,6 +68,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -295,7 +296,13 @@ func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, err
 //
 // # Order of checks
 //
-//   - rec == nil returns ErrStepRecorderRequired before anything else.
+//   - rec == nil or a typed nil recorder (a nil pointer, map, slice, func or
+//     chan wrapped in the interface) returns ErrStepRecorderRequired before
+//     anything else. The plain "rec == nil" check is not enough on its own:
+//     a typed-nil interface value is non-nil, so without the reflection
+//     check a recorder stored as "var rec *myRecorder" would slip past the
+//     guard and reach RecordIfNewer, where any method call panics. See
+//     isNilRecorderValue.
 //   - ctx.Err() != nil returns that error unchanged; the recorder is not
 //     called.
 //   - VerifyStep is called with lastUsedStep=0, so VerifyStep itself
@@ -312,13 +319,16 @@ func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, err
 //
 // # Errors:
 //
-//	totp.ErrStepRecorderRequired - rec is nil; the recorder was not wired
+//	totp.ErrStepRecorderRequired - rec is nil or a typed nil; the recorder was not wired
 //	totp.ErrMalformedCode        - not six decimal digits
 //	totp.ErrInvalidSecret        - secret is not base32 or not 20 bytes decoded
 //	totp.ErrInvalidCode          - six digits, matches no step in the window
 //	totp.ErrCodeReused           - the recorder refused to advance the step
 //	wrapped storage error        - "totp: record step: ..." for any recorder failure that is not ErrCodeReused
-//	context.Canceled / DeadlineExceeded - propagated unchanged
+//	context.Canceled / DeadlineExceeded - returned unchanged only when ctx was already cancelled
+//	                                 before Verify ran. A recorder that returns context.Canceled is
+//	                                 wrapped with "totp: record step:" so errors.Is(err, context.Canceled)
+//	                                 still holds but == no longer does.
 //
 // # Example
 //
@@ -333,7 +343,7 @@ func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, err
 //	    return http.StatusUnauthorized
 //	}
 func (t *TOTP) Verify(ctx context.Context, secret, code string, rec StepRecorder) error {
-	if rec == nil {
+	if isNilRecorderValue(rec) {
 		return ErrStepRecorderRequired
 	}
 	if err := ctx.Err(); err != nil {
@@ -350,6 +360,25 @@ func (t *TOTP) Verify(ctx context.Context, secret, code string, rec StepRecorder
 		return ErrCodeReused
 	default:
 		return fmt.Errorf("totp: record step: %w", err)
+	}
+}
+
+// isNilRecorderValue reports whether the dynamic value held by rec is a nil
+// pointer, map, slice, func or chan. A plain "rec == nil" cannot see this:
+// an interface holding a typed nil is itself non-nil, so a caller that passes
+// "var r *myRecorder" would slip past the guard and reach RecordIfNewer,
+// where every method call panics. The same shape is used by the root
+// package's isNilValue in keystore.go.
+func isNilRecorderValue(rec StepRecorder) bool {
+	if rec == nil {
+		return true
+	}
+	rv := reflect.ValueOf(rec)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return rv.IsNil()
+	default:
+		return false
 	}
 }
 
