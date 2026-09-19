@@ -235,7 +235,7 @@ func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
 //
 //	totp.ErrInvalidCode   - six digits, matches no step in the window
 //	totp.ErrMalformedCode - not six decimal digits
-//	totp.ErrInvalidSecret - secret is not valid base32
+//	totp.ErrInvalidSecret - secret is not base32, or is not 20 bytes decoded
 //	totp.ErrCodeReused    - matches a step at or below lastUsedStep
 func (t *TOTP) Verify(secret, code string, lastUsedStep uint64) (uint64, error) {
 	if !isSixDigits(code) {
