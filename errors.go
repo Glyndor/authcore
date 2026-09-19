@@ -12,6 +12,7 @@ var (
 	ErrInvalidTimezone = errors.New("authcore: timezone must not be nil")
 
 	// ErrKeyManager is returned when the key management system fails to
-	// initialise, generate, or load cryptographic material.
+	// initialise, generate, or load cryptographic material, including when a
+	// Config.KeyStore returns no material or material of the wrong shape.
 	ErrKeyManager = errors.New("authcore: key manager failure")
 )
