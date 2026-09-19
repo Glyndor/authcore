@@ -92,6 +92,7 @@ func exists(dir, name string) bool {
 // permissions, so a 0644 file planted at that moment received the private key.
 // Creation now fails instead.
 func createExclusive(path string, data []byte, perm os.FileMode) error {
+	// #nosec G304 -- path is KeysDir joined with a fixed managed filename, never request input
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		if os.IsExist(err) {
