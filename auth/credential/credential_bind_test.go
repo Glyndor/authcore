@@ -164,7 +164,7 @@ func TestIssue_BothEmptyReportsPurposeFirst(t *testing.T) {
 
 // ---- URL safety -------------------------------------------------------------
 
-// TestIssue_TokenIsURLSafe is the literal test from the brief: the raw
+// TestIssue_TokenIsURLSafe pins the property a caller relies on: the raw
 // token must round-trip through url.QueryEscape unchanged, because it
 // goes into a query parameter in the email link without escaping.
 func TestIssue_TokenIsURLSafe(t *testing.T) {
@@ -179,8 +179,8 @@ func TestIssue_TokenIsURLSafe(t *testing.T) {
 }
 
 // TestIssue_TokenIsRawBase64URL pins the encoding choice: the token is
-// base64 URL without padding, never base32 (the brief explicitly
-// excludes base32 because the token is in a URL, not on a printout).
+// base64 URL without padding, never base32 (base32 is deliberately
+// excluded because the token is in a URL, not on a printout).
 func TestIssue_TokenIsRawBase64URL(t *testing.T) {
 	c := newCred(t)
 	issued, err := c.Issue("reset", "alice@example.com")

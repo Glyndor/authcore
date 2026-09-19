@@ -17,8 +17,8 @@ import (
 
 // sharedProvider returns a provider whose keys are pinned so two
 // Field instances share the same root secret. Used to assert that
-// "the same value, two different contexts" behaves as the brief
-// requires without the test also having to fight different secrets.
+// "the same value, two different contexts" is separated by Context
+// alone, without the test also having to fight different secrets.
 func sharedProvider(tb testing.TB) authcore.Provider {
 	tb.Helper()
 	secret := make([]byte, 32)
@@ -78,10 +78,10 @@ func TestCrossContext_DecryptFailsAcrossContexts(t *testing.T) {
 // TestCrossContext_DifferentCiphertextsForSamePlaintext asserts the
 // same swap from the other side: two modules with different contexts
 // must produce different ciphertexts for the same plaintext, and
-// neither can read the other's. This is the test the brief lists
-// as "Two modules built with different contexts from the same
-// provider produce different ciphertexts for the same plaintext,
-// and neither can read the other's."
+// neither can read the other's. Context is fed to GCM as additional
+// authenticated data, so a ciphertext moved from one column to
+// another must fail to open rather than decrypt under the wrong
+// field's name.
 func TestCrossContext_DifferentCiphertextsForSamePlaintext(t *testing.T) {
 	p := sharedProvider(t)
 	email, _ := New(p, Config{Context: "email"})
@@ -111,8 +111,8 @@ func TestCrossContext_DifferentCiphertextsForSamePlaintext(t *testing.T) {
 // ---- Context binding (blind index) ------------------------------------------
 
 // TestBlindIndex_DeterministicAcrossCalls: BlindIndex of the same
-// value under the same module must be stable. The brief is explicit
-// that the function returns a string and no error.
+// value under the same module must be stable. BlindIndex returns a
+// string and no error, since HMAC-SHA256 over a fixed key cannot fail.
 func TestBlindIndex_DeterministicAcrossCalls(t *testing.T) {
 	f := newFld(t, "email")
 	a := f.BlindIndex("alice@example.com")

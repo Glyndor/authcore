@@ -31,8 +31,8 @@ func TestVerify_WithinTTLSucceeds(t *testing.T) {
 	}
 }
 
-// TestVerify_OneNanosecondPastTTLExpires is the exact failure bound the
-// brief calls out: a token issued for 1 hour, verified one nanosecond
+// TestVerify_OneNanosecondPastTTLExpires pins the exact failure bound of
+// the TTL: a token issued for 1 hour, verified one nanosecond
 // past that hour, must return ErrExpired. Driven by a fixed clock, no
 // real sleep.
 func TestVerify_OneNanosecondPastTTLExpires(t *testing.T) {
@@ -50,8 +50,8 @@ func TestVerify_OneNanosecondPastTTLExpires(t *testing.T) {
 
 // TestVerify_FarFutureExpires covers the future-leeway guard: an
 // issuedAt more than a minute in the future is treated as expired
-// (the brief's "clock running backwards must not extend a token's
-// life"). Two minutes future, well past the one-minute skew window.
+// (a clock running backwards must not extend a token's
+// life). Two minutes future, well past the one-minute skew window.
 func TestVerify_FarFutureExpires(t *testing.T) {
 	c := newCred(t, Config{TTL: time.Hour})
 	issued, err := c.Issue("reset", "alice@example.com")

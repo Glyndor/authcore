@@ -60,8 +60,8 @@ const maxTTL = 24 * time.Hour
 //
 // Unlike auth/totp's SkewSteps (a pointer so zero is a meaningful "no
 // tolerance" value), TTL is a plain time.Duration: zero is not
-// meaningful (it would make every token instantly expired), and the
-// brief is explicit that it must be refused. Filling zero with the
+// meaningful (it would make every token instantly expired), so it
+// must be refused rather than defaulted. Filling zero with the
 // default here would silently turn a caller bug into a 1-hour token,
 // so validateConfig is the only thing that decides what TTL values are
 // allowed. New routes the no-Config case through DefaultConfig() so

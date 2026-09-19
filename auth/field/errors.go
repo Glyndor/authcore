@@ -6,7 +6,7 @@ import "errors"
 // Use errors.Is to check for these in calling code.
 var (
 	// ErrInvalidConfig is returned by New when the provided Config fails
-	// validation (today: an empty Context). The brief is explicit that
+	// validation (today: an empty Context). Empty is refused because
 	// Context is not decoration: it is bound into both the AES additional
 	// authenticated data and the blind index, so a caller who does not
 	// name the field is telling the module nothing, and silently
