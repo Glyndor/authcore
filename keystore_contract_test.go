@@ -157,9 +157,9 @@ func TestNew_customKeyStoreErrorIsKept(t *testing.T) {
 	}
 }
 
-// The error a consumer sees must say what to return instead, and must never
-// carry key bytes.
-func TestNew_customKeyStoreErrorIsActionableAndClean(t *testing.T) {
+// The error a consumer sees must say what to return instead, and must name the
+// KeyStore as the source of the bad material.
+func TestNew_customKeyStoreErrorIsActionable(t *testing.T) {
 	_, err := newWithStore(customStore{})
 	if err == nil {
 		t.Fatal("New accepted a store that returned (nil, nil)")
