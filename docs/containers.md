@@ -88,32 +88,39 @@ Every line of that file matters:
   that already exists. `podup down -v` left it in place when measured; a
   volume that is not declared `external` is removed by `-v`, keys included.
 
-To create the keys **once** into that volume: run the application's own image
-as a one-off container, with the **same** `user:` value, the same
-`AUTHCORE_KEYS_DIR`, the volume mounted **read-write** (the default, without
-the `:ro` suffix), and `Config.RequireExistingKeys` left at its zero value so
-authcore is willing to generate. Stop the container, back up the volume, and
-then change the mount to `:ro` and start the replicas:
+To create the keys **once** into that volume: install `authcore-keygen` on
+the host, point it at an empty directory, then copy the resulting files into
+the volume. `authcore-keygen` is a small tool that exists precisely for this
+step: it writes the three key files into a new directory and never overwrites
+an existing one, so the application image no longer needs to perform the
+one-off generation itself.
 
 ```bash
-# One-off init. Same image, same user, same volume name, no :ro suffix.
-# RequireExistingKeys is unset in this command on purpose: this is the one
-# run that is allowed to write the keys.
-podman run --rm \
-  --user 1000:1000 \
-  --userns=keep-id \
-  --mount type=volume,source=authcore-production-keys,target=/run/authcore \
-  -e AUTHCORE_KEYS_DIR=/run/authcore \
-  registry.example.com/app:1.0
+# Install once (Go 1.26+).
+go install github.com/Glyndor/authcore/cmd/authcore-keygen@latest
 
-# Stop it once the application has started (authcore creates the keys inside
-# authcore.New, before your server listens), then back the volume up.
-podman volume export authcore-production-keys > keys-backup-$(date +%F).tar
+# Generate the set once, into a directory that does not exist yet. It prints
+# the path and the key id, never key material. Keep ./keys as your backup:
+# losing refresh_secret.key is permanent.
+authcore-keygen -out ./keys
+
+# Create the volume and copy the files in from a container that runs with the
+# same uid and user namespace as the application, so ownership is right.
+podman volume create authcore-production-keys
+podman run --rm --user 1000:1000 --userns=keep-id \
+  -v ./keys:/src:ro -v authcore-production-keys:/dst \
+  docker.io/library/debian:trixie-slim sh -c 'cp -p /src/* /dst/'
 ```
 
-Then deploy the compose file as written. The init container must use the
-**same** uid as the runtime containers, because the files it writes will be
-owned by that uid and nothing else will be able to read them.
+Do not use `podman volume import` for this step under rootless Podman: when
+measured, a tar made on the host as uid 1000 and imported that way showed up
+as uid 999 inside a `keep-id` container running as 1000, and authcore failed
+with `permission denied` on `metadata.json`. Copying from a container that
+already runs with the application's uid and `--userns=keep-id` keeps the
+owner right. Use the application's real uid in both places.
+
+To back up the volume itself later:
+`podman volume export authcore-production-keys > keys-backup-$(date +%F).tar`.
 
 Concurrent first start is the trap this whole pattern avoids. Eight containers
 on one empty named volume, started at once against an unprepared volume, hit
