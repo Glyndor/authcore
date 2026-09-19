@@ -1,6 +1,13 @@
 name: Security audit
 
 on:
+  # The schedule is what catches an advisory published after a merge. The
+  # pull_request trigger is what stops a merge outrunning the audit by a week:
+  # auth/totp landed and shipped in v1.13.0 hours before the Monday cron found
+  # its crypto/sha1 import, so the release was tagged before the audit had an
+  # opinion. Both triggers are needed; neither replaces the other.
+  pull_request:
+    branches: [main, develop]
   schedule:
     - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
   workflow_dispatch:
@@ -17,4 +24,10 @@ jobs:
       # G115 mirrors the .golangci.yml exclusion for UUID/time math.
       # G101 is a false positive on the OAuth provider preset URLs (a field named
       # *TokenURL* holding a public endpoint, not a credential).
-      gosec-exclude: "G104,G115,G306,G101"
+      # G505 is auth/totp importing crypto/sha1. RFC 6238 defines TOTP over
+      # HMAC-SHA1 and every authenticator app implements that, so anything else
+      # is a module nobody can pair with. SHA-1 collision attacks do not carry
+      # to HMAC. The import is annotated in code too, but standalone gosec
+      # ignores //nolint pragmas, which is why the exclusions above exist.
+      # sha1_import_test.go asserts no second package picks up this exclusion.
+      gosec-exclude: "G104,G115,G306,G101,G505"
