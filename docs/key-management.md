@@ -59,10 +59,14 @@ That is fine on a host with a durable disk, but a container filesystem is
 default, two things break — silently:
 
 > [!WARNING]
-> - **On restart / redeploy** the `.authcore` directory is gone, so authcore
->   generates a **new** key pair (it logs a `WARN`). Every access token already
->   issued fails signature verification and every refresh-token hash stored in
->   your database stops matching — **every user is logged out**.
+> - **On a restart** of the same container the `.authcore` directory is kept,
+>   so the keys survive and existing tokens keep verifying.
+> - **On a redeploy** that recreates the container without a mounted volume,
+>   the `.authcore` directory is gone, so authcore generates a **new** key
+>   pair (it logs a `WARN`). Every access token already issued fails
+>   signature verification, and every refresh-token hash stored in your
+>   database stops matching: **every user is logged out**. A container
+>   recreation is not a restart.
 > - **With multiple replicas** each pod generates **its own** key pair, so a
 >   token minted by pod A is rejected by pod B (different `kid` and signature).
 >   Behind a load balancer, login appears to fail at random.
@@ -87,9 +91,13 @@ auth, err := authcore.New(cfg)
    sessions) survive a redeploy.
 
 > [!NOTE]
-> A read-only `KeysDir` works: when all three files already exist, authcore only
-> loads and validates them — it never writes. It writes only when generating a
-> missing file on first run, which a pre-generated mount avoids entirely.
+> A read-only `KeysDir` works: when all three files already exist, authcore
+> loads and validates them, and never writes **key material** there. It does
+> still try to tighten the directory mode to `0700`, write a `.gitignore`, and
+> refresh `metadata.json`. On a read-only mount those writes fail and are
+> logged as warnings; startup continues. The PEM files and `refresh_secret.key`
+> themselves are only written when a key is missing, which a pre-generated
+> mount avoids entirely.
 
 ## Sourcing keys without a volume (KeyStore)
 
@@ -227,3 +235,7 @@ is rejected as `ErrTokenInvalid`.
 > bytes; anything larger is refused before it reaches `pem.Decode`, protecting
 > startup from a corrupted or attacker-replaced key file that would otherwise be
 > loaded whole into memory.
+
+For container deployments (compose files, named volumes, Podman secrets,
+SELinux labels, the restart-vs-recreate distinction): see
+[Running authcore in containers](containers.md).
