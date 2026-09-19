@@ -80,6 +80,10 @@ fmt.Println(claims.ExpiresAt)  // time.Time
 
 ## Rotating tokens
 
+Each refresh token carries a random `rid` claim, so two tokens of one session
+never compare equal, whatever the clock says. The `SessionID` (`jti`) is still
+preserved across rotations; `rid` only guarantees the token bytes change.
+
 The recommended pattern — verify the hash **before** calling `RotateTokens` to
 prevent token-reuse attacks even if your database is compromised:
 
