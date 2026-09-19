@@ -18,10 +18,10 @@ authcore warns (and never refuses or chmods) when `ed25519_private.pem` or
 `refresh_secret.key` is readable by group or others on the load paths. The
 Podman default mount without an explicit `mode` is 0444 and the Kubernetes
 Secret volume default is 0644, both of which trip this check, so a freshly
-mounted secret in a container cluster produces a single Warn at startup until
-the operator tightens the secret's mode and uid. authcore does not change the
-mode itself: a deployment that chose group access on purpose stays as-is, and
-a file authcore did not create is not its to rewrite.
+mounted secret in a container cluster produces one warning per affected file
+at startup until the operator tightens the secret's mode and uid. authcore
+does not change the mode itself: a deployment that chose group access on
+purpose stays as-is, and a file authcore did not create is not its to rewrite.
 
 ## The layout marker
 
@@ -88,9 +88,9 @@ When the flag is true:
   writes. A read-only mount loads cleanly, which is the deployment shape the
   recommended compose file uses. See [containers](containers.md).
 
-The one-off key creation runs the application once against a writable volume,
-with `Config.RequireExistingKeys` left at its zero value. The exact command
-is the one-off init container in
+The one-off key creation runs `authcore-keygen` against a directory that does
+not exist yet, then the resulting files are copied into the new volume. The
+exact command is the recipe in
 [Running authcore in containers](containers.md#recommended-setup); both
 sections describe the same step.
 

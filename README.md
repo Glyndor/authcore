@@ -34,8 +34,9 @@ go get github.com/Glyndor/authcore
 
 Requires **Go 1.26+**. On first run, Ed25519 keys + an HMAC secret are generated
 under `./.authcore/` — point `KeysDir` at a secrets volume in production.
-For pre-provisioned secrets, run `go install github.com/Glyndor/authcore/cmd/authcore-keygen@latest`
-once and mount the directory it wrote.
+For pre-provisioned secrets, install `authcore-keygen`, run
+`authcore-keygen -out ./keys`, and mount that directory (or copy it into a
+volume, see [containers](docs/containers.md)).
 
 ## Quick start
 

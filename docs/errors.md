@@ -61,8 +61,8 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 ## `auth/oauth` package
 
-| Error | When |
-|---|---|
+| Error | Client-safe? | When |
+|---|---|---|
 | `oauth.ErrInvalidConfig` | ✗ No | `oauth.Config` validation failed (missing/non-https endpoints, no identity source) |
 | `oauth.ErrExchange` | ✗ No | Authorization-code exchange failed (transport, non-2xx, or OAuth error) |
 | `oauth.ErrNoIDToken` | ✗ No | OIDC provider returned no `id_token` |

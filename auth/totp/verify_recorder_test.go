@@ -87,6 +87,73 @@ func TestVerifyRequiresRecorder(t *testing.T) {
 	}
 }
 
+// typedNilPtrRecorder is the reference pointer type the typed-nil recorder
+// test uses. A nil *typedNilPtrRecorder must be caught by Verify before any
+// method call; a plain "rec == nil" check is not enough on its own because
+// the interface holding it is itself non-nil. The method panics if it is
+// reached, so a regression that lets the call through surfaces here.
+type typedNilPtrRecorder struct{}
+
+func (*typedNilPtrRecorder) RecordIfNewer(ctx context.Context, step uint64) error {
+	panic("typedNilPtrRecorder.RecordIfNewer must never be reached")
+}
+
+// typedNilFnRecorder is the function-type variant the typed-nil recorder
+// test uses. A nil function value assigned to a StepRecorder is also a
+// typed nil; the interface is non-nil and the reflection check has to
+// reject it before any call. The closure increments a counter when the
+// recorder is invoked, so a regression that lets the call through is
+// observed here as counter > 0.
+type typedNilFnRecorder func(ctx context.Context, step uint64) error
+
+func (f typedNilFnRecorder) RecordIfNewer(ctx context.Context, step uint64) error {
+	if f == nil {
+		panic("typedNilFnRecorder.RecordIfNewer reached with nil function")
+	}
+	return f(ctx, step)
+}
+
+// TestVerifyRequiresRecorderOnTypedNil pins that a recorder stored as a
+// typed-nil pointer or function value is rejected with ErrStepRecorderRequired
+// before VerifyStep or RecordIfNewer runs. A plain "rec == nil" comparison
+// cannot see these values: the interface holding them is non-nil, so without
+// the reflection check the call would reach the recorder and panic.
+//
+// Map, slice and chan kinds cannot satisfy StepRecorder (Go does not allow
+// methods on those receiver types), so the test pins only the two kinds
+// that compile naturally: pointer and func.
+func TestVerifyRequiresRecorderOnTypedNil(t *testing.T) {
+	mod := newTOTP(t)
+	code, _ := newCodeForNow(t, mod, 480)
+
+	// typed nil pointer
+	var p *typedNilPtrRecorder
+	recPtr := StepRecorder(p)
+
+	err := mod.Verify(context.Background(), rfcSecretB32, code, recPtr)
+	if !errors.Is(err, ErrStepRecorderRequired) {
+		t.Errorf("typed-nil pointer recorder: Verify returned %v, want ErrStepRecorderRequired", err)
+	}
+
+	// typed nil function
+	var called int32
+	counter := typedNilFnRecorder(func(ctx context.Context, step uint64) error {
+		atomic.AddInt32(&called, 1)
+		return nil
+	})
+	var nilFn typedNilFnRecorder
+	recFn := StepRecorder(nilFn)
+	_ = counter // referenced in closure only; explicit pin for linters
+
+	err = mod.Verify(context.Background(), rfcSecretB32, code, recFn)
+	if !errors.Is(err, ErrStepRecorderRequired) {
+		t.Errorf("typed-nil func recorder: Verify returned %v, want ErrStepRecorderRequired", err)
+	}
+	if got := atomic.LoadInt32(&called); got != 0 {
+		t.Errorf("typed-nil func recorder was called %d time(s), want 0", got)
+	}
+}
+
 // TestVerifyHonoursCancelledContext pins that ctx.Err() is checked before
 // anything else and the recorder is not called when the context is
 // already cancelled. errors.Is(err, context.Canceled) must hold so

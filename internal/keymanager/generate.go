@@ -66,7 +66,7 @@ func loadEd25519(privPath, pubPath string) (ed25519.PrivateKey, ed25519.PublicKe
 	if !priv.Public().(ed25519.PublicKey).Equal(pub) {
 		return nil, nil, fmt.Errorf(
 			"public key in %q does not match private key in %q; "+
-				"delete both files to trigger regeneration",
+				"restore the matching pair from a backup",
 			pubPath, privPath,
 		)
 	}

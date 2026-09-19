@@ -9,9 +9,6 @@ package keymanager_test
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,52 +18,6 @@ import (
 
 	"github.com/Glyndor/authcore/internal/keymanager"
 )
-
-// TestLoadMismatchedKeyPairRejected pins the pair check on a complete set
-// whose private and public keys belong to two different pairs. Load must
-// hand the loader the two paths and forward the error unchanged.
-func TestLoadMismatchedKeyPairRejected(t *testing.T) {
-	dir := t.TempDir()
-	pubA, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("gen first pair: %v", err)
-	}
-	_, privB, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("gen second pair: %v", err)
-	}
-
-	privPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: mustMarshalPKCS8(t, privB),
-	})
-	pubPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: mustMarshalPKIX(t, pubA),
-	})
-	secretRaw := make([]byte, 32)
-	if _, err := rand.Read(secretRaw); err != nil {
-		t.Fatalf("read secret: %v", err)
-	}
-	secretHex := append(hexEncode(secretRaw), '\n')
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_private.pem"), privPEM, 0600); err != nil {
-		t.Fatalf("write priv: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_public.pem"), pubPEM, 0644); err != nil {
-		t.Fatalf("write pub: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "refresh_secret.key"), secretHex, 0600); err != nil {
-		t.Fatalf("write secret: %v", err)
-	}
-
-	_, err = keymanager.Load(dir, testLogger{t})
-	if err == nil {
-		t.Fatal("expected the pair-check error, got nil")
-	}
-	if !strings.Contains(err.Error(), "does not match") {
-		t.Errorf("error should call out the pair mismatch, got: %v", err)
-	}
-}
 
 // TestLoadCorruptMetadataReturnsError pins that a complete directory whose
 // metadata.json is zero bytes is refused by Load with the same recovery

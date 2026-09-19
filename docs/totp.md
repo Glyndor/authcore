@@ -235,9 +235,9 @@ for the same reason on the password policy fields.
 ## Upgrading from v1.14
 
 `v1.14`'s `Verify(secret, code, lastStep)` is now `VerifyStep`, with
-the same signature and the same behaviour. The old name was kept as
-the low-level primitive; it does not read or write storage, and a
-caller that passes 0 gets no replay refusal at all.
+the same signature and the same behaviour. The old implementation was kept
+under the name `VerifyStep` as the low-level primitive; it does not read or
+write storage, and a caller that passes 0 gets no replay refusal at all.
 
 To get the atomic guarantee, implement a `StepRecorder` over the
 column you already store the step in. Initialise the stored step to
