@@ -82,17 +82,25 @@ func Load(dir string, log logger) (*KeyManager, error) {
 		return nil, refuseIncompleteLoad(dir, present, missing)
 	}
 
-	priv, pub, err := loadEd25519(
-		filepath.Join(dir, filePrivateKey),
-		filepath.Join(dir, filePublicKey),
-	)
+	privPath := filepath.Join(dir, filePrivateKey)
+	pubPath := filepath.Join(dir, filePublicKey)
+	secretPath := filepath.Join(dir, fileRefreshSecret)
+
+	priv, pub, err := loadEd25519(privPath, pubPath)
 	if err != nil {
 		return nil, fmt.Errorf("ed25519 key pair: %w", err)
 	}
-	secret, err := loadRefreshSecret(filepath.Join(dir, fileRefreshSecret))
+	secret, err := loadRefreshSecret(secretPath)
 	if err != nil {
 		return nil, fmt.Errorf("refresh secret: %w", err)
 	}
+
+	// Warn (never refuse, never chmod) when the private key or the refresh
+	// secret is readable by group or others. The public key is omitted by
+	// design: it is meant to be shared, so the same bit pattern on it is
+	// not a finding.
+	warnIfReadableByOthers(privPath, log)
+	warnIfReadableByOthers(secretPath, log)
 
 	keyID := computeKeyID(pub)
 	reportLeftovers(dir, log)
