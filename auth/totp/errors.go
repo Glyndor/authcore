@@ -12,9 +12,10 @@ var (
 	ErrInvalidConfig = errors.New("totp: invalid configuration")
 
 	// ErrInvalidSecret is returned by Verify when the presented secret is not
-	// valid base32 (with or without padding). The caller should treat this
-	// as a programming or storage error: secrets minted by Enroll are always
-	// valid, so an invalid one means the stored value was corrupted.
+	// base32 or does not decode to exactly 20 bytes. Secrets minted by Enroll
+	// always qualify, so for those it means the stored value was corrupted or
+	// truncated. A secret carried over from another implementation is refused
+	// too unless it is 160 bits: enroll the user again instead.
 	//
 	// Safety: INTERNAL — do not echo back to the client.
 	ErrInvalidSecret = errors.New("totp: invalid base32 secret")
