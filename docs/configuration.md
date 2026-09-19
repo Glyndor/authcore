@@ -33,11 +33,12 @@ discipline - every one of which has a known attack if it is weakened.
 
 ```go
 type Config struct {
-    EnableLogs bool             // emit log output; default true via DefaultConfig()
-    Timezone   *time.Location   // time zone for all operations; default time.UTC
-    Logger     authcore.Logger   // custom logger (slog, zap, zerolog, …); overrides EnableLogs
-    KeysDir    string            // key storage directory; default ".authcore"; ignored when KeyStore is set
-    KeyStore   authcore.KeyStore // optional: source keys from a secret manager / env / KMS instead of disk
+    EnableLogs          bool               // emit log output; default true via DefaultConfig()
+    Timezone            *time.Location     // time zone for all operations; default time.UTC
+    Logger              authcore.Logger    // custom logger (slog, zap, zerolog, …); overrides EnableLogs
+    KeysDir             string             // key storage directory; default ".authcore"; ignored when KeyStore is set
+    KeyStore            authcore.KeyStore  // optional: source keys from a secret manager / env / KMS instead of disk
+    RequireExistingKeys bool               // load-only mode: refuse to start if KeysDir is missing or any key file is missing
 }
 ```
 
@@ -45,13 +46,23 @@ type Config struct {
 `KeysDir` — see [Key management](key-management.md) (`NewKeyStoreFromKeys`,
 `NewKeyStoreFromPEM`). Leave it nil for the zero-config disk default.
 
+`RequireExistingKeys` makes the disk store load-only: `New` reads the three
+key files from `KeysDir` and never creates, generates, chmods or writes
+anything there. The zero value (false) leaves the disk store in its writable
+default state: an empty `KeysDir` triggers key generation on first run. Set it
+to true in any production deployment that provisions the keys once and mounts
+them into every replica; see [Key management](key-management.md#load-only-in-production)
+for the deployment shape it is designed for. The field is ignored when
+`KeyStore` is set, because a custom `KeyStore` never writes to `KeysDir`.
+
 Always start from `DefaultConfig()` and override only what you need:
 
 ```go
 cfg := authcore.DefaultConfig()
-cfg.EnableLogs = false                    // silence output in tests
-cfg.Logger     = slog.Default()           // use your application logger
-cfg.KeysDir    = "/run/secrets/authcore"  // absolute path in containers
+cfg.EnableLogs = false                       // silence output in tests
+cfg.Logger     = slog.Default()              // use your application logger
+cfg.KeysDir    = "/run/secrets/authcore"     // absolute path in containers
+cfg.RequireExistingKeys = true               // production: refuse to start without a provisioned set
 ```
 
 > **Note on `EnableLogs`:** Go cannot distinguish `EnableLogs = false` from a

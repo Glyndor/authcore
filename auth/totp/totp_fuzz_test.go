@@ -45,8 +45,8 @@ func FuzzVerify(f *testing.F) {
 		// Both lastUsedStep values: 0 (no replay protection) and a
 		// large number (must reject everything as "already used" if
 		// it ever matched). Neither path may panic.
-		_, _ = mod.Verify(secret, code, 0)
-		_, _ = mod.Verify(secret, code, 1<<63)
+		_, _ = mod.VerifyStep(secret, code, 0)
+		_, _ = mod.VerifyStep(secret, code, 1<<63)
 	})
 }
 

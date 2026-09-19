@@ -68,7 +68,18 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrNoIDToken` | ✗ No | OIDC provider returned no `id_token` |
 | `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`) — return generic unauthorized |
 | `oauth.ErrJWKS` | ✗ No | Provider signing keys could not be fetched or parsed |
-| `oauth.ErrUserInfo` | ✗ No | Userinfo request failed (transport, non-2xx, undecodable) |
+| `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
 | `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
+
+## `auth/totp` package
+
+| Error | Client-safe? | When |
+|---|---|---|
+| `totp.ErrInvalidConfig` | ✗ No | `totp.Config` validation failed at startup (treat as 500) |
+| `totp.ErrInvalidSecret` | ✗ No | Stored secret is not base32 or not 20 bytes decoded (storage corruption) |
+| `totp.ErrMalformedCode` | ✓ Yes | Presented code is not six decimal digits |
+| `totp.ErrInvalidCode` | ✓ Yes | Presented code does not match any step in the window |
+| `totp.ErrCodeReused` | ✓ Yes | Recorder refused to advance the stored step; the code (or its step) was already accepted |
+| `totp.ErrStepRecorderRequired` | ✗ No | `Verify` was called with a nil `StepRecorder` (programming error, treat as 500) |
