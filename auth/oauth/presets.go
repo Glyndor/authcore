@@ -55,9 +55,16 @@ func GitHub() Provider {
 	}
 }
 
-// Discord returns the Provider endpoints for Discord's OAuth2 service. Like
-// GitHub it is not OIDC; identity comes from UserInfo (the users/@me endpoint).
-// Request scopes like "identify" and "email".
+// Discord returns the Provider endpoints for Discord's OAuth2 service. It uses
+// the OAuth2 plus UserInfo path on purpose: identity comes from users/@me,
+// which returns Discord's own user object. Request scopes like "identify" and
+// "email".
+//
+// Discord also publishes an OIDC discovery document, captured in
+// testdata/providers/discord-discovery.json, and Discover parses it. Use
+// Discover with the issuer "https://discord.com" instead of this preset to
+// receive ID tokens. That path has not been exercised against a live Discord
+// login here.
 func Discord() Provider {
 	// #nosec G101 -- these are Discord's public OAuth2 endpoint URLs, not credentials.
 	return Provider{
