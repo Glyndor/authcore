@@ -59,10 +59,14 @@ That is fine on a host with a durable disk, but a container filesystem is
 default, two things break — silently:
 
 > [!WARNING]
-> - **On restart / redeploy** the `.authcore` directory is gone, so authcore
->   generates a **new** key pair (it logs a `WARN`). Every access token already
->   issued fails signature verification and every refresh-token hash stored in
->   your database stops matching — **every user is logged out**.
+> - **On a restart** of the same container the `.authcore` directory is kept,
+>   so the keys survive and existing tokens keep verifying.
+> - **On a redeploy** that recreates the container without a mounted volume,
+>   the `.authcore` directory is gone, so authcore generates a **new** key
+>   pair (it logs a `WARN`). Every access token already issued fails
+>   signature verification, and every refresh-token hash stored in your
+>   database stops matching: **every user is logged out**. A container
+>   recreation is not a restart.
 > - **With multiple replicas** each pod generates **its own** key pair, so a
 >   token minted by pod A is rejected by pod B (different `kid` and signature).
 >   Behind a load balancer, login appears to fail at random.
@@ -87,9 +91,13 @@ auth, err := authcore.New(cfg)
    sessions) survive a redeploy.
 
 > [!NOTE]
-> A read-only `KeysDir` works: when all three files already exist, authcore only
-> loads and validates them — it never writes. It writes only when generating a
-> missing file on first run, which a pre-generated mount avoids entirely.
+> A read-only `KeysDir` works: when all three files already exist, authcore
+> loads and validates them, and never writes **key material** there. It does
+> still try to tighten the directory mode to `0700`, write a `.gitignore`, and
+> refresh `metadata.json`. On a read-only mount those writes fail and are
+> logged as warnings; startup continues. The PEM files and `refresh_secret.key`
+> themselves are only written when a key is missing, which a pre-generated
+> mount avoids entirely.
 
 ## Sourcing keys without a volume (KeyStore)
 
@@ -172,18 +180,21 @@ The `KeyID()` accessor returns a 16-character hex digest derived from the public
 key. It is embedded in every token's `kid` JOSE header. Verification selects the
 key by `kid` and rejects any token whose `kid` is not one the module accepts.
 
-## The refresh secret carries two jobs, and only one of them is recoverable
+## The refresh secret protects credentials and encrypted fields
 
-`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashing. Since
-`auth/field` shipped it is also the input `auth/field` runs HKDF-SHA256 over to
-derive the AES-256-GCM column key and the blind index key, with a distinct info
-label for each.
+`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashes
+(`auth/jwt`), API-key hashes (`auth/apikey`), TOTP recovery-code hashes
+(`auth/totp`) and credential-token hashes (`auth/credential`, including reset
+and activation links). It is also the input `auth/field` runs HKDF-SHA256 over
+to derive the AES-256-GCM column key and the blind index key, with a distinct
+info label for each.
 
 That is cryptographic separation, not operational separation, and the
 difference is the whole of this section. The two jobs fail very differently:
 
-- **Lose it as a token hashing key** and every refresh token stops verifying.
-  Users log in again. Annoying, recoverable, over in a day.
+- **Lose it as a hashing key** and every stored hash derived from it stops
+  verifying. New sessions, API keys, recovery codes and credential links must
+  be issued.
 - **Lose it as the `auth/field` root** and every encrypted column is
   permanently unreadable. There is no recovery path, because there is no copy
   of the key anywhere else by design.
@@ -195,8 +206,11 @@ on the old secret, write it back with one built on the new secret, in batches,
 one transaction per row. The procedure is written out in
 [field encryption](field.md#footguns-the-caller-must-handle).
 
-If you do not use `auth/field`, rotating it is exactly as cheap as it sounds:
-replace the file, everyone logs in again.
+Even without `auth/field`, replacing the refresh secret invalidates every
+stored refresh-token hash, API-key hash and TOTP recovery-code hash, plus every
+outstanding credential link (reset, activation). Logging in again restores
+sessions; it does not restore API keys, recovery codes or credential links.
+Arrange to reissue those credentials when replacing the secret.
 
 ## Rotating the signing key (zero downtime)
 
@@ -227,3 +241,35 @@ is rejected as `ErrTokenInvalid`.
 > bytes; anything larger is refused before it reaches `pem.Decode`, protecting
 > startup from a corrupted or attacker-replaced key file that would otherwise be
 > loaded whole into memory.
+
+## What happens if initialisation is interrupted
+
+`New` writes the three key files as one transaction. The complete set is
+generated into a private staging directory `.staging-<random hex>` and then
+hard-linked into the final names in the fixed order `ed25519_private.pem`,
+`ed25519_public.pem`, `refresh_secret.key`. The atomicity property is "the
+three files appear together or not at all":
+
+- a crash before the first link leaves an empty directory and a single staging
+  directory. The next `New` sees an empty KeysDir and generates a fresh set.
+- a crash after one or two links leaves a partially-populated KeysDir and a
+  staging directory with the matching bytes. The next `New` finds the staging
+  directory, links the missing files from it, and loads. The crashed
+  publisher's staging directory is left behind as recoverable material.
+- a crash after all three links leaves the directory complete. The next `New`
+  loads and reports the leftover staging directory in a Warn log.
+
+Replicas sharing a mounted volume converge on one set: the first process to
+hard-link the private key wins; any later initialiser sees the link already
+present, drops its own staging directory, waits for the set to be complete,
+and loads the winner's keys.
+
+A partial set that cannot be completed (operator deletion with no leftover
+staging directory) is refused with advice that names the missing files and
+warns that `refresh_secret.key` must not be deleted or regenerated, because
+every stored refresh-token hash, API-key hash and every `auth/field`
+encrypted column depends on it.
+
+For container deployments (compose files, named volumes, Podman secrets,
+SELinux labels, the restart-vs-recreate distinction): see
+[Running authcore in containers](containers.md).

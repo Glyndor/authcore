@@ -12,7 +12,7 @@ server. It stores nothing and runs no HTTP server; you own the two routes.
 > Auth0, Keycloak…) issue an ID token — validate it with `VerifyIDToken`.
 > **Plain-OAuth2** providers (GitHub, Discord…) issue no ID token — fetch the
 > profile with `UserInfo` instead. The authorization + PKCE + exchange steps are
-> identical for both.
+> identical for both. Discord publishes a discovery document too; see below.
 
 ## Providers
 
@@ -23,7 +23,7 @@ Four presets ship; practically any provider works beyond them.
 | Google | OIDC | `oauth.Google()` |
 | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenant)` |
 | GitHub | OAuth2 | `oauth.GitHub()` |
-| Discord | OAuth2 | `oauth.Discord()` |
+| Discord | OAuth2 (preset) / OIDC via Discover | `oauth.Discord()` |
 | **Any OIDC** (Apple, Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
 | **Any OAuth2** (Facebook, Spotify, Twitch…) | OAuth2 | `oauth.Provider{AuthURL, TokenURL, UserInfoURL}` |
 
@@ -141,6 +141,13 @@ if err != nil { /* 401 */ }
 `UserInfo` sends the access token as a Bearer credential, caps the response, and
 returns the decoded JSON. There is no ID token to validate here — identity is
 whatever the userinfo endpoint returns, so trust only the provider's stable id.
+
+> Discord also publishes an OIDC discovery document. The `oauth.Discord()`
+> preset uses this userinfo path on purpose, and it returns Discord's own user
+> object from `users/@me`. To receive an ID token instead, build the provider
+> with `Discover(ctx, "https://discord.com", nil)`; `Discover` parses Discord's
+> published document, but an ID token from a live Discord login has not been run
+> through `VerifyIDToken` here.
 
 > Custom OAuth2 provider: set `Provider{AuthURL, TokenURL, UserInfoURL}` (no
 > issuer/JWKS). A provider with neither issuer+JWKS nor a userinfo URL is

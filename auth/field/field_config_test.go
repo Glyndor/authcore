@@ -2,10 +2,11 @@ package field
 
 // Config validation tests. They pin exactly one rejection
 // case (empty Context) and the public New path wrapping it as
-// ErrInvalidConfig. The shape mirrors auth/credential/config_test.go.
+// ErrInvalidConfig. The shape mirrors auth/credential/credential_config_test.go.
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -13,8 +14,13 @@ import (
 // Context of "" must fail validateConfig. Context has no default,
 // because any default would put every field in one keyspace.
 func TestValidateConfig_RejectsEmpty(t *testing.T) {
-	if err := validateConfig(Config{Context: ""}); err == nil {
-		t.Error("validateConfig(Context=\"\") = nil, want error")
+	const want = "context must not be empty"
+	err := validateConfig(Config{Context: ""})
+	if err == nil {
+		t.Fatal("validateConfig(Context=\"\") = nil, want error")
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("validateConfig(Context=\"\") = %q, want error containing %q", err, want)
 	}
 }
 

@@ -96,7 +96,7 @@ flowchart LR
 **New here? Start with the [Secure login recipe](docs/secure-login.md)** — the
 step-by-step flow that turns these primitives into a login an auditor accepts.
 
-[Secure login recipe](docs/secure-login.md) · [Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [API keys](docs/apikey.md) · [TOTP](docs/totp.md) · [Credential tokens](docs/credential.md) · [Field encryption](docs/field.md) · [OIDC login](docs/oauth.md) · [Key management](docs/key-management.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
+[Secure login recipe](docs/secure-login.md) · [Password](docs/password.md) · [JWT](docs/jwt.md) · [Email & username](docs/validation.md) · [API keys](docs/apikey.md) · [TOTP](docs/totp.md) · [Credential tokens](docs/credential.md) · [Field encryption](docs/field.md) · [OIDC login](docs/oauth.md) · [Key management](docs/key-management.md) · [Containers](docs/containers.md) · [Configuration](docs/configuration.md) · [Testing & modules](docs/testing.md) · [Migrating from bcrypt](docs/migrating.md) · [Errors](docs/errors.md) · [FAQ](docs/faq.md) · [Versioning](docs/versioning.md)
 
 Full API reference on [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore).
 

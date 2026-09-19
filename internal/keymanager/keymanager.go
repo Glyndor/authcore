@@ -34,7 +34,9 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -74,12 +76,28 @@ type KeyManager struct {
 // New initialises the KeyManager for the given directory.
 //
 // It creates the directory if it does not exist, writes a protective
-// .gitignore, then generates or loads each key file.
+// .gitignore, then either loads an existing key set or generates a new one
+// as a single, recoverable transaction.
+//
+// An empty directory receives a staging directory at .staging-<random hex>,
+// the three key files are written and fsynced there, then hard-linked into
+// the final names in the fixed order private, public, refresh-secret. A
+// concurrent initialiser that loses the race to the private link waits for
+// the winner to finish and loads the same keys; it never regenerates.
+//
+// A partially-populated directory (some files present, some missing) is
+// recovered by finding a matching .staging-* whose private key matches the
+// published one and linking the missing files. A partial set with no
+// matching staging directory is refused with advice that never asks the
+// operator to delete refresh_secret.key.
 //
 // dir must be a writable path. Use "." to place the ".authcore" folder
 // in the current working directory, or provide an absolute path for
 // containerised / restricted environments.
 func New(dir string, log logger) (*KeyManager, error) {
+	if _, err := os.Stat(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("inspect key directory %q: %w", dir, err)
+	}
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("create key directory %q: %w", dir, err)
 	}
@@ -111,30 +129,130 @@ func New(dir string, log logger) (*KeyManager, error) {
 		return nil, err
 	}
 
-	// Fail closed on a partially-populated directory before generating anything,
-	// so a missing refresh secret beside an existing key pair is reported rather
-	// than silently regenerated (which would invalidate stored refresh hashes).
-	if err := checkKeyDirConsistency(dir); err != nil {
+	state, err := inspectKeySet(dir)
+	if err != nil {
 		return nil, err
 	}
 
-	priv, pub, err := loadOrGenerateEd25519(dir, log)
+	if state == setEmpty {
+		if err := symlinkPreflight(dir); err != nil {
+			return nil, err
+		}
+		return newByStaging(dir, meta, log)
+	}
+
+	if state == setPartial {
+		if err := recoverPartial(dir, log); err != nil {
+			return nil, err
+		}
+	}
+	return loadFromKeysDir(dir, meta, log)
+}
+
+// setState names whether KeysDir is empty, partial, or complete. The empty
+// case takes the staging path; the complete case loads; the partial case
+// recovers (or refuses).
+type setState int
+
+const (
+	setEmpty setState = iota
+	setPartial
+	setComplete
+)
+
+// inspectKeySet counts how many of the three managed key files are present
+// in dir as regular files (or symlinks to regular files, since reads follow).
+// A classification error (a symlink loop or hostile entry) is surfaced as an
+// error: ignoring it would let New either write beside it or load from it.
+func inspectKeySet(dir string) (setState, error) {
+	present := 0
+	for _, name := range []string{filePrivateKey, filePublicKey, fileRefreshSecret} {
+		state, err := inspect(dir, name)
+		if err != nil {
+			return 0, err
+		}
+		if state != fileAbsent {
+			present++
+		}
+	}
+	switch {
+	case present == 0:
+		return setEmpty, nil
+	case present == 3:
+		return setComplete, nil
+	default:
+		return setPartial, nil
+	}
+}
+
+// newByStaging is the empty-directory path: generate a key set into a private
+// staging directory, hard-link the three files into KeysDir, then write
+// metadata atomically. The in-memory keys are returned directly so the loaders
+// are not invoked on bytes we just wrote.
+func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
+	// Sync the parent directory before the first publish. Another process
+	// may have created KeysDir without syncing its parent entry yet, and
+	// this process is about to publish keys that other processes will use.
+	if err := syncDir(filepath.Dir(dir)); err != nil {
+		return nil, fmt.Errorf("sync parent of keys directory: %w", err)
+	}
+	staging, priv, pub, secret, err := createStagingSet(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := faultAt("staged"); err != nil {
+		return nil, err
+	}
+	if err := linkKeys(dir, staging, log); err != nil {
+		if errors.Is(err, errWaitAndLoad) {
+			if werr := waitForSet(dir, log); werr != nil {
+				return nil, werr
+			}
+			return loadFromKeysDir(dir, meta, log)
+		}
+		return nil, err
+	}
+	keyID := computeKeyID(pub)
+	if err := syncMetadata(dir, meta, keyID, log); err != nil {
+		return nil, err
+	}
+	reportLeftovers(dir, log)
+	return &KeyManager{
+		dir:           dir,
+		privateKey:    priv,
+		publicKey:     pub,
+		refreshSecret: secret,
+		keyID:         keyID,
+	}, nil
+}
+
+// loadFromKeysDir is the complete-directory path: load the three files
+// through the existing validators (which check pair consistency and secret
+// length), sync metadata, and report any leftover staging directories.
+//
+// The loading path tolerates a read-only KeysDir: symlinks are followed by
+// os.Stat, the size cap is honoured, and metadata is written with a warning
+// rather than as an error.
+func loadFromKeysDir(dir string, meta *metadata, log logger) (*KeyManager, error) {
+	priv, pub, err := loadEd25519(filepath.Join(dir, filePrivateKey), filepath.Join(dir, filePublicKey))
 	if err != nil {
 		return nil, fmt.Errorf("ed25519 key pair: %w", err)
 	}
-
-	secret, err := loadOrGenerateRefreshSecret(dir, log)
+	secret, err := loadRefreshSecret(filepath.Join(dir, fileRefreshSecret))
 	if err != nil {
 		return nil, fmt.Errorf("refresh secret: %w", err)
 	}
-
 	keyID := computeKeyID(pub)
-
-	// Record the layout last, once the keys it describes are known good. A
-	// directory from before this file existed is adopted in place here — the
-	// key material is never rewritten, only described.
-	syncMetadata(dir, meta, keyID, log)
-
+	if err := syncMetadata(dir, meta, keyID, log); err != nil {
+		return nil, err
+	}
+	if err := syncDir(dir); err != nil {
+		// A read-only KeysDir (a mounted secret) is a supported deployment;
+		// the metadata is already written when possible, so a sync that
+		// cannot flush is a warning, not a load failure.
+		log.Warn("authcore/keymanager: could not sync key directory %q (continuing): %v", dir, err)
+	}
+	reportLeftovers(dir, log)
 	return &KeyManager{
 		dir:           dir,
 		privateKey:    priv,

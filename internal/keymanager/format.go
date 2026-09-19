@@ -1,6 +1,8 @@
 package keymanager
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,10 +90,12 @@ func readMetadata(dir string) (*metadata, error) {
 // the pre-metadata layout in place, without touching the keys), and refreshes
 // the recorded key id when the signing key has been rotated underneath.
 //
-// A write failure is reported to the log, never returned. A read-only KeysDir
-// is a supported deployment — a mounted secret — and the descriptor is
-// bookkeeping, so failing to write it must not stop a service from starting.
-func syncMetadata(dir string, existing *metadata, keyID string, log logger) {
+// A genuine write failure is reported to the log and not returned: the
+// descriptor is bookkeeping and a read-only KeysDir (a mounted secret) is a
+// supported deployment, so a metadata write that fails must not stop a
+// service from starting. A faultAt return is a test-only signal and is
+// returned verbatim so the publish transaction aborts as a crash would.
+func syncMetadata(dir string, existing *metadata, keyID string, log logger) error {
 	switch {
 	case existing == nil:
 		m := metadata{
@@ -101,7 +105,10 @@ func syncMetadata(dir string, existing *metadata, keyID string, log logger) {
 		}
 		if err := writeMetadata(dir, m); err != nil {
 			log.Warn("authcore/keymanager: could not write %s in %q (continuing): %v", fileMetadata, dir, err)
-			return
+			return nil
+		}
+		if err := faultAt("metadata-written"); err != nil {
+			return err
 		}
 		log.Info("authcore/keymanager: recorded on-disk format %d for %s", currentFormat, dir)
 
@@ -112,19 +119,73 @@ func syncMetadata(dir string, existing *metadata, keyID string, log logger) {
 		m.KeyID = keyID
 		if err := writeMetadata(dir, m); err != nil {
 			log.Warn("authcore/keymanager: could not update %s in %q (continuing): %v", fileMetadata, dir, err)
-			return
+			return nil
+		}
+		if err := faultAt("metadata-written"); err != nil {
+			return err
 		}
 		log.Info("authcore/keymanager: signing key changed, %s now records key id %s", fileMetadata, keyID)
 	}
+	return nil
 }
 
-// writeMetadata serialises m into dir.
+// writeMetadata serialises m into dir atomically.
+//
+// The file is written to a random-named temp sibling, fsynced, then renamed
+// onto metadata.json. The rename is the commit; on a crash mid-write, the
+// previous metadata.json (or its absence) is preserved and the temp file is
+// left behind for the operator to inspect or remove. A second crash between
+// the rename and the directory sync could still see the new metadata as
+// unpublished, but the previous metadata.json is what readMetadata would have
+// returned; the worst case is a one-startup delay, not a torn file.
+//
+// syncMetadata wraps this so failures stay warnings and never block startup;
+// writeMetadata itself returns errors because the metadata tests pin them.
 func writeMetadata(dir string, m metadata) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", fileMetadata, err)
 	}
-	return os.WriteFile(filepath.Join(dir, fileMetadata), append(data, '\n'), 0600)
+	data = append(data, '\n')
+
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Errorf("generate metadata temp suffix: %w", err)
+	}
+	tempPath := filepath.Join(dir, ".metadata.json.tmp-"+hex.EncodeToString(buf[:]))
+
+	// #nosec G304 -- tempPath is KeysDir joined with a name generated here from crypto/rand, never request input
+	f, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return fmt.Errorf("create metadata temp %q: %w", tempPath, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("write metadata temp: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("sync metadata temp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close metadata temp: %w", err)
+	}
+	// Leave the temp file behind on a fault so the on-disk state mirrors a
+	// crash that happened at this exact point.
+	if err := faultAt("metadata-before-rename"); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, filepath.Join(dir, fileMetadata)); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("rename metadata temp to %q: %w", fileMetadata, err)
+	}
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("sync keys directory after metadata rename: %w", err)
+	}
+	return nil
 }
 
 // creationTime dates the key material. The private key's modification time is
