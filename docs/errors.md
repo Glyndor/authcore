@@ -15,7 +15,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 |---|---|
 | `authcore.ErrInvalidConfig` | `Config` validation failed |
 | `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil |
-| `authcore.ErrKeyManager` | key generation or loading failed |
+| `authcore.ErrKeyManager` | key generation or loading failed, or a `Config.KeyStore` returned no material or material of the wrong shape (see [Key management](key-management.md#what-a-custom-load-must-return)) |
 
 ## `auth/jwt` package
 

@@ -122,6 +122,46 @@ To implement a fully custom source (KMS that signs without exposing the private
 key would need more than this), satisfy the one-method `KeyStore` interface
 yourself: `Load() (authcore.Keys, error)`.
 
+### What a custom `Load` must return
+
+`Load` returns either usable material and a nil error, or a non-nil error.
+**A miss is an error.** A secret manager lookup that succeeds and finds nothing
+must not become `return nil, nil`, and must not become a nil pointer returned as
+`Keys`:
+
+```go
+func (s vaultStore) Load() (authcore.Keys, error) {
+    secret, err := s.client.Read(s.path)
+    if err != nil {
+        return nil, err
+    }
+    if secret == nil {
+        // Not "return nil, nil": the lookup worked and found nothing.
+        return nil, fmt.Errorf("no key material at %s", s.path)
+    }
+    // ...
+}
+```
+
+`New` checks what `Load` returned before anything uses it, with the same rules
+as `NewKeyStoreFromKeys`:
+
+| Accessor | Must return |
+|---|---|
+| `PrivateKey()` | 64 bytes: the 32-byte seed followed by the public key that seed derives, which is what `crypto/ed25519` produces. A bare 32-byte seed is refused; expand it with `ed25519.NewKeyFromSeed`. |
+| `PublicKey()` | 32 bytes, the public half of `PrivateKey()`. |
+| `RefreshSecret()` | Exactly 32 bytes. |
+
+Anything else makes `New` fail with an error that wraps `ErrKeyManager` and
+names what was wrong, for example `KeyStore.Load returned nil Keys with a nil
+error` or `refresh secret has wrong length: got 16, want 32`. The failure
+belongs at startup: before this check, a store that returned `(nil, nil)` passed
+`New` and the process panicked on the first token it signed.
+
+The simplest way to satisfy all of it is to fetch the bytes yourself and hand
+them to `NewKeyStoreFromKeys` or `NewKeyStoreFromPEM`, and to write a custom
+`Keys` only when that does not fit.
+
 > [!NOTE]
 > The disk default stores the private key and refresh secret **unencrypted**
 > (owner-only `0600`, like an SSH key). For a high-assurance deployment, source
