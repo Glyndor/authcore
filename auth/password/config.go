@@ -73,8 +73,11 @@ type Config struct {
 	// Pointer semantics: see RequireUpper.
 	RequireDigit *bool
 
-	// RequireSymbol requires at least one special character (anything that
-	// is not a letter or digit).
+	// RequireSymbol requires at least one special character: Unicode
+	// punctuation, a Unicode symbol, or the ASCII space. A letter without
+	// case, a combining mark and a non-decimal number do not count, and a
+	// character that is not printable is refused whatever this field says
+	// (see ErrNonPrintableCharacter).
 	// Pointer semantics: see RequireUpper.
 	RequireSymbol *bool
 }

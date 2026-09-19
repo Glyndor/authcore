@@ -46,6 +46,55 @@ not a security primitive:
 | Digit | `RequireDigit` (default `true`) |
 | Special | `RequireSymbol` (default `true`) |
 
+The classes follow Unicode. Uppercase and lowercase are cased letters in any
+script, a digit is any decimal digit, and a **special character is
+punctuation, a symbol, or the ASCII space** (`!`, `-`, `+`, `€`, `¿`, ` `).
+A printable character outside the four classes is allowed and satisfies none
+of them: a letter without case such as `漢` or `א`, a combining mark, or a
+number like `½` does not count as special.
+
+### Characters that are never accepted
+
+One rule is not a policy field. `Hash` and `ValidatePolicy` refuse any
+character that is not printable, under every `Config`, including one with all
+four `Require*` fields off:
+
+- control characters: NUL, tab, newline, DEL and the rest of C0 and C1
+- invisible format characters, such as the zero-width joiner U+200D
+- every space other than the ASCII one, such as the no-break space U+00A0
+- unassigned and private-use code points
+- bytes that are not valid UTF-8, and the replacement character U+FFFD
+
+The error is still `ErrWeakPassword`, and its wrapped reason is the
+`ErrNonPrintableCharacter` sentinel, so you can tell this case apart when you
+want to say something more useful than "weak password", for example that a
+paste carried a character the user cannot see:
+
+```go
+err := pwdMod.ValidatePolicy(req.Password)
+switch {
+case errors.Is(err, password.ErrNonPrintableCharacter):
+    // 400: "must contain only printable characters"
+case errors.Is(err, password.ErrWeakPassword):
+    // 400: errors.Unwrap(err).Error() names the rule
+}
+```
+
+Check it before the general case: both `errors.Is` calls are true for this
+error.
+
+Until this rule existed, `Abcdefghijk1` was rejected for having no special
+character while `Abcdefghijk1` followed by a NUL byte was accepted, hashed and
+verified, because the NUL counted as the special character. A byte like that
+is the one a terminal, a transport or a database column is most likely to
+strip later, and then the user cannot sign in.
+
+> [!IMPORTANT]
+> The rule applies when a password is **set**, never when it is checked.
+> `Verify` runs no policy, so a user whose stored password already holds such
+> a character keeps signing in with it. They are asked for a printable
+> password the next time they change it.
+
 Each `Require*` field is a `*bool`, so that leaving it unset ("keep the
 default") stays distinguishable from setting it to false ("turn this class
 off"). Use `password.Bool` rather than a temporary local:
