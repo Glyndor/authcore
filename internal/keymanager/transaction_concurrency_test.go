@@ -2,6 +2,8 @@ package keymanager
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -60,6 +62,15 @@ func TestConcurrentInitAllAgree(t *testing.T) {
 	}
 }
 
+// TestHelperDoesNotDeleteALiveStaging verifies that when goroutine A is
+// mid-publish (its private key is linked, its staging directory is still
+// present), a second goroutine B that calls New does not remove A's staging
+// directory as part of recovering through it.
+//
+// The fault hook blocks the first caller that reaches "published-private",
+// which the test arranges to be A by waiting for A's private key to be
+// published before starting B. Every wait is bounded, so a defect here fails
+// the run with a message instead of hanging the package.
 func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("hard links require POSIX semantics")
@@ -91,22 +102,54 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 		aResult <- out
 	}()
 
+	// Wait until A has linked its private key AND exactly one staging
+	// directory is present. The fault hook runs after linkKeys' first
+	// linkFile returns, so observing the linked file means A is about to
+	// enter (or already inside) the hook. By the time the test proceeds
+	// to call B's New, B will see a partial directory and take the
+	// recovery path through completeFromStaging, which never calls the
+	// "published-private" hook. The previous version of this test waited
+	// only for A's staging directory to appear, which happened before A
+	// linked the private key; a slow A let B find an empty KeysDir and
+	// take the staging path, blocking B in the hook while nothing closed
+	// release (A was still between staging and linking). That variant
+	// hung the package under load on 2026-09-19, and hung every run when
+	// only the first initialiser was delayed 300 ms before its first link.
 	deadline := time.Now().Add(2 * time.Second)
 	var initial []string
+	var privOK bool
 	for time.Now().Before(deadline) {
 		initial = listStagingDirs(t, dir)
-		if len(initial) == 1 {
+		_, statErr := os.Stat(filepath.Join(dir, filePrivateKey))
+		privOK = statErr == nil
+		if privOK && len(initial) == 1 {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	if len(initial) != 1 {
-		t.Fatalf("A's staging did not appear within 2s: %v", initial)
+	if !privOK || len(initial) != 1 {
+		t.Fatalf("A's private key did not appear within 2s: staging=%v, privOK=%v", initial, privOK)
 	}
 
-	_, err := New(dir, silentLog{})
-	if err != nil {
-		t.Fatalf("B's New: %v", err)
+	// Run B's New in a goroutine and bound the wait so a defect in the
+	// recovery path fails the test instead of hanging the package. Close
+	// release on timeout so A can also make progress and surface its own
+	// error, which will be more useful than a bare timeout.
+	bResult := make(chan error, 1)
+	go func() {
+		_, err := New(dir, silentLog{})
+		bResult <- err
+	}()
+	var bErr error
+	select {
+	case bErr = <-bResult:
+	case <-time.After(10 * time.Second):
+		close(release)
+		t.Fatal("B's New did not return within 10s")
+	}
+	if bErr != nil {
+		close(release)
+		t.Fatalf("B's New: %v", bErr)
 	}
 	bSet := readSet(t, dir)
 
@@ -116,7 +159,12 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 	}
 
 	close(release)
-	a := <-aResult
+	var a result
+	select {
+	case a = <-aResult:
+	case <-time.After(10 * time.Second):
+		t.Fatal("A's New did not return within 10s after release")
+	}
 	if a.err != nil {
 		t.Fatalf("A's New returned %v", a.err)
 	}
