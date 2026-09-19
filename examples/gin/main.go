@@ -10,10 +10,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/jwt"
@@ -21,22 +21,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ---- in-memory "database" ---------------------------------------------------
-
-type user struct {
-	id           string
-	email        string
-	passwordHash string
-	refreshHash  string
-}
-
-var (
-	mu    sync.RWMutex
-	users = map[string]*user{} // keyed by email
-)
-
 // ---- custom claims ----------------------------------------------------------
 
+// UserClaims is the application data carried inside the access token.
 type UserClaims struct {
 	Email string `json:"email"`
 }
@@ -44,15 +31,28 @@ type UserClaims struct {
 // ---- main -------------------------------------------------------------------
 
 func main() {
-	// Initialise authcore and modules once at startup.
-	auth, err := authcore.New(authcore.DefaultConfig())
+	pwdMod, jwtMod, err := newModules(authcore.DefaultConfig())
 	if err != nil {
-		log.Fatalf("authcore: %v", err)
+		log.Fatal(err)
+	}
+
+	r := newRouter(pwdMod, jwtMod)
+
+	log.Println("listening on :3000")
+	log.Fatal(r.Run(":3000"))
+}
+
+// newModules initialises authcore from cfg and returns the two modules the
+// routes use. Call it once at startup and share the result between requests.
+func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], error) {
+	auth, err := authcore.New(cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("authcore: %w", err)
 	}
 
 	pwdMod, err := password.New(auth)
 	if err != nil {
-		log.Fatalf("password module: %v", err)
+		return nil, nil, fmt.Errorf("password module: %w", err)
 	}
 
 	jwtCfg := jwt.DefaultConfig()
@@ -61,9 +61,17 @@ func main() {
 
 	jwtMod, err := jwt.New[UserClaims](auth, jwtCfg)
 	if err != nil {
-		log.Fatalf("jwt module: %v", err)
+		return nil, nil, fmt.Errorf("jwt module: %w", err)
 	}
 
+	return pwdMod, jwtMod, nil
+}
+
+// newRouter builds the Gin engine with every route of the example wired to
+// pwdMod and jwtMod, over a fresh empty user store. main serves it, and the
+// tests drive the same engine through net/http/httptest.
+func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engine {
+	db := newStore()
 	r := gin.Default()
 
 	// -------------------------------------------------------------------------
@@ -96,13 +104,24 @@ func main() {
 			return
 		}
 
-		mu.Lock()
-		users[req.Email] = &user{
-			id:           req.Email, // use a real UUID v7 in production
+		// The id is the JWT subject and must be a UUID v7. The email stays a
+		// separate field: it can change, the subject cannot.
+		created := db.insert(user{
+			id:           newUserID(),
 			email:        req.Email,
 			passwordHash: hash,
+		})
+		if !created {
+			// Never overwrite: a second registration of an address must not
+			// touch the account that owns it.
+			//
+			// This 409 tells the caller the address is registered. Accept that
+			// in a demo only. In production answer every registration the same
+			// way and deliver the outcome to the mailbox, so the endpoint
+			// cannot be used to enumerate accounts.
+			c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
+			return
 		}
-		mu.Unlock()
 
 		c.JSON(http.StatusCreated, gin.H{"message": "user created"})
 	})
@@ -121,10 +140,7 @@ func main() {
 			return
 		}
 
-		mu.RLock()
-		u, exists := users[req.Email]
-		mu.RUnlock()
-
+		u, exists := db.findByEmail(req.Email)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
@@ -153,9 +169,12 @@ func main() {
 		}
 
 		// Persist only the hash — never the raw refresh token.
-		mu.Lock()
-		u.refreshHash = pair.RefreshTokenHash
-		mu.Unlock()
+		if !db.setRefreshHash(u.email, pair.RefreshTokenHash) {
+			// The account disappeared between the lookup and this write.
+			// Fail closed: tokens whose hash was not stored must not be sent.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"access_token":  pair.AccessToken,
@@ -221,34 +240,31 @@ func main() {
 			return
 		}
 
-		// Find the user whose stored hash matches this token (constant-time).
-		// In production: decode the session ID from the refresh token claims
-		// and look up the user directly — no table scan needed.
-		mu.RLock()
-		var found *user
-		for _, u := range users {
-			if jwtMod.VerifyRefreshTokenHash(req.RefreshToken, u.refreshHash) {
-				found = u
-				break
-			}
-		}
-		mu.RUnlock()
-
-		if found == nil {
+		// 1. Look the session up by the hash of the presented token, then
+		//    confirm the match in constant time.
+		presented := jwtMod.HashRefreshToken(req.RefreshToken)
+		found, ok := db.findByRefreshHash(presented)
+		if !ok || !jwtMod.VerifyRefreshTokenHash(req.RefreshToken, found.refreshHash) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 			return
 		}
 
+		// 2. Mint outside any lock. RotateTokens checks signature and expiry.
+		//    Nothing minted here may reach the client before step 3 succeeds.
 		newPair, err := jwtMod.RotateTokens(req.RefreshToken, UserClaims{Email: found.email})
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "could not rotate token"})
 			return
 		}
 
-		// Atomically replace the stored hash in the database.
-		mu.Lock()
-		found.refreshHash = newPair.RefreshTokenHash
-		mu.Unlock()
+		// 3. Consume the presented token: swap its hash for the new one only
+		//    if it is still the stored one. The lookup in step 1 is not enough,
+		//    because a concurrent redemption of the same token passes it too.
+		//    Whoever loses this swap gets 401 and its minted pair is dropped.
+		if !db.swapRefreshHash(found.email, presented, newPair.RefreshTokenHash) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"access_token":  newPair.AccessToken,
@@ -257,6 +273,5 @@ func main() {
 		})
 	})
 
-	log.Println("listening on :3000")
-	log.Fatal(r.Run(":3000"))
+	return r
 }
