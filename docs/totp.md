@@ -133,6 +133,11 @@ configurable value here produces an enrollment that works in your
 test environment and locks the user out on the user's phone. There
 is no "strict RFC" escape hatch.
 
+The secret length is enforced on the way in as well as on the way
+out. `Verify` refuses any secret that does not decode to exactly 20
+bytes with `ErrInvalidSecret`, so a shorter secret carried over from
+another implementation is not accepted: enroll that user again.
+
 The policy layer is **open with secure defaults**: see
 [configuration](configuration.md) for the principle. The caller can
 tune `SkewSteps` (clock-skew window), `RecoveryCodeCount` (how many

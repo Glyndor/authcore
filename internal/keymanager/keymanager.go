@@ -220,8 +220,8 @@ func tightenDirMode(dir string) error {
 // not already exist. It is idempotent.
 func ensureGitignore(dir string) error {
 	path := filepath.Join(dir, fileGitignore)
-	if _, err := os.Stat(path); err == nil {
+	if exists(dir, fileGitignore) {
 		return nil // already present
 	}
-	return os.WriteFile(path, []byte(gitignoreContent), 0600)
+	return createExclusive(path, []byte(gitignoreContent), 0600)
 }

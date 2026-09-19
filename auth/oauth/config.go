@@ -78,8 +78,26 @@ func applyDefaults(cfg Config) Config {
 	if len(cfg.Scopes) == 0 {
 		cfg.Scopes = defaultScopes
 	}
-	if cfg.HTTPClient == nil {
+	// A caller supplies a client for its transport, its timeout or its proxy.
+	// None of those intentions include turning off the redirect guards, and
+	// installing the safe client only when the field is nil is what used to
+	// turn them off: safeRedirect is four controls at once, and every one of
+	// them was lost on the token, JWKS, userinfo and discovery fetches the
+	// moment a caller set this field. The token exchange carries the client
+	// secret and receives the ID token, so those are the fetches that least
+	// tolerate an unguarded redirect.
+	//
+	// The copy is deliberate. Forcing the policy onto the caller's own
+	// *http.Client would change how that client behaves everywhere else in
+	// their program, which is a second surprise rather than a fix. They keep
+	// Transport, Timeout and Jar, which is what they supplied it for.
+	switch {
+	case cfg.HTTPClient == nil:
 		cfg.HTTPClient = newSafeHTTPClient()
+	default:
+		guarded := *cfg.HTTPClient
+		guarded.CheckRedirect = safeRedirect
+		cfg.HTTPClient = &guarded
 	}
 	return cfg
 }
@@ -208,5 +226,15 @@ func requireHTTPS(label, raw string) error {
 
 // isLoopbackHost reports whether host is a loopback address (dev-only http).
 func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if host == "localhost" {
+		return true
+	}
+	// Match the whole loopback range rather than the two literals people
+	// usually type. 127.0.0.0/8 is all loopback, and a development server
+	// bound to 127.0.0.2 to dodge a port collision is as local as 127.0.0.1.
+	// Failing to recognise it refused the documented plaintext exception, so
+	// this was a usability gap rather than a hole, but the definition should
+	// be the one the standard library already has.
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

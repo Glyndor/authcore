@@ -1,6 +1,6 @@
 package field
 
-// Config validation tests. The brief calls out exactly one rejection
+// Config validation tests. They pin exactly one rejection
 // case (empty Context) and the public New path wrapping it as
 // ErrInvalidConfig. The shape mirrors auth/credential/config_test.go.
 
@@ -10,8 +10,8 @@ import (
 )
 
 // TestValidateConfig_RejectsEmpty pins the only rejection case: a
-// Context of "" must fail validateConfig. The brief is explicit that
-// there is no default for Context.
+// Context of "" must fail validateConfig. Context has no default,
+// because any default would put every field in one keyspace.
 func TestValidateConfig_RejectsEmpty(t *testing.T) {
 	if err := validateConfig(Config{Context: ""}); err == nil {
 		t.Error("validateConfig(Context=\"\") = nil, want error")
@@ -19,7 +19,7 @@ func TestValidateConfig_RejectsEmpty(t *testing.T) {
 }
 
 // TestValidateConfig_Accepts pins the only acceptance boundary:
-// any non-empty Context is allowed. The brief says Context names the
+// any non-empty Context is allowed. Context only names the
 // field; the module does not constrain what the name is.
 func TestValidateConfig_Accepts(t *testing.T) {
 	for _, ctx := range []string{"email", "phone", "x", "a long column name with spaces"} {
@@ -62,7 +62,7 @@ func TestNew_DefaultConfigRejected(t *testing.T) {
 }
 
 // TestApplyDefaults_IsPassThrough pins the "Context is not defaulted"
-// lesson from the brief: applyDefaults does NOT fill an empty
+// rule of this package: applyDefaults does NOT fill an empty
 // Context with a placeholder, because any placeholder would make
 // every field share one keyspace. validateConfig is the only thing
 // that decides what Context values are allowed.

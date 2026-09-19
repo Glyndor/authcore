@@ -46,6 +46,27 @@ var (
 	// Use errors.Unwrap(err).Error() to obtain just the reason without the
 	// "password: does not meet policy requirements: " prefix.
 	ErrWeakPassword = errors.New("password: does not meet policy requirements")
+
+	// ErrNonPrintableCharacter is the reason wrapped by ErrWeakPassword when
+	// Hash or ValidatePolicy meets a character that is not printable: a control
+	// character (NUL, tab, newline, DEL), an invisible format character such as
+	// a zero-width joiner, a space other than the ASCII one, an unassigned code
+	// point, or a byte sequence that is not valid UTF-8. The rejection applies
+	// under every Config, including one with all four Require fields off.
+	//
+	// It is always delivered inside ErrWeakPassword, so both checks hold for
+	// the same error:
+	//
+	//	errors.Is(err, password.ErrWeakPassword)          // true
+	//	errors.Is(err, password.ErrNonPrintableCharacter) // true
+	//
+	// Match on it to tell the user that the input carried a character they
+	// cannot see, which usually arrives with a paste.
+	//
+	// Safety: CLIENT-SAFE. It carries no "password: " prefix because it is the
+	// text errors.Unwrap(err).Error() hands to the user, like every other
+	// policy reason. It never quotes the offending character or its position.
+	ErrNonPrintableCharacter = errors.New("must contain only printable characters")
 )
 
 // policyViolation wraps ErrWeakPassword with a single specific reason so that

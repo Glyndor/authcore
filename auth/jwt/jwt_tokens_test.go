@@ -62,7 +62,7 @@ func TestRotateTokens_unknownKidRejectsRefreshToken(t *testing.T) {
 	// Mirror of the access-token kid check but on the rotation path. A
 	// refresh token with a kid the module does not recognise must be
 	// rejected before it is exchanged for a fresh pair.
-	claims := newRefreshClaims(j.cfg.Issuer, testSubject, "019600ab-0000-7000-8000-000000000003", j.cfg.Audience, epoch, j.cfg.RefreshTokenTTL)
+	claims := newRefreshClaims(j.cfg.Issuer, testSubject, "019600ab-0000-7000-8000-000000000003", "", j.cfg.Audience, epoch, j.cfg.RefreshTokenTTL)
 	claims.Type = tokenTypeRefresh
 	token := gjwt.NewWithClaims(gjwt.SigningMethodEdDSA, claims)
 	token.Header["kid"] = "attacker-controlled-kid"

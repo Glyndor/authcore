@@ -11,13 +11,16 @@ package jwt
 // Signature: Ed25519 signature over the raw "header.payload" ASCII bytes
 //
 // Access token payload : iss, sub, iat, exp, jti, type, extra
-// Refresh token payload: iss, sub, iat, exp, jti, type  (no extra)
+// Refresh token payload: iss, sub, iat, exp, jti, type, rid  (no extra). Each refresh
+// token carries a random rid, so two tokens of one session never compare equal,
+// whatever the clock says.
 
 import (
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -48,10 +51,14 @@ type accessClaims[T any] struct {
 }
 
 // refreshClaims is the minimal internal claim set for refresh tokens.
-// Refresh tokens carry no application-specific data (no extra field).
+// Refresh tokens carry no application-specific data (no extra field) but do
+// carry a random RID ("rid") so two tokens of one session never compare equal,
+// even when issued in the same wall-clock second. RID is omitted when empty,
+// which keeps refresh tokens issued before this field existed parseable.
 type refreshClaims struct {
 	gjwt.RegisteredClaims
 	Type string `json:"type"`
+	RID  string `json:"rid,omitempty"`
 }
 
 // newAccessClaims builds the claim set for an access token.
@@ -71,7 +78,10 @@ func newAccessClaims[T any](issuer, subject, jti string, audience []string, extr
 }
 
 // newRefreshClaims builds the claim set for a refresh token.
-func newRefreshClaims(issuer, subject, jti string, audience []string, now time.Time, ttl time.Duration) *refreshClaims {
+// rid is the per-token random value generated next to signing; pass an empty
+// string when reproducing a legacy token that has no rid (verification does
+// not require or interpret rid).
+func newRefreshClaims(issuer, subject, jti, rid string, audience []string, now time.Time, ttl time.Duration) *refreshClaims {
 	return &refreshClaims{
 		RegisteredClaims: gjwt.RegisteredClaims{
 			Issuer:    issuer,
@@ -82,6 +92,7 @@ func newRefreshClaims(issuer, subject, jti string, audience []string, now time.T
 			ExpiresAt: gjwt.NewNumericDate(now.Add(ttl)),
 		},
 		Type: tokenTypeRefresh,
+		RID:  rid,
 	}
 }
 
@@ -255,4 +266,19 @@ func generateJTI(now time.Time) (string, error) {
 
 	h := hex.EncodeToString(b[:])
 	return fmt.Sprintf("%s-%s-%s-%s-%s", h[0:8], h[8:12], h[12:16], h[16:20], h[20:32]), nil
+}
+
+// generateRID returns 16 random bytes encoded as base64.RawURLEncoding (22
+// chars, no padding) for the "rid" claim of a refresh token. The value is
+// independent of the clock and any other claim; two calls in the same
+// wall-clock second produce distinct values with overwhelming probability.
+//
+// On a crypto/rand failure generateRID wraps the error the same way generateJTI
+// does, so callers can propagate it unchanged.
+func generateRID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate refresh token RID: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }

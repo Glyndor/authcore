@@ -22,6 +22,7 @@
 //   - Output: PHC string format — self-describing, portable
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
+//   - Printable input only: Hash refuses control and invisible characters
 //
 // # What is tunable
 //
@@ -139,7 +140,9 @@ func (p *Password) Name() string { return "password" }
 // This check is identical to the one Hash performs internally. The bounds and
 // required classes it enforces come from the module's Config (see
 // [Config.MinLength], [Config.MaxLength] and the [Config.RequireUpper] family),
-// so the message reflects what the caller actually configured.
+// so the message reflects what the caller actually configured. One rule is not
+// configurable: a character that is not printable is refused with
+// [ErrNonPrintableCharacter] as the wrapped reason.
 func (p *Password) ValidatePolicy(plaintext string) error {
 	if err := checkPolicy(norm.NFC.String(plaintext), p.cfg); err != nil {
 		return &policyViolation{reason: err}
@@ -158,6 +161,10 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 // (applyDefaults guarantees non-nil), so this function reads them through
 // the pointer without nil checks. The error messages quote cfg.MinLength
 // and cfg.MaxLength, so the caller sees the bound they actually configured.
+//
+// Keep the printable check ahead of the classification and outside cfg. It is
+// not a product rule a caller can turn off: until #347 a NUL appended to
+// "Abcdefghijk1" was what made it pass, got hashed, and verified.
 func checkPolicy(plaintext string, cfg Config) error {
 	count := utf8.RuneCountInString(plaintext)
 	if count < cfg.MinLength {
@@ -169,6 +176,9 @@ func checkPolicy(plaintext string, cfg Config) error {
 
 	var hasUpper, hasLower, hasDigit, hasSpecial bool
 	for _, r := range plaintext {
+		if !isPrintable(r) {
+			return ErrNonPrintableCharacter
+		}
 		switch {
 		case unicode.IsUpper(r):
 			hasUpper = true
@@ -176,9 +186,12 @@ func checkPolicy(plaintext string, cfg Config) error {
 			hasLower = true
 		case unicode.IsDigit(r):
 			hasDigit = true
-		default:
+		case isSpecial(r):
 			hasSpecial = true
 		}
+		// No default arm on purpose. A printable rune outside the four classes
+		// (a letter without case such as a CJK ideograph, a combining mark, a
+		// number that is not a decimal digit) is allowed and satisfies nothing.
 	}
 
 	switch {
@@ -194,6 +207,31 @@ func checkPolicy(plaintext string, cfg Config) error {
 	return nil
 }
 
+// isPrintable reports whether r may appear in a password at all.
+//
+// unicode.IsPrint is true for letters, marks, numbers, punctuation, symbols
+// and the ASCII space, and false for control characters, format characters
+// such as the zero-width joiner, every other space, and unassigned code
+// points.
+//
+// U+FFFD needs its own clause. It is category So, so IsPrint accepts it, and
+// it is what range yields for a byte that is not valid UTF-8. Measured before
+// this check existed: "Abcdefghijk1\xff" passed the default policy with the
+// stray byte counted as its special character.
+func isPrintable(r rune) bool {
+	return r != utf8.RuneError && unicode.IsPrint(r)
+}
+
+// isSpecial reports whether r satisfies RequireSymbol: Unicode punctuation
+// (category P), Unicode symbols (category S), and the ASCII space.
+//
+// The space stays in the class because it always counted, OWASP lists it
+// among the password special characters, and dropping it would start
+// rejecting passphrases written as spaced words.
+func isSpecial(r rune) bool {
+	return r == ' ' || unicode.IsPunct(r) || unicode.IsSymbol(r)
+}
+
 // Hash validates plaintext against the built-in password policy and, if it
 // passes, derives an Argon2id hash returned in PHC string format. A fresh
 // cryptographically random salt is generated per call, so two calls with the
@@ -204,9 +242,19 @@ func checkPolicy(plaintext string, cfg Config) error {
 // decomposed accents) produces the same hash. Users who register on one
 // operating system and sign in on another are not locked out.
 //
-// Policy (always enforced):
+// Policy with the default Config:
 //   - 12–64 characters
 //   - At least one uppercase letter, one lowercase letter, one digit, one special character
+//
+// A special character is Unicode punctuation, a Unicode symbol, or the ASCII
+// space. A printable character outside the four classes, such as a letter
+// without case, is accepted and satisfies none of them.
+//
+// Under every Config, a plaintext holding a character that is not printable
+// (control, invisible format, non-ASCII space, unassigned, or invalid UTF-8)
+// is refused with [ErrNonPrintableCharacter] wrapped in [ErrWeakPassword].
+// Verify applies no policy, so a hash stored before this rule existed keeps
+// verifying against the password it was made from.
 //
 // Store the returned string in your database. Never store the plaintext password.
 //

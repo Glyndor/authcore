@@ -233,7 +233,7 @@ func TestDecrypt_TamperedSealed(t *testing.T) {
 }
 
 // TestDecrypt_TruncatedBelowNonce covers input shorter than the
-// 12-byte nonce. The brief is explicit: this must return ErrDecrypt
+// 12-byte nonce. A short row is corrupt data: it must return ErrDecrypt
 // and must not panic or index out of range. The function checks
 // length before slicing.
 func TestDecrypt_TruncatedBelowNonce(t *testing.T) {
@@ -255,7 +255,7 @@ func TestDecrypt_EmptyString(t *testing.T) {
 }
 
 // TestDecrypt_InvalidBase64 covers input that is not valid base64.
-// The brief requires ErrDecrypt, not a panic. The base64 decoder
+// Decrypt must answer ErrDecrypt, not a panic. The base64 decoder
 // itself does not panic on bad input; this pins that.
 func TestDecrypt_InvalidBase64(t *testing.T) {
 	f := newFld(t, "email")

@@ -181,7 +181,13 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 	}
 
 	// ----- Refresh token (no extra) -----
-	refreshToken, err := signToken(newRefreshClaims(j.cfg.Issuer, subject, jti, j.cfg.Audience, now, j.cfg.RefreshTokenTTL), j.priv, j.kid)
+	// Each refresh token gets a fresh random rid here, next to signing, so
+	// newRefreshClaims stays a pure constructor.
+	rid, err := generateRID()
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, err := signToken(newRefreshClaims(j.cfg.Issuer, subject, jti, rid, j.cfg.Audience, now, j.cfg.RefreshTokenTTL), j.priv, j.kid)
 	if err != nil {
 		return nil, fmt.Errorf("sign refresh token: %w", err)
 	}
@@ -289,6 +295,9 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 // Because the refresh token does not carry application-specific data, the
 // caller must supply updated extra claims (typically re-fetched from the
 // database at rotation time).
+//
+// Each refresh token carries a random rid, so two tokens of one session never
+// compare equal, whatever the clock says.
 //
 // The SessionID (jti) is preserved across rotations — only the token strings
 // and their expiry times change. This means the caller's session record

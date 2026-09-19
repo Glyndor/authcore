@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/argon2"
+
 	"github.com/Glyndor/authcore"
 )
 
@@ -400,37 +402,58 @@ func TestParsePHC_memoryAboveCeilingRejected(t *testing.T) {
 	// A corrupted or attacker-supplied hash with m=4_000_000_000 would cause
 	// argon2.IDKey to attempt a multi-TiB allocation and crash the process.
 	// The parser must reject it before the key derivation runs.
-	_, _, _, err := parsePHC("$argon2id$v=19$m=4000000000,t=3,p=2$c2FsdA$a2V5")
+	//
+	// The salt and key have to be well formed for this to be a test of the
+	// memory ceiling. This used to pass the literal salt "c2FsdA", which is
+	// four bytes, so the hash was refused by the salt-length check and the
+	// test stayed green with the ceiling deleted. The comment above named a
+	// control the body did not reach.
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version, maxMemory+1, 3, 1))
 	if err == nil {
-		t.Error("expected error for memory above ceiling, got nil")
+		t.Fatal("expected error for memory above ceiling, got nil")
+	}
+	if !strings.Contains(err.Error(), "memory") {
+		t.Fatalf("refused for the wrong reason, so this is not a test of the ceiling: %v", err)
 	}
 }
 
 func TestParsePHC_memoryBelowFloorRejected(t *testing.T) {
-	_, _, _, err := parsePHC("$argon2id$v=19$m=1,t=3,p=2$c2FsdA$a2V5")
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version, minMemory-1, 3, 1))
 	if err == nil {
-		t.Error("expected error for memory below floor, got nil")
+		t.Fatal("expected error for memory below floor, got nil")
+	}
+	if !strings.Contains(err.Error(), "memory") {
+		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
 
 func TestParsePHC_iterationsAboveCeilingRejected(t *testing.T) {
-	_, _, _, err := parsePHC("$argon2id$v=19$m=65536,t=1000,p=2$c2FsdA$a2V5")
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version, minMemory, maxIterations+1, 1))
 	if err == nil {
-		t.Error("expected error for iterations above ceiling, got nil")
+		t.Fatal("expected error for iterations above ceiling, got nil")
+	}
+	if !strings.Contains(err.Error(), "iterations") {
+		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
 
 func TestParsePHC_iterationsZeroRejected(t *testing.T) {
-	_, _, _, err := parsePHC("$argon2id$v=19$m=65536,t=0,p=2$c2FsdA$a2V5")
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version, minMemory, 0, 1))
 	if err == nil {
-		t.Error("expected error for zero iterations, got nil")
+		t.Fatal("expected error for zero iterations, got nil")
+	}
+	if !strings.Contains(err.Error(), "iterations") {
+		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
 
 func TestParsePHC_parallelismZeroRejected(t *testing.T) {
-	_, _, _, err := parsePHC("$argon2id$v=19$m=65536,t=3,p=0$c2FsdA$a2V5")
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version, minMemory, 3, 0))
 	if err == nil {
-		t.Error("expected error for zero parallelism, got nil")
+		t.Fatal("expected error for zero parallelism, got nil")
+	}
+	if !strings.Contains(err.Error(), "parallelism") {
+		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
 
@@ -439,7 +462,12 @@ func TestVerify_malformedStoredHashIsRejectedBeforeKeyDerivation(t *testing.T) {
 
 	// If Verify accepted this hash, argon2.IDKey would try to allocate 4 TiB.
 	// parsePHC must surface ErrInvalidHash instead.
-	malicious := "$argon2id$v=19$m=4000000000,t=3,p=2$c2FsdA$a2V5"
+	//
+	// The salt and key are well formed on purpose, so the memory ceiling is
+	// the only thing left that can refuse this. With the four-byte salt this
+	// used to carry, the salt-length check refused it first and the test
+	// stayed green with the ceiling deleted.
+	malicious := phc(t, "argon2id", argon2.Version, maxMemory+1, 3, 1)
 	_, err := p.Verify("any-password-we-do-not-care", malicious)
 	if !errors.Is(err, ErrInvalidHash) {
 		t.Errorf("expected ErrInvalidHash for malicious stored hash, got %v", err)

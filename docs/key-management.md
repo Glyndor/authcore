@@ -6,7 +6,7 @@ On first run authcore creates `KeysDir` (default `.authcore`) and generates:
 |---|---|---|---|
 | `ed25519_private.pem` | PKCS#8 PEM | `0600` | Signing key |
 | `ed25519_public.pem` | PKIX PEM | `0644` | Verification key |
-| `refresh_secret.key` | 32-byte hex | `0600` | HMAC-SHA256 key for refresh token hashing |
+| `refresh_secret.key` | 32-byte hex | `0600` | HMAC-SHA256 key for refresh token hashing, **and** the HKDF root for every `auth/field` column key. See below. |
 | `metadata.json` | JSON | `0600` | Records which on-disk layout wrote the directory |
 | `.gitignore` | `*` | `0600` | Prevents accidental commits |
 
@@ -122,6 +122,46 @@ To implement a fully custom source (KMS that signs without exposing the private
 key would need more than this), satisfy the one-method `KeyStore` interface
 yourself: `Load() (authcore.Keys, error)`.
 
+### What a custom `Load` must return
+
+`Load` returns either usable material and a nil error, or a non-nil error.
+**A miss is an error.** A secret manager lookup that succeeds and finds nothing
+must not become `return nil, nil`, and must not become a nil pointer returned as
+`Keys`:
+
+```go
+func (s vaultStore) Load() (authcore.Keys, error) {
+    secret, err := s.client.Read(s.path)
+    if err != nil {
+        return nil, err
+    }
+    if secret == nil {
+        // Not "return nil, nil": the lookup worked and found nothing.
+        return nil, fmt.Errorf("no key material at %s", s.path)
+    }
+    // ...
+}
+```
+
+`New` checks what `Load` returned before anything uses it, with the same rules
+as `NewKeyStoreFromKeys`:
+
+| Accessor | Must return |
+|---|---|
+| `PrivateKey()` | 64 bytes: the 32-byte seed followed by the public key that seed derives, which is what `crypto/ed25519` produces. A bare 32-byte seed is refused; expand it with `ed25519.NewKeyFromSeed`. |
+| `PublicKey()` | 32 bytes, the public half of `PrivateKey()`. |
+| `RefreshSecret()` | Exactly 32 bytes. |
+
+Anything else makes `New` fail with an error that wraps `ErrKeyManager` and
+names what was wrong, for example `KeyStore.Load returned nil Keys with a nil
+error` or `refresh secret has wrong length: got 16, want 32`. The failure
+belongs at startup: before this check, a store that returned `(nil, nil)` passed
+`New` and the process panicked on the first token it signed.
+
+The simplest way to satisfy all of it is to fetch the bytes yourself and hand
+them to `NewKeyStoreFromKeys` or `NewKeyStoreFromPEM`, and to write a custom
+`Keys` only when that does not fit.
+
 > [!NOTE]
 > The disk default stores the private key and refresh secret **unencrypted**
 > (owner-only `0600`, like an SSH key). For a high-assurance deployment, source
@@ -131,6 +171,32 @@ yourself: `Load() (authcore.Keys, error)`.
 The `KeyID()` accessor returns a 16-character hex digest derived from the public
 key. It is embedded in every token's `kid` JOSE header. Verification selects the
 key by `kid` and rejects any token whose `kid` is not one the module accepts.
+
+## The refresh secret carries two jobs, and only one of them is recoverable
+
+`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashing. Since
+`auth/field` shipped it is also the input `auth/field` runs HKDF-SHA256 over to
+derive the AES-256-GCM column key and the blind index key, with a distinct info
+label for each.
+
+That is cryptographic separation, not operational separation, and the
+difference is the whole of this section. The two jobs fail very differently:
+
+- **Lose it as a token hashing key** and every refresh token stops verifying.
+  Users log in again. Annoying, recoverable, over in a day.
+- **Lose it as the `auth/field` root** and every encrypted column is
+  permanently unreadable. There is no recovery path, because there is no copy
+  of the key anywhere else by design.
+
+So back this file up the way you back up the database, not the way you back up
+a session store. And if you use `auth/field`, **do not rotate this file in
+place.** Rotating it is a table migration: read every row with a module built
+on the old secret, write it back with one built on the new secret, in batches,
+one transaction per row. The procedure is written out in
+[field encryption](field.md#footguns-the-caller-must-handle).
+
+If you do not use `auth/field`, rotating it is exactly as cheap as it sounds:
+replace the file, everyone logs in again.
 
 ## Rotating the signing key (zero downtime)
 
