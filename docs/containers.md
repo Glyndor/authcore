@@ -73,8 +73,16 @@ Every line of that file matters:
   ```go
   cfg := authcore.DefaultConfig()
   cfg.KeysDir = os.Getenv("AUTHCORE_KEYS_DIR")
+  cfg.RequireExistingKeys = true // production: refuse to start without a provisioned set
   auth, err := authcore.New(cfg)
   ```
+
+  With `RequireExistingKeys` true, a volume that failed to mount, a volume
+  mounted at the wrong path, or an empty read-only bind stops the service at
+  startup rather than silently giving every replica new keys and invalidating
+  every issued token. The one-off init container below runs without the flag
+  so the keys are created exactly once, into the same volume the replicas will
+  later mount read-only.
 
 - `external: true` and `name: authcore-production-keys` point at a named volume
   that already exists. `podup down -v` left it in place when measured; a
@@ -82,13 +90,15 @@ Every line of that file matters:
 
 To create the keys **once** into that volume: run the application's own image
 as a one-off container, with the **same** `user:` value, the same
-`AUTHCORE_KEYS_DIR`, and the volume mounted **read-write** (the default,
-without the `:ro` suffix). authcore will create the directory and generate
-the three files when the application starts. Stop the container, back up the
-volume, and then change the mount to `:ro` and start the replicas:
+`AUTHCORE_KEYS_DIR`, the volume mounted **read-write** (the default, without
+the `:ro` suffix), and `Config.RequireExistingKeys` left at its zero value so
+authcore is willing to generate. Stop the container, back up the volume, and
+then change the mount to `:ro` and start the replicas:
 
 ```bash
 # One-off init. Same image, same user, same volume name, no :ro suffix.
+# RequireExistingKeys is unset in this command on purpose: this is the one
+# run that is allowed to write the keys.
 podman run --rm \
   --user 1000:1000 \
   --userns=keep-id \

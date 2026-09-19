@@ -51,6 +51,54 @@ What that means in practice:
 The recorded `key_id` follows the keys: rotate them by replacing the PEM files
 and the marker is updated on the next start.
 
+## Load-only in production
+
+Set `Config.RequireExistingKeys = true` to make the disk store load-only.
+`New` reads the three key files from `KeysDir` and never creates, generates,
+chmods or writes anything there. The field is the opt-in for production
+deployments that provision keys once and mount the result into every replica.
+
+```go
+cfg := authcore.DefaultConfig()
+cfg.KeysDir = "/run/secrets/authcore" // pre-provisioned by the one-off init
+cfg.RequireExistingKeys = true
+auth, err := authcore.New(cfg)
+```
+
+When the flag is true:
+
+- `New` rejects a missing `KeysDir` and a non-directory entry at that path
+  with an error wrapping `ErrInvalidConfig`. The message names the path and
+  tells the operator to provision the three files into it (restore them from
+  a backup, or generate them once without the flag and mount the result).
+- `New` rejects a partial, unreadable or malformed set with the existing
+  `ErrKeyManager` envelope. The message names the present and missing files
+  and tells the operator to restore the missing ones from a backup; the word
+  "delete" never appears.
+- The disk store does not run `mkdir`, `chmod`, `gitignore` or `metadata.json`
+  writes. A read-only mount loads cleanly, which is the deployment shape the
+  recommended compose file uses. See [containers](containers.md).
+
+The one-off key creation runs the application once against a writable volume,
+with `Config.RequireExistingKeys` left at its zero value. The exact command
+is the one-off init container in
+[Running authcore in containers](containers.md#recommended-setup); both
+sections describe the same step.
+
+The boot sequence that motivated the flag was reproduced on 2026-09-19 with
+rootless Podman and podup: a container recreated without a volume started
+with brand-new keys and no error, invalidating every issued token, every
+stored refresh-token and API-key hash, and every `auth/field` column (whose
+key derives from `refresh_secret.key`). A volume that failed to mount or was
+mounted at the wrong path is the same situation from the load-only path's
+point of view: an empty KeysDir. With the flag set, that situation stops the
+service at startup instead.
+
+The flag is ignored when `Config.KeyStore` is set: a custom `KeyStore` already
+satisfies "keys are not generated on this machine", so adding load-only on
+top would only raise the startup error in places the custom store has
+already covered.
+
 ## Containers & multiple replicas
 
 The zero-config default persists keys to `.authcore` in the working directory.
