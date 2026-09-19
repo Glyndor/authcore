@@ -53,6 +53,9 @@ var (
 	// a zero-width joiner, a space other than the ASCII one, an unassigned code
 	// point, or a byte sequence that is not valid UTF-8. The rejection applies
 	// under every Config, including one with all four Require fields off.
+	// Length is checked first after NFC normalization: an input outside the
+	// configured bounds gets the length reason instead. Once length passes,
+	// this check runs before the required character classes.
 	//
 	// It is always delivered inside ErrWeakPassword, so both checks hold for
 	// the same error:

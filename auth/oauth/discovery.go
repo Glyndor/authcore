@@ -24,6 +24,8 @@ const (
 // OpenID Connect Discovery), so a substituted discovery document cannot point
 // the client at attacker endpoints under a victim's name. ctx bounds the fetch;
 // httpClient is optional (a 10-second-timeout client is used when nil).
+// A supplied client is copied, with the library's redirect rule applied before
+// the caller's CheckRedirect. The original client is not modified.
 //
 //	p, err := oauth.Discover(ctx, "https://accounts.google.com", nil)
 //	if err != nil { ... }
@@ -31,6 +33,8 @@ const (
 func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Provider, error) {
 	if httpClient == nil {
 		httpClient = newSafeHTTPClient()
+	} else {
+		httpClient = guardClient(httpClient)
 	}
 	// Never fetch discovery over plaintext — the whole trust chain (the jwks_uri
 	// the ID-token signature hangs on) comes from this document.

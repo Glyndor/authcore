@@ -180,18 +180,21 @@ The `KeyID()` accessor returns a 16-character hex digest derived from the public
 key. It is embedded in every token's `kid` JOSE header. Verification selects the
 key by `kid` and rejects any token whose `kid` is not one the module accepts.
 
-## The refresh secret carries two jobs, and only one of them is recoverable
+## The refresh secret protects credentials and encrypted fields
 
-`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashing. Since
-`auth/field` shipped it is also the input `auth/field` runs HKDF-SHA256 over to
-derive the AES-256-GCM column key and the blind index key, with a distinct info
-label for each.
+`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashes
+(`auth/jwt`), API-key hashes (`auth/apikey`), TOTP recovery-code hashes
+(`auth/totp`) and credential-token hashes (`auth/credential`, including reset
+and activation links). It is also the input `auth/field` runs HKDF-SHA256 over
+to derive the AES-256-GCM column key and the blind index key, with a distinct
+info label for each.
 
 That is cryptographic separation, not operational separation, and the
 difference is the whole of this section. The two jobs fail very differently:
 
-- **Lose it as a token hashing key** and every refresh token stops verifying.
-  Users log in again. Annoying, recoverable, over in a day.
+- **Lose it as a hashing key** and every stored hash derived from it stops
+  verifying. New sessions, API keys, recovery codes and credential links must
+  be issued.
 - **Lose it as the `auth/field` root** and every encrypted column is
   permanently unreadable. There is no recovery path, because there is no copy
   of the key anywhere else by design.
@@ -203,8 +206,11 @@ on the old secret, write it back with one built on the new secret, in batches,
 one transaction per row. The procedure is written out in
 [field encryption](field.md#footguns-the-caller-must-handle).
 
-If you do not use `auth/field`, rotating it is exactly as cheap as it sounds:
-replace the file, everyone logs in again.
+Even without `auth/field`, replacing the refresh secret invalidates every
+stored refresh-token hash, API-key hash and TOTP recovery-code hash, plus every
+outstanding credential link (reset, activation). Logging in again restores
+sessions; it does not restore API keys, recovery codes or credential links.
+Arrange to reissue those credentials when replacing the secret.
 
 ## Rotating the signing key (zero downtime)
 
