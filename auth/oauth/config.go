@@ -78,34 +78,39 @@ func applyDefaults(cfg Config) Config {
 	if len(cfg.Scopes) == 0 {
 		cfg.Scopes = defaultScopes
 	}
-	// A caller supplies a client for its transport, its timeout or its proxy.
-	// None of those intentions include turning off the redirect guards, and
-	// installing the safe client only when the field is nil is what used to
-	// turn them off: safeRedirect is four controls at once, and every one of
-	// them was lost on the token, JWKS, userinfo and discovery fetches the
-	// moment a caller set this field. The token exchange carries the client
-	// secret and receives the ID token, so those are the fetches that least
-	// tolerate an unguarded redirect.
-	//
-	// The copy is deliberate. Forcing the policy onto the caller's own
-	// *http.Client would change how that client behaves everywhere else in
-	// their program, which is a second surprise rather than a fix. They keep
-	// Transport, Timeout and Jar, which is what they supplied it for.
 	switch {
 	case cfg.HTTPClient == nil:
 		cfg.HTTPClient = newSafeHTTPClient()
 	default:
-		guarded := *cfg.HTTPClient
-		guarded.CheckRedirect = safeRedirect
-		cfg.HTTPClient = &guarded
+		cfg.HTTPClient = guardClient(cfg.HTTPClient)
 	}
 	return cfg
 }
 
-// newSafeHTTPClient is the default HTTP client for the OAuth fetches. Its
-// CheckRedirect closes the SSRF / credential-exfiltration vectors that bare
-// redirect-following opens (see safeRedirect). A caller who supplies their own
-// HTTPClient owns this policy.
+// guardClient returns a shallow copy of non-nil c without mutating c. The
+// library's redirect rule applies first; the caller's CheckRedirect still
+// applies to redirects that safeRedirect accepts. Transport, Timeout and Jar
+// are preserved.
+func guardClient(c *http.Client) *http.Client {
+	// Copy the client; replacing its callback previously discarded caller refusals.
+	guarded := *c
+	// checkRedirect preserves the caller's callback at the time of the copy.
+	checkRedirect := c.CheckRedirect
+	guarded.CheckRedirect = safeRedirect
+	if checkRedirect != nil {
+		guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := safeRedirect(req, via); err != nil {
+				return err
+			}
+			return checkRedirect(req, via)
+		}
+	}
+	return &guarded
+}
+
+// newSafeHTTPClient returns the default HTTP client for OAuth fetches, with a
+// 10-second timeout and safeRedirect as its redirect policy. Supplied clients
+// receive the same policy through guardClient before their own redirect rule.
 func newSafeHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second, CheckRedirect: safeRedirect}
 }

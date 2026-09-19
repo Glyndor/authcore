@@ -178,13 +178,19 @@ Three of the things this section used to list as your job have shipped since it
 was written. Reach for them rather than hand rolling the flow:
 
 - **MFA / TOTP** is [`auth/totp`](totp.md): codes, drift window, and
-  single-use recovery codes.
+  recovery-code generation and verification.
 - **Password reset and email verification** are
-  [`auth/credential`](credential.md): single-use tokens, hashed at rest,
-  expiring.
+  [`auth/credential`](credential.md): token generation, hashing and
+  verification, including expiry checks.
 - **Encrypting an identifier while keeping it unique** is
   [`auth/field`](field.md): AES-256-GCM plus a blind index a `UNIQUE`
   constraint can run against.
+
+The library verifies recovery codes and credential tokens; the application
+must enforce single use. After verification, atomically consume the stored
+hash: delete it or mark it used in the same database statement that checks the
+hash and its unused state. Accept the operation only if that statement consumed
+the hash, so concurrent requests cannot both redeem it.
 
 Still yours:
 

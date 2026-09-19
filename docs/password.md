@@ -65,10 +65,13 @@ four `Require*` fields off:
 - unassigned and private-use code points
 - bytes that are not valid UTF-8, and the replacement character U+FFFD
 
-The error is still `ErrWeakPassword`, and its wrapped reason is the
-`ErrNonPrintableCharacter` sentinel, so you can tell this case apart when you
-want to say something more useful than "weak password", for example that a
-paste carried a character the user cannot see:
+Validation checks length first, after NFC normalization. An input below
+`MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length
+reason, even if it also contains a non-printable character. Once length passes,
+the printable-character check runs before the required character classes and
+returns `ErrWeakPassword` wrapping `ErrNonPrintableCharacter` on failure. You
+can use that sentinel to explain that a paste carried a character the user
+cannot see:
 
 ```go
 err := pwdMod.ValidatePolicy(req.Password)

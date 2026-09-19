@@ -141,8 +141,11 @@ func (p *Password) Name() string { return "password" }
 // required classes it enforces come from the module's Config (see
 // [Config.MinLength], [Config.MaxLength] and the [Config.RequireUpper] family),
 // so the message reflects what the caller actually configured. One rule is not
-// configurable: a character that is not printable is refused with
-// [ErrNonPrintableCharacter] as the wrapped reason.
+// configurable: characters must be printable. Length is checked first after
+// NFC normalization, so a length violation supplies the wrapped reason even
+// when the input contains a non-printable character. Once length passes, the
+// printable-character check precedes the required classes and uses
+// [ErrNonPrintableCharacter] as its wrapped reason.
 func (p *Password) ValidatePolicy(plaintext string) error {
 	if err := checkPolicy(norm.NFC.String(plaintext), p.cfg); err != nil {
 		return &policyViolation{reason: err}
@@ -252,7 +255,10 @@ func isSpecial(r rune) bool {
 //
 // Under every Config, a plaintext holding a character that is not printable
 // (control, invisible format, non-ASCII space, unassigned, or invalid UTF-8)
-// is refused with [ErrNonPrintableCharacter] wrapped in [ErrWeakPassword].
+// is refused. Length is checked first after NFC normalization, so a length
+// violation supplies the reason wrapped in [ErrWeakPassword]. Once length
+// passes, the printable-character check precedes the required classes and
+// returns [ErrNonPrintableCharacter] wrapped in [ErrWeakPassword] on failure.
 // Verify applies no policy, so a hash stored before this rule existed keeps
 // verifying against the password it was made from.
 //
