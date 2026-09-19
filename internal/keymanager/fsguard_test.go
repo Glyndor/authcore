@@ -132,3 +132,39 @@ func mustMkdir(t *testing.T, path string, mode os.FileMode) {
 		t.Fatal(err)
 	}
 }
+
+// TestNewRefusesASymlinkLoop covers the entry Stat cannot classify at all. A
+// link that points at itself is neither absent nor a regular file, and the
+// loader has to stop on it rather than read it as an empty slot and generate
+// a key pair beside it.
+func TestNewRefusesASymlinkLoop(t *testing.T) {
+	for _, name := range []string{filePrivateKey, filePublicKey, fileRefreshSecret} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			loop := filepath.Join(dir, name)
+			if err := os.Symlink(loop, loop); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := New(dir, silentLog{})
+			if err == nil {
+				t.Fatal("New succeeded over a symlink loop")
+			}
+			if !strings.Contains(err.Error(), "inspecting") {
+				t.Errorf("the refusal did not come from the classification: %v", err)
+			}
+			entries, readErr := os.ReadDir(dir)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			for _, e := range entries {
+				switch e.Name() {
+				case filePrivateKey, filePublicKey, fileRefreshSecret:
+					if e.Name() != name {
+						t.Errorf("key material %s was generated beside the loop", e.Name())
+					}
+				}
+			}
+		})
+	}
+}

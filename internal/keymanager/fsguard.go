@@ -56,23 +56,22 @@ func inspect(dir, name string) (fileState, error) {
 	if err != nil {
 		return fileHostile, fmt.Errorf("inspecting %q: %w", path, err)
 	}
-	switch {
-	case fi.Mode()&os.ModeSymlink != 0:
-		// A link is reportable rather than fatal here. It is refused at the
-		// write, and tolerated at the read, which is the Kubernetes case.
+	// Stat resolved any link, so fi describes the target and never carries
+	// ModeSymlink. A link to a regular file is therefore present, which is the
+	// Kubernetes case, and a link to anything else is refused with the rest.
+	if fi.Mode().IsRegular() {
 		return filePresent, nil
-	case fi.Mode().IsRegular():
-		return filePresent, nil
-	default:
-		return fileHostile, fmt.Errorf(
-			"%q is a %s, not a regular file; authcore refuses to treat it as key material",
-			path, fi.Mode().Type())
 	}
+	return fileHostile, fmt.Errorf(
+		"%q is a %s, not a regular file; authcore refuses to treat it as key material",
+		path, fi.Mode().Type())
 }
 
-// exists reports whether a managed filename has something at it, counting a
-// dangling symlink as something. A classification error is reported as present
-// so the caller fails closed rather than generating over an unreadable entry.
+// exists reports whether a managed filename has something the loader must
+// deal with. A dangling symlink is not counted, for the reason inspect gives:
+// it is refused at the write instead. A classification error is reported as
+// present so the caller fails closed rather than generating over an entry it
+// could not read, a symlink loop being the case that is cheap to produce.
 func exists(dir, name string) bool {
 	state, err := inspect(dir, name)
 	return state != fileAbsent || err != nil
