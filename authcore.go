@@ -96,8 +96,15 @@ func New(cfg Config) (*AuthCore, error) {
 
 	store := cfg.KeyStore
 	if store == nil {
-		// Default: the zero-config secure-disk store under KeysDir.
-		store = diskKeyStore{dir: cfg.KeysDir, log: log}
+		// Default: the zero-config secure-disk store under KeysDir. The
+		// RequireExistingKeys flag is forwarded so a production deployment
+		// opt-in to load-only mode reaches the disk store without the root
+		// package having to know any of the load-only details.
+		store = diskKeyStore{
+			dir:             cfg.KeysDir,
+			log:             log,
+			requireExisting: cfg.RequireExistingKeys,
+		}
 	}
 	keys, err := store.Load()
 	if err != nil {
