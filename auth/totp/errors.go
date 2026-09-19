@@ -8,7 +8,7 @@ var (
 	// ErrInvalidConfig is returned by New when the provided Config fails
 	// validation (e.g. SkewSteps above 10, RecoveryCodeCount out of range).
 	//
-	// Safety: INTERNAL — a startup/programming error. Treat as a 500.
+	// Safety: INTERNAL, a startup or programming error. Treat as a 500.
 	ErrInvalidConfig = errors.New("totp: invalid configuration")
 
 	// ErrInvalidSecret is returned by Verify when the presented secret is not
@@ -37,15 +37,24 @@ var (
 	// Safety: CLIENT-SAFE — return a generic "unauthorized" to the client.
 	ErrInvalidCode = errors.New("totp: code does not match")
 
-	// ErrCodeReused is returned by Verify when the candidate code matches a
-	// time step that has already been accepted (one whose step is less than
-	// or equal to lastUsedStep). It is the module's only signal that a
-	// replay was attempted; the caller should treat it as a security event
-	// and revoke the user's second factor.
+	// ErrCodeReused is returned by Verify when the recorder reports that the
+	// matched step was already accepted, and by VerifyStep when the step is
+	// less than or equal to lastUsedStep. It is the module's only signal that
+	// a code was presented twice: a replayed stolen code produces it, and so
+	// does a user who submits the same code twice. Log it and refuse the
+	// attempt; do not revoke the factor on it alone.
 	//
-	// Safety: CLIENT-SAFE — the caller chooses the response. The user-visible
+	// Safety: CLIENT-SAFE, the caller chooses the response. The user-visible
 	// message is normally the same as ErrInvalidCode to avoid telling an
 	// attacker the code was once valid, but the caller MUST log this case
 	// distinctly because it is the signal that a stolen code was tried.
 	ErrCodeReused = errors.New("totp: code already used")
+
+	// ErrStepRecorderRequired is returned by Verify when the supplied
+	// StepRecorder is nil. A nil recorder means the caller has not wired
+	// step storage, and accepting it would silently disable replay refusal.
+	// A caller that manages the step itself uses VerifyStep instead.
+	//
+	// Safety: INTERNAL, a startup or programming error. Treat as a 500.
+	ErrStepRecorderRequired = errors.New("totp: a StepRecorder is required")
 )

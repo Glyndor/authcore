@@ -129,7 +129,7 @@ func TestVerify_RFC6238AppendixB(t *testing.T) {
 	for _, v := range rfcVectors {
 		t.Run(v.name, func(t *testing.T) {
 			mod.clock = clock.Fixed(time.Unix(v.time, 0).UTC())
-			step, err := mod.Verify(rfcSecretB32, v.code6, 0)
+			step, err := mod.VerifyStep(rfcSecretB32, v.code6, 0)
 			if err != nil {
 				t.Fatalf("Verify(%q) at t=%d (RFC %s) returned err=%v, want nil",
 					v.code6, v.time, v.code8, err)
@@ -152,7 +152,7 @@ func TestVerify_RFC6238AppendixB_withSkew1(t *testing.T) {
 	for _, v := range rfcVectors {
 		t.Run(v.name, func(t *testing.T) {
 			mod.clock = clock.Fixed(time.Unix(v.time, 0).UTC())
-			if _, err := mod.Verify(rfcSecretB32, v.code6, 0); err != nil {
+			if _, err := mod.VerifyStep(rfcSecretB32, v.code6, 0); err != nil {
 				t.Fatalf("Verify with skew=1 at t=%d returned err=%v, want nil",
 					v.time, err)
 			}
@@ -177,7 +177,7 @@ func TestVerify_SkewSteps1_AcceptsNeighbours(t *testing.T) {
 	code := generateTOTP(key, uint64(baseTime)/timeStep)
 
 	mod.clock = clock.Fixed(time.Unix(baseTime, 0).UTC())
-	current, err := mod.Verify(rfcSecretB32, code, 0)
+	current, err := mod.VerifyStep(rfcSecretB32, code, 0)
 	if err != nil {
 		t.Fatalf("current step should verify: %v", err)
 	}
@@ -187,21 +187,21 @@ func TestVerify_SkewSteps1_AcceptsNeighbours(t *testing.T) {
 
 	// The same code must verify at baseTime-30 and baseTime+30.
 	mod.clock = clock.Fixed(time.Unix(baseTime-30, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, 0); err != nil {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); err != nil {
 		t.Errorf("code from previous step should verify with SkewSteps=1: %v", err)
 	}
 	mod.clock = clock.Fixed(time.Unix(baseTime+30, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, 0); err != nil {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); err != nil {
 		t.Errorf("code from next step should verify with SkewSteps=1: %v", err)
 	}
 
 	// Two steps away must be rejected.
 	mod.clock = clock.Fixed(time.Unix(baseTime-60, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
 		t.Errorf("code from two steps away: got %v, want ErrInvalidCode", err)
 	}
 	mod.clock = clock.Fixed(time.Unix(baseTime+60, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
 		t.Errorf("code from two steps away: got %v, want ErrInvalidCode", err)
 	}
 }
@@ -220,7 +220,7 @@ func TestVerify_SkewSteps0_OnlyCurrentStep(t *testing.T) {
 	t.Logf("baseTime=%d step=%d code=%s", baseTime, uint64(baseTime)/timeStep, code)
 
 	mod.clock = clock.Fixed(time.Unix(baseTime, 0).UTC())
-	current, err := mod.Verify(rfcSecretB32, code, 0)
+	current, err := mod.VerifyStep(rfcSecretB32, code, 0)
 	if err != nil {
 		t.Fatalf("current step should verify with SkewSteps=0: %v", err)
 	}
@@ -232,11 +232,11 @@ func TestVerify_SkewSteps0_OnlyCurrentStep(t *testing.T) {
 	got := mod.clock.Now().Unix()
 	t.Logf("clock set to %d, now=%d, currentStep=%d, code=%s, codeAtStep=%s",
 		baseTime-30, got, got/timeStep, code, generateTOTP(key, uint64(got)/timeStep))
-	if _, err := mod.Verify(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
 		t.Errorf("previous step with SkewSteps=0: got %v, want ErrInvalidCode", err)
 	}
 	mod.clock = clock.Fixed(time.Unix(baseTime+30, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, 0); !errors.Is(err, ErrInvalidCode) {
 		t.Errorf("next step with SkewSteps=0: got %v, want ErrInvalidCode", err)
 	}
 }
@@ -253,7 +253,7 @@ func TestVerify_ReplayReturnsErrCodeReused(t *testing.T) {
 	code := generateTOTP(key, uint64(baseTime)/timeStep)
 
 	mod.clock = clock.Fixed(time.Unix(baseTime, 0).UTC())
-	step, err := mod.Verify(rfcSecretB32, code, 0)
+	step, err := mod.VerifyStep(rfcSecretB32, code, 0)
 	if err != nil {
 		t.Fatalf("first verify: %v", err)
 	}
@@ -262,12 +262,12 @@ func TestVerify_ReplayReturnsErrCodeReused(t *testing.T) {
 	}
 
 	// Replay the same code with the returned step as lastUsedStep.
-	if _, err := mod.Verify(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
 		t.Errorf("replayed code: got %v, want ErrCodeReused", err)
 	}
 
 	// lastUsedStep equal to the matched step also triggers it.
-	if _, err := mod.Verify(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
 		t.Errorf("replayed code with equal lastUsedStep: got %v, want ErrCodeReused", err)
 	}
 }
@@ -286,20 +286,24 @@ func TestVerify_ReplayAcrossNeighbouringSteps(t *testing.T) {
 	code := generateTOTP(key, uint64(baseTime)/timeStep)
 
 	mod.clock = clock.Fixed(time.Unix(baseTime, 0).UTC())
-	step, err := mod.Verify(rfcSecretB32, code, 0)
+	step, err := mod.VerifyStep(rfcSecretB32, code, 0)
 	if err != nil {
 		t.Fatalf("first verify at t=%d: %v", baseTime, err)
 	}
 
 	mod.clock = clock.Fixed(time.Unix(baseTime+30, 0).UTC())
-	if _, err := mod.Verify(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
+	if _, err := mod.VerifyStep(rfcSecretB32, code, step); !errors.Is(err, ErrCodeReused) {
 		t.Errorf("replayed code from neighbour step: got %v, want ErrCodeReused", err)
 	}
 }
 
-func TestVerify_LastUsedStepZeroNeverRejects(t *testing.T) {
-	// The doc comment for Verify states plainly that a caller who always
-	// passes 0 has no replay protection: every matching code is accepted.
+func TestVerifyStep_ZeroLastUsedStepDisablesReplayRefusal(t *testing.T) {
+	// This pins a documented hazard of the low-level primitive: a caller
+	// who always passes 0 gets no replay refusal at all. Every matching
+	// code is accepted, including codes the user has already used. That
+	// is the reason Verify requires a StepRecorder and refuses a nil
+	// one with ErrStepRecorderRequired, so the unprotected call site is
+	// a programming error rather than a silent footgun.
 	mod := newTOTP(t, Config{SkewSteps: Int(0)})
 	const baseTime int64 = 210
 	key, err := decodeSecret(rfcSecretB32)
@@ -309,7 +313,7 @@ func TestVerify_LastUsedStepZeroNeverRejects(t *testing.T) {
 	code := generateTOTP(key, uint64(baseTime)/timeStep)
 	mod.clock = clock.Fixed(time.Unix(baseTime, 0).UTC())
 	for i := 0; i < 5; i++ {
-		if _, err := mod.Verify(rfcSecretB32, code, 0); err != nil {
+		if _, err := mod.VerifyStep(rfcSecretB32, code, 0); err != nil {
 			t.Fatalf("verify #%d with lastUsedStep=0 returned %v, want nil", i, err)
 		}
 	}
@@ -335,7 +339,7 @@ func TestVerify_MalformedCode(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := mod.Verify(rfcSecretB32, c.code, 0)
+			_, err := mod.VerifyStep(rfcSecretB32, c.code, 0)
 			if !errors.Is(err, ErrMalformedCode) {
 				t.Errorf("Verify(%q) = %v, want ErrMalformedCode", c.code, err)
 			}
@@ -354,7 +358,7 @@ func TestVerify_InvalidSecret(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) {
-			if _, err := mod.Verify(c, "123456", 0); !errors.Is(err, ErrInvalidSecret) {
+			if _, err := mod.VerifyStep(c, "123456", 0); !errors.Is(err, ErrInvalidSecret) {
 				t.Errorf("Verify(secret=%q) = %v, want ErrInvalidSecret", c, err)
 			}
 		})

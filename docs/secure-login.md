@@ -178,7 +178,11 @@ Three of the things this section used to list as your job have shipped since it
 was written. Reach for them rather than hand rolling the flow:
 
 - **MFA / TOTP** is [`auth/totp`](totp.md): codes, drift window, and
-  recovery-code generation and verification.
+  recovery-code generation and verification. Verification is
+  `totpMod.Verify(ctx, secret, presented, rec)` with a `StepRecorder`
+  bound to the enrollment, so the matched step is recorded atomically
+  and a stolen code cannot be replayed across two concurrent
+  verifiers.
 - **Password reset and email verification** are
   [`auth/credential`](credential.md): token generation, hashing and
   verification, including expiry checks.
