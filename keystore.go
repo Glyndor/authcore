@@ -31,8 +31,8 @@ import (
 // that NewKeyStoreFromKeys applies:
 //
 //   - PrivateKey is ed25519.PrivateKeySize (64) bytes: the seed followed by
-//     the public key, as crypto/ed25519 produces it. A bare 32-byte seed is
-//     refused; expand it with ed25519.NewKeyFromSeed first.
+//     the public key that seed derives, as crypto/ed25519 produces it. A bare
+//     32-byte seed is refused; expand it with ed25519.NewKeyFromSeed first.
 //   - PublicKey is ed25519.PublicKeySize (32) bytes and is the public half of
 //     PrivateKey.
 //   - RefreshSecret is exactly 32 bytes.
@@ -106,8 +106,9 @@ func (s staticKeyStore) Load() (Keys, error) {
 // touching no filesystem. Use it to inject keys obtained from a secret manager
 // or KMS at startup.
 //
-// It validates that pub is the public half of priv and that refreshSecret is
-// 32 bytes. Assign the result to Config.KeyStore.
+// It validates that priv is a well-formed Ed25519 private key, that pub is
+// its public half, and that refreshSecret is 32 bytes. Assign the result to
+// Config.KeyStore.
 func NewKeyStoreFromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, refreshSecret []byte) (KeyStore, error) {
 	km, err := keymanager.FromKeys(priv, pub, refreshSecret)
 	if err != nil {

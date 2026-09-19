@@ -70,6 +70,11 @@ func TestValidateMaterial(t *testing.T) {
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
 
+	// The seed of one key followed by the public half of another. Passed with
+	// that other public key it satisfies both length rules and the comparison
+	// against priv.Public(), so only the derivation from the seed refuses it.
+	spliced := append(append(ed25519.PrivateKey{}, priv.Seed()...), otherPub...)
+
 	tests := []struct {
 		name   string
 		priv   ed25519.PrivateKey
@@ -83,6 +88,7 @@ func TestValidateMaterial(t *testing.T) {
 		{"private key long", resized(priv, 65), pub, secret, "private key has wrong length: got 65"},
 		{"public key short", priv, resized(pub, 31), secret, "public key has wrong length: got 31"},
 		{"public key long", priv, resized(pub, 33), secret, "public key has wrong length: got 33"},
+		{"spliced private key", spliced, otherPub, secret, "private key is inconsistent"},
 		{"public key of another pair", priv, otherPub, secret, "public key does not match private key"},
 		{"refresh secret short", priv, pub, resized(secret, 31), "refresh secret has wrong length: got 31"},
 		{"refresh secret long", priv, pub, resized(secret, 33), "refresh secret has wrong length: got 33"},

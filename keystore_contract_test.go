@@ -85,6 +85,11 @@ func TestNew_customKeyStoreContract(t *testing.T) {
 	priv, pub, secret := genMaterial(t)
 	_, otherPub, _ := genMaterial(t)
 
+	// The seed of one key followed by the public half of another: valid by
+	// every length rule, and its second half equals the public key passed
+	// with it, so only the derivation from the seed refuses it.
+	spliced := append(append(ed25519.PrivateKey{}, priv.Seed()...), otherPub...)
+
 	var nilPointer *customKeys
 	var nilMap mapKeys
 
@@ -107,6 +112,7 @@ func TestNew_customKeyStoreContract(t *testing.T) {
 		{"private key is a bare seed", &customKeys{priv.Seed(), pub, secret}, "private key has wrong length: got 32"},
 		{"public key one byte short", &customKeys{priv, resize(pub, 31), secret}, "public key has wrong length: got 31"},
 		{"public key one byte long", &customKeys{priv, resize(pub, 33), secret}, "public key has wrong length: got 33"},
+		{"private key spliced from two pairs", &customKeys{spliced, otherPub, secret}, "private key is inconsistent"},
 		{"public key of another pair", &customKeys{priv, otherPub, secret}, "public key does not match private key"},
 		{"refresh secret one byte short", &customKeys{priv, pub, resize(secret, 31)}, "refresh secret has wrong length: got 31"},
 		{"refresh secret one byte long", &customKeys{priv, pub, resize(secret, 33)}, "refresh secret has wrong length: got 33"},
