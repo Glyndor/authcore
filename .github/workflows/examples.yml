@@ -1,9 +1,10 @@
 name: Examples
 
-# The examples are standalone Go modules (own go.mod + a local `replace`), so the
-# go-ci reusable — which builds the root module — never compiles them. Build and
-# vet each one here so a broken or stale example is caught on the PR, not by a
-# user running `go run ./examples/...`.
+# The examples are standalone Go modules (own go.mod), joined by examples/go.work
+# so the workspace resolves authcore from the checkout instead of a per-example
+# replace directive. The go-ci reusable builds the root module and never compiles
+# them, so build, vet and run each example's tests here. Building an example is
+# not exercising it.
 
 on:
   push:
@@ -18,20 +19,24 @@ jobs:
   build:
     name: build & vet
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # measured locally 2026-09-18: build, vet and race tests of the slowest example took under 60s
     strategy:
       fail-fast: false
       matrix:
         example: [apikey, basic, email, fiber, gin, jwt, oauth, password, username]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: examples/${{ matrix.example }}/go.mod
           cache: true
 
-      - name: Build & vet ${{ matrix.example }}
+      - name: Build, vet & test ${{ matrix.example }}
         working-directory: examples/${{ matrix.example }}
         run: |
           go build ./...
           go vet ./...
+          go test -race -count=1 ./...
