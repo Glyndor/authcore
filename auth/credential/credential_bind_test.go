@@ -10,73 +10,79 @@ import (
 	"errors"
 	"net/url"
 	"testing"
-	"time"
 )
 
 // ---- Purpose / subject binding ---------------------------------------------
 
-// TestIssue_DifferentPurposesDifferentHashes ensures the hash actually
-// binds purpose. Two tokens minted for the same subject under different
-// purposes must produce different hashes.
-func TestIssue_DifferentPurposesDifferentHashes(t *testing.T) {
+// TestIssue_BindsPurposeIntoTheHash holds the token fixed and varies only
+// the purpose, which is the only way this assertion can be about purpose.
+//
+// The version this replaces called Issue twice and compared the two hashes.
+// Two calls to Issue are two independent CSPRNG draws, so the hashes differed
+// because the tokens differed, and the test passed with purpose removed from
+// computeHash entirely. Same for the three below it.
+func TestIssue_BindsPurposeIntoTheHash(t *testing.T) {
 	c := newCred(t)
-	a, _ := c.Issue("reset", "alice@example.com")
-	b, _ := c.Issue("activate", "alice@example.com")
-	if a.Token == b.Token {
-		t.Skip("two CSPRNG draws returned the same token; rerun")
-	}
-	if a.Hash == b.Hash {
-		t.Error("two tokens minted for different purposes produced the same hash")
+	const fixedToken = "fixed-token-so-only-the-purpose-varies"
+	if c.computeHash("reset", "alice@example.com", fixedToken) ==
+		c.computeHash("activate", "alice@example.com", fixedToken) {
+		t.Error("purpose is not bound into the hash: the same token hashes " +
+			"identically under two different purposes")
 	}
 }
 
-// TestIssue_DifferentSubjectsDifferentHashes ensures the hash actually
-// binds subject. Two tokens minted for the same purpose under different
-// subjects must produce different hashes.
-func TestIssue_DifferentSubjectsDifferentHashes(t *testing.T) {
+// TestIssue_BindsSubjectIntoTheHash is the same shape for subject.
+func TestIssue_BindsSubjectIntoTheHash(t *testing.T) {
 	c := newCred(t)
-	a, _ := c.Issue("reset", "alice@example.com")
-	b, _ := c.Issue("reset", "bob@example.com")
-	if a.Hash == b.Hash {
-		t.Error("two tokens minted for different subjects produced the same hash")
+	const fixedToken = "fixed-token-so-only-the-subject-varies"
+	if c.computeHash("reset", "alice@example.com", fixedToken) ==
+		c.computeHash("reset", "bob@example.com", fixedToken) {
+		t.Error("subject is not bound into the hash: the same token hashes " +
+			"identically for two different subjects")
 	}
 }
 
-// TestVerify_WrongPurposeRejected is the cross-flow confusion guard. A
-// token minted for one purpose must not verify when presented under
-// another purpose, even with the correct hash for the other flow.
+// TestVerify_WrongPurposeRejected is the cross-flow confusion guard, written
+// as the attack it is about: one real credential, replayed into another flow.
+//
+// The token and the stored hash both come from the reset flow, so the only
+// thing that differs between the issuing call and the verifying call is the
+// purpose. That is what makes a pass evidence about purpose. Presenting a
+// different token against a different hash, as this test used to, fails on
+// the token alone and says nothing.
 func TestVerify_WrongPurposeRejected(t *testing.T) {
 	c := newCred(t)
-	reset, _ := c.Issue("reset", "alice@example.com")
-	activate, _ := c.Issue("activate", "alice@example.com")
-
-	// Presenting the reset token under "activate" must fail. The hash
-	// the caller would have stored for an activate token is activate.Hash;
-	// presenting reset.Token with activate.Hash under "activate" is what
-	// this test asserts.
-	if err := c.Verify("activate", "alice@example.com", reset.Token, activate.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
-		t.Errorf("cross-purpose verify: got %v, want ErrInvalidCredential", err)
+	reset, err := c.Issue("reset", "alice@example.com")
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
 	}
 
-	// And presenting the activate token under "reset" must also fail.
-	if err := c.Verify("reset", "alice@example.com", activate.Token, reset.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
-		t.Errorf("reverse cross-purpose verify: got %v, want ErrInvalidCredential", err)
+	// Sanity: the credential verifies under the purpose it was minted for.
+	// Without this, a Verify that rejected everything would pass the test.
+	if err := c.Verify("reset", "alice@example.com", reset.Token, reset.Hash, epoch); err != nil {
+		t.Fatalf("the credential does not verify under its own purpose: %v", err)
+	}
+
+	if err := c.Verify("activate", "alice@example.com", reset.Token, reset.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
+		t.Errorf("a reset credential replayed into the activate flow: got %v, want ErrInvalidCredential", err)
 	}
 }
 
-// TestVerify_WrongSubjectRejected is the account mixup guard. A token
-// minted for one subject must not verify when presented under a
-// different subject.
+// TestVerify_WrongSubjectRejected is the account mixup guard, same shape:
+// one real credential, presented under another subject.
 func TestVerify_WrongSubjectRejected(t *testing.T) {
 	c := newCred(t)
-	a, _ := c.Issue("reset", "alice@example.com")
-	b, _ := c.Issue("reset", "bob@example.com")
-
-	if err := c.Verify("reset", "bob@example.com", a.Token, b.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
-		t.Errorf("cross-subject verify: got %v, want ErrInvalidCredential", err)
+	alice, err := c.Issue("reset", "alice@example.com")
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
 	}
-	if err := c.Verify("reset", "alice@example.com", b.Token, a.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
-		t.Errorf("reverse cross-subject verify: got %v, want ErrInvalidCredential", err)
+
+	if err := c.Verify("reset", "alice@example.com", alice.Token, alice.Hash, epoch); err != nil {
+		t.Fatalf("the credential does not verify under its own subject: %v", err)
+	}
+
+	if err := c.Verify("reset", "bob@example.com", alice.Token, alice.Hash, epoch); !errors.Is(err, ErrInvalidCredential) {
+		t.Errorf("alice's credential accepted for bob: got %v, want ErrInvalidCredential", err)
 	}
 }
 
@@ -213,7 +219,6 @@ func TestIssue_TokenUsesURLAlphabet(t *testing.T) {
 	}
 	// Also exercise Verify with a token that came from a different Issue
 	// call, so the alphabet constraint must hold across many draws.
-	_ = time.Now()
 }
 
 // ---- Uniqueness -------------------------------------------------------------
