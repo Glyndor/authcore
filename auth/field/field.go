@@ -84,8 +84,8 @@ const (
 	// the GCM spec is optimised for and the one the standard library's
 	// AES-GCM implementation expects by default.
 	nonceLen = 12
-	// keyLen is the AES-256 key size in bytes. 32 bytes is the one the
-	// brief specifies and the one the derivation produces.
+	// keyLen is the AES-256 key size in bytes. 32 bytes is the size
+	// AES-256 requires and the one the derivation produces.
 	keyLen = 32
 	// aeadTagLen is the size of the GCM authentication tag in bytes
 	// (the standard library's default). It is appended to the sealed
