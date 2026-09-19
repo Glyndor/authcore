@@ -131,8 +131,8 @@ Beyond the three above, two smaller traps:
   cannot pass a meaningful timestamp to Verify, and the module falls
   back to "every link is expired". A two-column row (hash, issued_at)
   is enough.
-- **Bind the subject to something stable and unique.** The brief's
-  example uses `user.Email`, which is the right choice if email is
+- **Bind the subject to something stable and unique.** The usage
+  example above uses `user.Email`, which is the right choice if email is
   the account identifier. If the caller uses a mutable field (a
   display name, say), a user who renames themselves invalidates
   their own outstanding reset links. Email is the conventional
