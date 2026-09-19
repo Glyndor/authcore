@@ -1,6 +1,6 @@
-github.com/Glyndor/authcore v1.11.8 h1:W3z/61d0vJzN60Gzn5GhfKQKYW6fDHjdw0fv+p6M+zE=
-github.com/Glyndor/authcore v1.11.8/go.mod h1:ogLDwp4TBEGQbQ39dSrl1EJNbvafHyJfBy3kefUbnCA=
+github.com/Glyndor/authcore v1.15.0 h1:do72MbffhrB40ce9m+wY7hA6DQNRyWNts156vC2jZnQ=
+github.com/Glyndor/authcore v1.15.0/go.mod h1:Jy6nlijXt8Cim/VTllEI3xu3v+Qgq409k3duKAfj4F8=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
-golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
-golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
+golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
+golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
