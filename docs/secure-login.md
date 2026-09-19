@@ -172,10 +172,24 @@ authcore does no rate limiting. Add it:
   temporary ban), and surface it without revealing whether the account exists.
 - Apply the same to **password reset** and **MFA** endpoints.
 
-## 8. Out of scope (you provide or skip)
+## 8. What authcore covers here, and what it does not
 
-- **MFA / TOTP**, account lockout policy, password-reset flows, email
-  verification — build on top; authcore does not include them.
+Three of the things this section used to list as your job have shipped since it
+was written. Reach for them rather than hand rolling the flow:
+
+- **MFA / TOTP** is [`auth/totp`](totp.md): codes, drift window, and
+  single-use recovery codes.
+- **Password reset and email verification** are
+  [`auth/credential`](credential.md): single-use tokens, hashed at rest,
+  expiring.
+- **Encrypting an identifier while keeping it unique** is
+  [`auth/field`](field.md): AES-256-GCM plus a blind index a `UNIQUE`
+  constraint can run against.
+
+Still yours:
+
+- **Account lockout and rate limiting.** They need state authcore does not
+  hold, and the right policy is a property of your product.
 - **Breached-password rejection** is intentionally not part of authcore. The
   built-in policy is length + composition only.
 

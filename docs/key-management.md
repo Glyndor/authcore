@@ -6,7 +6,7 @@ On first run authcore creates `KeysDir` (default `.authcore`) and generates:
 |---|---|---|---|
 | `ed25519_private.pem` | PKCS#8 PEM | `0600` | Signing key |
 | `ed25519_public.pem` | PKIX PEM | `0644` | Verification key |
-| `refresh_secret.key` | 32-byte hex | `0600` | HMAC-SHA256 key for refresh token hashing |
+| `refresh_secret.key` | 32-byte hex | `0600` | HMAC-SHA256 key for refresh token hashing, **and** the HKDF root for every `auth/field` column key. See below. |
 | `metadata.json` | JSON | `0600` | Records which on-disk layout wrote the directory |
 | `.gitignore` | `*` | `0600` | Prevents accidental commits |
 
@@ -131,6 +131,32 @@ yourself: `Load() (authcore.Keys, error)`.
 The `KeyID()` accessor returns a 16-character hex digest derived from the public
 key. It is embedded in every token's `kid` JOSE header. Verification selects the
 key by `kid` and rejects any token whose `kid` is not one the module accepts.
+
+## The refresh secret carries two jobs, and only one of them is recoverable
+
+`refresh_secret.key` is the HMAC-SHA256 key for refresh token hashing. Since
+`auth/field` shipped it is also the input `auth/field` runs HKDF-SHA256 over to
+derive the AES-256-GCM column key and the blind index key, with a distinct info
+label for each.
+
+That is cryptographic separation, not operational separation, and the
+difference is the whole of this section. The two jobs fail very differently:
+
+- **Lose it as a token hashing key** and every refresh token stops verifying.
+  Users log in again. Annoying, recoverable, over in a day.
+- **Lose it as the `auth/field` root** and every encrypted column is
+  permanently unreadable. There is no recovery path, because there is no copy
+  of the key anywhere else by design.
+
+So back this file up the way you back up the database, not the way you back up
+a session store. And if you use `auth/field`, **do not rotate this file in
+place.** Rotating it is a table migration: read every row with a module built
+on the old secret, write it back with one built on the new secret, in batches,
+one transaction per row. The procedure is written out in
+[field encryption](field.md#footguns-the-caller-must-handle).
+
+If you do not use `auth/field`, rotating it is exactly as cheap as it sounds:
+replace the file, everyone logs in again.
 
 ## Rotating the signing key (zero downtime)
 
