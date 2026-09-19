@@ -23,5 +23,10 @@ jobs:
           {"package":"./auth/password","func":"FuzzParsePHC"},
           {"package":"./auth/apikey","func":"FuzzParseID"},
           {"package":"./auth/oauth","func":"FuzzParseJWK"},
+          {"package":"./auth/credential","func":"FuzzVerify"},
+          {"package":"./auth/field","func":"FuzzDecrypt"},
+          {"package":"./auth/field","func":"FuzzEncryptDecrypt"},
+          {"package":"./auth/totp","func":"FuzzVerify"},
+          {"package":"./auth/totp","func":"FuzzVerifyRecoveryCode"},
           {"package":"./internal/keymanager","func":"FuzzFromPEM"}
         ]
