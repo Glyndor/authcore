@@ -14,6 +14,15 @@ On subsequent starts the files are loaded and the key pair is validated for
 consistency. If only one PEM file is present, `New()` returns `ErrKeyManager` —
 delete both to regenerate.
 
+authcore warns (and never refuses or chmods) when `ed25519_private.pem` or
+`refresh_secret.key` is readable by group or others on the load paths. The
+Podman default mount without an explicit `mode` is 0444 and the Kubernetes
+Secret volume default is 0644, both of which trip this check, so a freshly
+mounted secret in a container cluster produces a single Warn at startup until
+the operator tightens the secret's mode and uid. authcore does not change the
+mode itself: a deployment that chose group access on purpose stays as-is, and
+a file authcore did not create is not its to rewrite.
+
 ## The layout marker
 
 `metadata.json` holds no key material — a format version, when the keys were
