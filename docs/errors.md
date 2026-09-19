@@ -36,6 +36,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `password.ErrInvalidConfig` | `password.Config` validation failed |
 | `password.ErrInvalidHash` | stored hash is malformed or not Argon2id PHC format |
 | `password.ErrWeakPassword` | plaintext does not meet the built-in policy |
+| `password.ErrNonPrintableCharacter` | the reason inside `ErrWeakPassword` when the plaintext holds a control, invisible or otherwise non-printable character, or invalid UTF-8 |
 
 ## `auth/email` package
 
