@@ -74,7 +74,9 @@ type AuthCore struct {
 //
 // New returns a wrapped ErrInvalidConfig on bad configuration, or a wrapped
 // ErrKeyManager when key initialisation fails. Both are unwrappable with
-// errors.Is.
+// errors.Is. ErrKeyManager also covers a Config.KeyStore that breaks the
+// KeyStore contract: no material with a nil error, or material of the wrong
+// shape.
 //
 //	// Minimal — all defaults apply.
 //	auth, err := authcore.New(authcore.DefaultConfig())
@@ -99,6 +101,9 @@ func New(cfg Config) (*AuthCore, error) {
 	}
 	keys, err := store.Load()
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
+	}
+	if err := validateLoadedKeys(keys); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
 	}
 

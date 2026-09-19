@@ -2,7 +2,9 @@ package authcore
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
 )
@@ -17,10 +19,65 @@ import (
 //
 // Implementations are consulted once, at New time. The returned Keys must be
 // stable for the lifetime of the AuthCore instance.
+//
+// # Contract for custom implementations
+//
+// Load must return either usable material and a nil error, or a non-nil error.
+// A lookup that succeeded and found nothing is an error: never return
+// (nil, nil), and never return a nil pointer wrapped in a non-nil Keys, which
+// is what "var k *myKeys; return k, nil" produces.
+//
+// New checks what Load returned before anything uses it, with the same rules
+// that NewKeyStoreFromKeys applies:
+//
+//   - PrivateKey is ed25519.PrivateKeySize (64) bytes: the seed followed by
+//     the public key, as crypto/ed25519 produces it. A bare 32-byte seed is
+//     refused; expand it with ed25519.NewKeyFromSeed first.
+//   - PublicKey is ed25519.PublicKeySize (32) bytes and is the public half of
+//     PrivateKey.
+//   - RefreshSecret is exactly 32 bytes.
+//
+// Material that breaks any of these makes New fail with an error that wraps
+// ErrKeyManager and names the rule. New calls the accessors on the returned
+// Keys for this check, so they must be safe to call as soon as Load returns.
 type KeyStore interface {
 	// Load returns the key material, or an error if it cannot be obtained or
-	// fails validation.
+	// fails validation. It never returns nil Keys together with a nil error.
 	Load() (Keys, error)
+}
+
+// validateLoadedKeys enforces the KeyStore contract on what a store returned.
+//
+// Do not skip it for the built-in stores: it is the single place where New
+// learns that the material is usable, and the accessor calls are cheap. Before
+// it existed, a store returning (nil, nil) passed New and the process
+// panicked with a nil dereference on the first token it signed (#348).
+func validateLoadedKeys(keys Keys) error {
+	if keys == nil {
+		return errors.New("KeyStore.Load returned nil Keys with a nil error; " +
+			"a store that finds no key material must return an error")
+	}
+	if isNilValue(keys) {
+		return fmt.Errorf("KeyStore.Load returned a nil %T wrapped in a non-nil Keys; "+
+			"return an error when there is no key material", keys)
+	}
+	if err := keymanager.ValidateMaterial(keys.PrivateKey(), keys.PublicKey(), keys.RefreshSecret()); err != nil {
+		return fmt.Errorf("KeyStore.Load returned unusable key material: %w", err)
+	}
+	return nil
+}
+
+// isNilValue reports whether the dynamic value inside a non-nil interface is
+// itself nil. A plain "== nil" comparison cannot see this case, because an
+// interface holding a typed nil pointer is not equal to nil.
+func isNilValue(v any) bool {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 // diskKeyStore is the default KeyStore: it generates the key files on first run
