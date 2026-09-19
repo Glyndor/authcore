@@ -58,6 +58,54 @@ func (m mapKeys) PublicKey() ed25519.PublicKey   { return m["pub"] }
 func (m mapKeys) RefreshSecret() []byte          { return m["secret"] }
 func (m mapKeys) KeyID() string                  { return keymanager.KeyID(m["pub"]) }
 
+// sliceKeys, funcKeys and chanKeys implement Keys on the remaining kinds whose
+// zero value is nil. Nobody should write these, and New must still refuse
+// their nil values instead of calling into them.
+type sliceKeys [][]byte
+
+func (s sliceKeys) at(i int) []byte {
+	if i < len(s) {
+		return s[i]
+	}
+	return nil
+}
+func (s sliceKeys) PrivateKey() ed25519.PrivateKey { return s.at(0) }
+func (s sliceKeys) PublicKey() ed25519.PublicKey   { return s.at(1) }
+func (s sliceKeys) RefreshSecret() []byte          { return s.at(2) }
+func (s sliceKeys) KeyID() string                  { return keymanager.KeyID(s.at(1)) }
+
+type funcKeys func() [][]byte
+
+func (f funcKeys) material() sliceKeys {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+func (f funcKeys) PrivateKey() ed25519.PrivateKey { return f.material().PrivateKey() }
+func (f funcKeys) PublicKey() ed25519.PublicKey   { return f.material().PublicKey() }
+func (f funcKeys) RefreshSecret() []byte          { return f.material().RefreshSecret() }
+func (f funcKeys) KeyID() string                  { return f.material().KeyID() }
+
+type chanKeys chan struct{}
+
+func (chanKeys) PrivateKey() ed25519.PrivateKey { return nil }
+func (chanKeys) PublicKey() ed25519.PublicKey   { return nil }
+func (chanKeys) RefreshSecret() []byte          { return nil }
+func (chanKeys) KeyID() string                  { return "" }
+
+// valueKeys implements Keys on a struct value, which can never be a typed nil.
+type valueKeys struct {
+	priv   ed25519.PrivateKey
+	pub    ed25519.PublicKey
+	secret []byte
+}
+
+func (v valueKeys) PrivateKey() ed25519.PrivateKey { return v.priv }
+func (v valueKeys) PublicKey() ed25519.PublicKey   { return v.pub }
+func (v valueKeys) RefreshSecret() []byte          { return v.secret }
+func (v valueKeys) KeyID() string                  { return keymanager.KeyID(v.pub) }
+
 // customStore returns exactly what it was given, like a store with no checks
 // of its own.
 type customStore struct {
@@ -92,6 +140,9 @@ func TestNew_customKeyStoreContract(t *testing.T) {
 
 	var nilPointer *customKeys
 	var nilMap mapKeys
+	var nilSlice sliceKeys
+	var nilFunc funcKeys
+	var nilChan chanKeys
 
 	tests := []struct {
 		name string
@@ -101,11 +152,18 @@ func TestNew_customKeyStoreContract(t *testing.T) {
 		want string
 	}{
 		{"valid pointer keys accepted", &customKeys{priv, pub, secret}, ""},
+		{"valid struct value keys accepted", valueKeys{priv, pub, secret}, ""},
+		{"struct value keys still validated", valueKeys{priv, pub, resize(secret, 31)}, "refresh secret has wrong length: got 31"},
 		{"valid map keys accepted", mapKeys{"priv": priv, "pub": pub, "secret": secret}, ""},
 
 		{"nil keys with nil error", nil, "returned nil Keys with a nil error"},
 		{"typed nil pointer", nilPointer, "returned a nil *authcore_test.customKeys"},
 		{"typed nil map", nilMap, "returned a nil authcore_test.mapKeys"},
+		{"typed nil slice", nilSlice, "returned a nil authcore_test.sliceKeys"},
+		{"typed nil func", nilFunc, "returned a nil authcore_test.funcKeys"},
+		{"typed nil chan", nilChan, "returned a nil authcore_test.chanKeys"},
+		{"valid slice keys accepted", sliceKeys{priv, pub, secret}, ""},
+		{"valid func keys accepted", funcKeys(func() [][]byte { return [][]byte{priv, pub, secret} }), ""},
 
 		{"private key one byte short", &customKeys{resize(priv, 63), pub, secret}, "private key has wrong length: got 63"},
 		{"private key one byte long", &customKeys{resize(priv, 65), pub, secret}, "private key has wrong length: got 65"},
