@@ -6,7 +6,8 @@
 // app. authcore enrolls a user by minting a high-entropy shared secret,
 // returns an otpauth:// URI that the user's app scans as a QR code, and
 // verifies the codes the user subsequently produces - all in constant
-// time, with built-in replay protection.
+// time, with replay protection that the caller wires through a
+// StepRecorder.
 //
 //	auth, _   := authcore.New(authcore.DefaultConfig())
 //	totpMod, _ := totp.New(auth)
@@ -15,11 +16,15 @@
 //	enr, _ := totpMod.Enroll("alice@example.com")
 //	db.StoreTOTP(userID, enr.Secret, enr.RecoveryHashes)
 //
-//	// Verify - compare, then store the returned step as lastUsedStep.
-//	step, err := totpMod.Verify(secret, presented, lastStep)
-//	if errors.Is(err, totp.ErrCodeReused) { revokeFactor(userID); return }
+//	// Verify - the recorder holds the "last accepted step" for this
+//	// enrollment and advances it atomically. A nil recorder is a
+//	// programming error and is refused with ErrStepRecorderRequired.
+//	err := totpMod.Verify(ctx, secret, presented, db.Recorder(userID))
+//	if errors.Is(err, totp.ErrCodeReused) {
+//	    log.Warn("totp: replay attempt (user=%s)", userID)
+//	    return http.StatusUnauthorized
+//	}
 //	if err != nil { return http.StatusUnauthorized }
-//	db.SetLastStep(userID, step)
 //
 // # What is fixed and what is open
 //
@@ -39,14 +44,19 @@
 // # Replay protection
 //
 // A TOTP code stays valid for its whole 30-second window, so an attacker
-// who observes one can replay it until the window closes. The module
-// refuses to hide the problem: Verify returns the matched time step
-// and refuses any step at or below lastUsedStep with ErrCodeReused. A
-// caller who always passes 0 has NO replay protection - that is
-// documented on Verify itself.
+// who observes one can replay it until the window closes. Verify stops
+// that by handing the matched step to a StepRecorder that advances the
+// stored step only when it is strictly greater than the one on file.
+// Compare and store commit together inside the recorder (a conditional
+// UPDATE is the model), so two concurrent submissions of the same code
+// cannot both succeed. VerifyStep, the low-level primitive, refuses
+// nothing on its own: a caller that passes 0 gets no replay refusal at
+// all, which is the documented hazard that forces Verify to require a
+// recorder.
 package totp
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand" //nolint:gosec // CSPRNG draws for secrets and recovery codes
 	"crypto/sha1" //nolint:gosec // HMAC-SHA1 is the TOTP interoperability baseline; SHA1 collision attacks do not apply to HMAC
@@ -55,6 +65,7 @@ import (
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -201,35 +212,34 @@ func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
 	}, nil
 }
 
-// Verify checks candidate code against secret for the current time step
-// and the configured skew window. It returns the time step the code
-// matched on success.
+// VerifyStep checks candidate code against secret for the current time
+// step and the configured skew window. It returns the time step the
+// code matched on success.
 //
-// # Replay protection
+// VerifyStep is the low-level primitive. It does not read or write any
+// storage: replay refusal is purely a function of the lastUsedStep the
+// caller passes in. That is enough for one verifier, but two verifiers
+// running against the same enrollment must not call VerifyStep with the
+// lastUsedStep they read from the store - they will race, and a single
+// stolen code can be accepted by both. The recorder-backed Verify
+// exists to close that race: it delegates the compare-and-advance to
+// storage that can make the two operations atomic.
 //
-// lastUsedStep is REQUIRED. Pass the time step Verify returned on the
-// previous successful verification for this user (0 if no previous
-// verification is known). Any step at or below lastUsedStep is refused
-// with ErrCodeReused - even if the code is otherwise valid.
+// # lastUsedStep and the documented hazard
 //
-// A caller who always passes 0 has NO replay protection: every code
-// that matches the current window is accepted, including codes the
-// user has already used. That is correct for a first verification, and
-// the documented wrong behaviour for every other.
+// lastUsedStep is the highest step VerifyStep has accepted for this
+// enrollment, or 0 for the first call. Any step at or below it is
+// refused with ErrCodeReused - even if the code is otherwise valid - so
+// passing the value the store held the last time VerifyStep returned
+// nil is the single thing that turns a successful verify into a
+// single-use verify.
 //
-// Storing the returned step:
-//
-//	step, err := totpMod.Verify(secret, presented, lastStep)
-//	switch {
-//	case errors.Is(err, totp.ErrCodeReused):
-//	    // A code already accepted was tried again - security event.
-//	    log.Warn("totp: replay attempt")
-//	    revokeFactor(userID)
-//	    return
-//	case err != nil:
-//	    return http.StatusUnauthorized
-//	}
-//	db.SetLastStep(userID, step)
+// A caller who always passes 0 has NO replay refusal: every code that
+// matches the current window is accepted, including codes the user has
+// already used. That is correct for a first verification, and the
+// documented wrong behaviour for every other. Verify does not expose
+// this shape: its signature requires a StepRecorder, and it refuses a
+// nil one with ErrStepRecorderRequired at the first call.
 //
 // Errors:
 //
@@ -237,7 +247,7 @@ func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
 //	totp.ErrMalformedCode - not six decimal digits
 //	totp.ErrInvalidSecret - secret is not base32, or is not 20 bytes decoded
 //	totp.ErrCodeReused    - matches a step at or below lastUsedStep
-func (t *TOTP) Verify(secret, code string, lastUsedStep uint64) (uint64, error) {
+func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, error) {
 	if !isSixDigits(code) {
 		return 0, ErrMalformedCode
 	}
@@ -256,10 +266,11 @@ func (t *TOTP) Verify(secret, code string, lastUsedStep uint64) (uint64, error) 
 	skew := uint64(*t.cfg.SkewSteps)
 	// When currentStep is smaller than skew the lower bound wraps to a
 	// value near the top of the uint64 range, which is above the upper
-	// bound, so the loop body does not run and Verify reports no match.
-	// That needs the clock to read within skew steps of the Unix epoch, so
-	// it cannot happen in production, and reporting no match is the safe
-	// answer when it does. There is no negative step: this is uint64.
+	// bound, so the loop body does not run and VerifyStep reports no
+	// match. That needs the clock to read within skew steps of the Unix
+	// epoch, so it cannot happen in production, and reporting no match
+	// is the safe answer when it does. There is no negative step: this
+	// is uint64.
 	for step := currentStep - skew; step <= currentStep+skew; step++ {
 		if stepMatches(step, key, code) {
 			matched = 1
@@ -274,6 +285,72 @@ func (t *TOTP) Verify(secret, code string, lastUsedStep uint64) (uint64, error) 
 		return 0, ErrCodeReused
 	}
 	return matchedStep, nil
+}
+
+// Verify is the recording entry point: it asks VerifyStep for the matched
+// step and, only when the code is acceptable, hands that step to rec for
+// an atomic compare-and-advance. The recorder, not this function, owns
+// durability and the cross-process guarantee that two concurrent
+// submissions of the same code cannot both succeed.
+//
+// # Order of checks
+//
+//   - rec == nil returns ErrStepRecorderRequired before anything else.
+//   - ctx.Err() != nil returns that error unchanged; the recorder is not
+//     called.
+//   - VerifyStep is called with lastUsedStep=0, so VerifyStep itself
+//     cannot refuse for replay. A refusal here means the code shape is
+//     wrong, the secret is wrong, or the code is for the wrong window.
+//     The recorder is NOT called in any of those cases; Verify reports
+//     the failure to the caller and leaves the stored step untouched.
+//   - rec.RecordIfNewer is called with the matched step. When it returns
+//     ErrCodeReused (or any error wrapping it), Verify returns an error
+//     that satisfies errors.Is(err, ErrCodeReused). Any other error is
+//     wrapped with "totp: record step:" so the recorder's signal
+//     survives, the caller can still tell reuse from a storage failure,
+//     and the wrapped chain points back at the recorder's diagnostic.
+//
+// # Errors:
+//
+//	totp.ErrStepRecorderRequired - rec is nil; the recorder was not wired
+//	totp.ErrMalformedCode        - not six decimal digits
+//	totp.ErrInvalidSecret        - secret is not base32 or not 20 bytes decoded
+//	totp.ErrInvalidCode          - six digits, matches no step in the window
+//	totp.ErrCodeReused           - the recorder refused to advance the step
+//	wrapped storage error        - "totp: record step: ..." for any recorder failure that is not ErrCodeReused
+//	context.Canceled / DeadlineExceeded - propagated unchanged
+//
+// # Example
+//
+//	rec := totpPostgresRecorder{db: db, enrollmentID: userID}
+//	err := totpMod.Verify(ctx, secret, presented, rec)
+//	switch {
+//	case errors.Is(err, totp.ErrCodeReused):
+//	    // Log it and refuse. A double submission of one code also lands here.
+//	    log.Warn("totp: replay attempt (user=%s)", userID)
+//	    return http.StatusUnauthorized
+//	case err != nil:
+//	    return http.StatusUnauthorized
+//	}
+func (t *TOTP) Verify(ctx context.Context, secret, code string, rec StepRecorder) error {
+	if rec == nil {
+		return ErrStepRecorderRequired
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	step, err := t.VerifyStep(secret, code, 0)
+	if err != nil {
+		return err
+	}
+	switch err := rec.RecordIfNewer(ctx, step); {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrCodeReused):
+		return ErrCodeReused
+	default:
+		return fmt.Errorf("totp: record step: %w", err)
+	}
 }
 
 // HashRecoveryCode returns the keyed HMAC-SHA256 hex digest of code,
