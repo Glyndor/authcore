@@ -242,6 +242,34 @@ is rejected as `ErrTokenInvalid`.
 > startup from a corrupted or attacker-replaced key file that would otherwise be
 > loaded whole into memory.
 
+## What happens if initialisation is interrupted
+
+`New` writes the three key files as one transaction. The complete set is
+generated into a private staging directory `.staging-<random hex>` and then
+hard-linked into the final names in the fixed order `ed25519_private.pem`,
+`ed25519_public.pem`, `refresh_secret.key`. The atomicity property is "the
+three files appear together or not at all":
+
+- a crash before the first link leaves an empty directory and a single staging
+  directory. The next `New` sees an empty KeysDir and generates a fresh set.
+- a crash after one or two links leaves a partially-populated KeysDir and a
+  staging directory with the matching bytes. The next `New` finds the staging
+  directory, links the missing files from it, and loads. The crashed
+  publisher's staging directory is left behind as recoverable material.
+- a crash after all three links leaves the directory complete. The next `New`
+  loads and reports the leftover staging directory in a Warn log.
+
+Replicas sharing a mounted volume converge on one set: the first process to
+hard-link the private key wins; any later initialiser sees the link already
+present, drops its own staging directory, waits for the set to be complete,
+and loads the winner's keys.
+
+A partial set that cannot be completed (operator deletion with no leftover
+staging directory) is refused with advice that names the missing files and
+warns that `refresh_secret.key` must not be deleted or regenerated, because
+every stored refresh-token hash, API-key hash and every `auth/field`
+encrypted column depends on it.
+
 For container deployments (compose files, named volumes, Podman secrets,
 SELinux labels, the restart-vs-recreate distinction): see
 [Running authcore in containers](containers.md).

@@ -1,8 +1,11 @@
 package keymanager_test
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"strings"
@@ -131,5 +134,74 @@ func TestFromPEM_roundTripAndGarbage(t *testing.T) {
 	}
 	if _, err := keymanager.FromPEM([]byte("garbage"), pubPEM, secret); err == nil {
 		t.Error("expected an error for a non-PEM private key")
+	}
+}
+
+// FromPEM's public-PEM decode error path: a valid private key alongside an
+// unparseable public key must surface the public-key error rather than
+// silently pass.
+func TestFromPEM_invalidPublicPEMIsRejected(t *testing.T) {
+	priv, _ := genPair(t)
+	secret := make([]byte, 32)
+	_, _ = rand.Read(secret)
+	privDER, _ := x509.MarshalPKCS8PrivateKey(priv)
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+
+	if _, err := keymanager.FromPEM(privPEM, []byte("not a public key"), secret); err == nil {
+		t.Fatal("FromPEM accepted an unparseable public key")
+	}
+}
+
+// decodeEd25519PrivatePEM's "valid PKCS#8 but wrong algorithm" branch: a
+// PKCS#8 envelope that holds an RSA key parses without error but yields an
+// rsa.PrivateKey, not an ed25519.PrivateKey. The type assertion must fail
+// with the message that names the algorithm it received.
+func TestFromPEM_rsaPrivateKeyIsRejected(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaDER, err := x509.MarshalPKCS8PrivateKey(rsaKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: rsaDER})
+
+	_, err = keymanager.FromPEM(rsaPEM, []byte("public"), make([]byte, 32))
+	if err == nil {
+		t.Fatal("FromPEM accepted an RSA private key as Ed25519")
+	}
+	if !strings.Contains(err.Error(), "Ed25519 private key") {
+		t.Errorf("error must name the Ed25519 requirement, got: %v", err)
+	}
+}
+
+// decodeEd25519PublicPEM's same "valid PKIX but wrong algorithm" branch:
+// an ECDSA public key parses without error but yields an ecdsa.PublicKey,
+// not an ed25519.PublicKey, and the type assertion must reject it with a
+// message that names the algorithm it received.
+func TestFromPEM_ecdsaPublicKeyIsRejected(t *testing.T) {
+	priv, _ := genPair(t)
+	secret := make([]byte, 32)
+	_, _ = rand.Read(secret)
+	privDER, _ := x509.MarshalPKCS8PrivateKey(priv)
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecDER, err := x509.MarshalPKIXPublicKey(&ec.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: ecDER})
+
+	_, err = keymanager.FromPEM(privPEM, ecPEM, secret)
+	if err == nil {
+		t.Fatal("FromPEM accepted an ECDSA public key as Ed25519")
+	}
+	if !strings.Contains(err.Error(), "Ed25519 public key") {
+		t.Errorf("error must name the Ed25519 requirement, got: %v", err)
 	}
 }

@@ -2,14 +2,12 @@ package keymanager
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -52,86 +50,7 @@ func readCapped(path string) ([]byte, error) {
 	return data, nil
 }
 
-// checkKeyDirConsistency verifies that the key directory is either empty of all
-// managed key files or holds the full set. A partially-populated directory —
-// for example the Ed25519 pair present but refresh_secret.key deleted — is
-// rejected before anything is generated, so the manager never silently mints a
-// new refresh secret that would invalidate every refresh-token hash already
-// stored by the consumer (forcing all users to log in again).
-func checkKeyDirConsistency(dir string) error {
-	files := []string{filePrivateKey, filePublicKey, fileRefreshSecret}
-	var present, missing []string
-	for _, name := range files {
-		state, err := inspect(dir, name)
-		if err != nil {
-			return err
-		}
-		if state == fileAbsent {
-			missing = append(missing, name)
-		} else {
-			present = append(present, name)
-		}
-	}
-	if len(present) > 0 && len(missing) > 0 {
-		return fmt.Errorf(
-			"key directory %q is in an inconsistent state: present {%s}, missing {%s}; "+
-				"restore the missing file(s), or delete all key files to trigger a clean regeneration",
-			dir, strings.Join(present, ", "), strings.Join(missing, ", "),
-		)
-	}
-	return nil
-}
-
 // ----- Ed25519 key pair -------------------------------------------------------
-
-// loadOrGenerateEd25519 returns an Ed25519 key pair, generating and
-// persisting them if the PEM files do not exist.
-func loadOrGenerateEd25519(dir string, log logger) (ed25519.PrivateKey, ed25519.PublicKey, error) {
-	privPath := filepath.Join(dir, filePrivateKey)
-	pubPath := filepath.Join(dir, filePublicKey)
-
-	privFound := exists(dir, filePrivateKey)
-	pubFound := exists(dir, filePublicKey)
-
-	switch {
-	case privFound && pubFound:
-		// Both files exist — load and validate them.
-		log.Info("authcore/keymanager: loading existing Ed25519 key pair from %s", dir)
-		return loadEd25519(privPath, pubPath)
-
-	case !privFound && !pubFound:
-		// Neither exists — generate a fresh pair.
-		log.Warn("authcore/keymanager: Ed25519 key pair not found, generating new keys in %s", dir)
-		return generateAndSaveEd25519(privPath, pubPath)
-
-	default:
-		// Only one file is present — this is an inconsistent state.
-		return nil, nil, fmt.Errorf(
-			"key directory %q is in an inconsistent state: "+
-				"one of {%s, %s} is missing; "+
-				"delete both files to trigger regeneration",
-			dir, filePrivateKey, filePublicKey,
-		)
-	}
-}
-
-// generateAndSaveEd25519 creates a fresh Ed25519 key pair and writes it to disk.
-func generateAndSaveEd25519(privPath, pubPath string) (ed25519.PrivateKey, ed25519.PublicKey, error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate Ed25519 key pair: %w", err)
-	}
-	if err := writePrivateKey(privPath, priv); err != nil {
-		return nil, nil, err
-	}
-	if err := writePublicKey(pubPath, pub); err != nil {
-		// Best-effort cleanup: remove the private key if the public write fails
-		// so the directory does not end up in an inconsistent state.
-		_ = os.Remove(privPath)
-		return nil, nil, err
-	}
-	return priv, pub, nil
-}
 
 // loadEd25519 reads and validates an Ed25519 key pair from disk.
 func loadEd25519(privPath, pubPath string) (ed25519.PrivateKey, ed25519.PublicKey, error) {
@@ -152,27 +71,6 @@ func loadEd25519(privPath, pubPath string) (ed25519.PrivateKey, ed25519.PublicKe
 		)
 	}
 	return priv, pub, nil
-}
-
-// writePrivateKey serialises key to PKCS#8 PEM and writes it with mode 0600.
-func writePrivateKey(path string, key ed25519.PrivateKey) error {
-	der, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return fmt.Errorf("marshal Ed25519 private key: %w", err)
-	}
-	block := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
-	return createExclusive(path, pem.EncodeToMemory(block), 0600)
-}
-
-// writePublicKey serialises key to PKIX PEM and writes it with mode 0644.
-func writePublicKey(path string, key ed25519.PublicKey) error {
-	der, err := x509.MarshalPKIXPublicKey(key)
-	if err != nil {
-		return fmt.Errorf("marshal Ed25519 public key: %w", err)
-	}
-	block := &pem.Block{Type: "PUBLIC KEY", Bytes: der}
-	return createExclusive(path, pem.EncodeToMemory(block), 0644) //nolint:gosec // public key intended to be world-readable
-
 }
 
 // readPrivateKey parses a PKCS#8 PEM file and returns the Ed25519 private key.
@@ -230,35 +128,6 @@ func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) 
 }
 
 // ----- Refresh secret ---------------------------------------------------------
-
-// loadOrGenerateRefreshSecret returns the HMAC key, generating and persisting
-// it if the file does not exist.
-func loadOrGenerateRefreshSecret(dir string, log logger) ([]byte, error) {
-	path := filepath.Join(dir, fileRefreshSecret)
-
-	if exists(dir, fileRefreshSecret) {
-		log.Info("authcore/keymanager: loading existing refresh secret from %s", dir)
-		return loadRefreshSecret(path)
-	}
-
-	log.Warn("authcore/keymanager: refresh secret not found, generating new secret in %s", dir)
-	return generateAndSaveRefreshSecret(path)
-}
-
-// generateAndSaveRefreshSecret creates 32 bytes of CSPRNG output, hex-encodes
-// it for human readability, and writes it to disk with mode 0600.
-func generateAndSaveRefreshSecret(path string) ([]byte, error) {
-	secret := make([]byte, refreshSecretLen)
-	if _, err := rand.Read(secret); err != nil {
-		return nil, fmt.Errorf("generate refresh secret: %w", err)
-	}
-	// Hex-encode so the file survives editors that mangle binary content.
-	content := hex.EncodeToString(secret) + "\n"
-	if err := createExclusive(path, []byte(content), 0600); err != nil {
-		return nil, fmt.Errorf("write refresh secret to %q: %w", path, err)
-	}
-	return secret, nil
-}
 
 // loadRefreshSecret reads, validates, and hex-decodes the secret file.
 func loadRefreshSecret(path string) ([]byte, error) {
