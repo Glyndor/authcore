@@ -62,7 +62,9 @@ Every line of that file matters:
   and the same value when the keys are created and when they are read,
   otherwise authcore fails to read `metadata.json` with `permission denied`.
   Write plain `keep-id`: podup did not accept `keep-id:uid=...,gid=...` when
-  this was measured.
+  this was measured (Glyndor/podup#1798). Do not rely on `userns_mode: auto`
+  to give each container its own range under podup either; it did not when
+  measured (Glyndor/podup#1797).
 - `read_only: true` makes the container filesystem immutable. The keys volume
   is mounted read-only at `/run/authcore`.
 - `AUTHCORE_KEYS_DIR` is just an environment variable. authcore does **not**
@@ -169,9 +171,11 @@ secrets:
 The default secret mount is a regular file with mode `0444` owned by root. That
 mode is too loose for a private key, and a uid 1000 process cannot replace it
 on a `read_only: true` container. **Set `mode: 0400` and the application's
-`uid`/`gid`.** A secret is mounted into the container when it is created: after
-changing a secret, recreate every replica together, or some will keep the old
-keys while new ones load the new.
+`uid`/`gid`.** A secret is mounted into the container when it is created. After
+changing a secret's file, `podup up -d` left the running container on the old
+contents when measured (Glyndor/podup#1799), so recreate every replica
+explicitly, and together, or some will keep the old keys while new ones load
+the new.
 
 ### Using `Config.KeyStore` instead
 
