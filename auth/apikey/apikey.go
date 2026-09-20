@@ -205,19 +205,35 @@ func (a *APIKey) Verify(key, storedHash string) bool {
 // ParseID extracts the public identifier from a presented key without verifying
 // it, so you can fetch the stored hash before the constant-time comparison.
 //
+// The full key shape is <prefix>_<id>_<secret>. ParseID accepts exactly that
+// three-field shape: an id of 32 lowercase hex characters and a secret of 64
+// lowercase hex characters, with nothing before, between or after them except
+// the two field separators. Any extra field, an id or secret of the wrong
+// length, or a non-lowercase-hex character is rejected with ErrInvalidKey, so
+// the caller can rely on the returned id as the lookup key for a row that
+// was produced by Generate.
+//
 // It returns ErrInvalidKey if key is not a well-formed key for this module
-// (wrong prefix, wrong structure, or a malformed id).
+// (wrong prefix, wrong structure, malformed id, malformed secret, or any
+// extra trailing field).
 func (a *APIKey) ParseID(key string) (string, error) {
 	prefix := a.cfg.Prefix + "_"
 	rest, ok := strings.CutPrefix(key, prefix)
 	if !ok {
 		return "", ErrInvalidKey
 	}
-	id, secret, ok := strings.Cut(rest, "_")
-	if !ok || secret == "" {
+	id, secretAndTail, ok := strings.Cut(rest, "_")
+	if !ok || id == "" {
 		return "", ErrInvalidKey
 	}
+	// A key from Generate has exactly three fields. Anything after the secret
+	// leaves secretAndTail longer than an encoded secret, so the shape check
+	// below rejects it; there is no separate extra-field rule to keep in step.
+	secret := secretAndTail
 	if len(id) != hex.EncodedLen(idLen) || !isHex(id) {
+		return "", ErrInvalidKey
+	}
+	if len(secret) != hex.EncodedLen(secretLen) || !isHex(secret) {
 		return "", ErrInvalidKey
 	}
 	return id, nil
