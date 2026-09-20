@@ -51,16 +51,28 @@ func ValidateMaterial(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []b
 // It validates that pub is the public half of priv and that secret is the
 // expected length, then derives the key id. The returned manager has no
 // directory; Dir returns "".
+//
+// The three input slices are copied before the manager stores them: a caller
+// that wipes its own buffers once FromKeys returns must not blank the live
+// material, and a caller that reuses the same buffer across concurrent
+// KeyStore loads must not race with a still-running token verification.
 func FromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) (*KeyManager, error) {
 	if err := ValidateMaterial(priv, pub, secret); err != nil {
 		return nil, err
 	}
 
+	privCopy := make(ed25519.PrivateKey, len(priv))
+	copy(privCopy, priv)
+	pubCopy := make(ed25519.PublicKey, len(pub))
+	copy(pubCopy, pub)
+	secretCopy := make([]byte, len(secret))
+	copy(secretCopy, secret)
+
 	return &KeyManager{
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         computeKeyID(pub),
+		privateKey:    privCopy,
+		publicKey:     pubCopy,
+		refreshSecret: secretCopy,
+		keyID:         computeKeyID(pubCopy),
 	}, nil
 }
 
@@ -68,6 +80,10 @@ func FromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) (*K
 // PKCS#8 private key, a PKIX public key, and the raw 32-byte refresh secret.
 // Use it to source keys from environment variables or a secret store that hands
 // out PEM blocks.
+//
+// FromKeys copies the refresh secret, so a caller that wipes its source buffer
+// once FromPEM returns does not blank the live material. The PEM blocks
+// themselves decode into freshly allocated key slices.
 func FromPEM(privatePEM, publicPEM, refreshSecret []byte) (*KeyManager, error) {
 	priv, err := decodeEd25519PrivatePEM(privatePEM, "private key input")
 	if err != nil {
