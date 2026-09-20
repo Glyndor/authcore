@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,11 +23,19 @@ const userInfoMaxBytes = 1 << 20
 // "username"). The provider's stable user id is the value to key your account
 // on, never the email or display name.
 //
-// Returns ErrNoUserInfo if the provider has no UserInfoURL, or ErrUserInfo on a
-// transport error, a non-2xx response, or an undecodable body.
+// Returns ErrNoUserInfo if the provider has no UserInfoURL, or ErrUserInfo on
+// an empty bearer token, a transport error, a non-2xx response, a literal
+// "null" body, or any other undecodable body. Numeric values arrive as
+// json.Number (via json.Decoder.UseNumber) so large identifiers (e.g. GitHub
+// "id") survive the round trip without lossy float64 conversion.
 func (c *Client) UserInfo(ctx context.Context, accessToken string) (map[string]any, error) {
 	if c.cfg.Provider.UserInfoURL == "" {
 		return nil, ErrNoUserInfo
+	}
+	// An empty bearer would be sent as "Bearer ", and the endpoint may still
+	// return 200 with an anonymous profile, so refuse it before the round trip.
+	if accessToken == "" {
+		return nil, fmt.Errorf("%w: access token must not be empty", ErrUserInfo)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.Provider.UserInfoURL, nil)
@@ -50,8 +59,31 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (map[string]a
 		return nil, fmt.Errorf("%w: status %d", ErrUserInfo, resp.StatusCode)
 	}
 
+	// Decode with UseNumber so a 53-bit-plus integer id (e.g. 9007199254740993)
+	// does not collapse onto its neighbour via float64. A trailing-junk check
+	// follows the object so a body like {"id":1}garbage is refused, matching
+	// json.Unmarshal's strict behaviour.
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var raw json.RawMessage
+	if err := dec.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("%w: decode: %w", ErrUserInfo, err)
+	}
+	if dec.More() {
+		return nil, fmt.Errorf("%w: trailing data after JSON value", ErrUserInfo)
+	}
+	// A literal "null" is not a user object. Refuse it instead of returning an
+	// empty map (the caller would otherwise treat the absence of data as
+	// success).
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("%w: response was null", ErrUserInfo)
+	}
+	// Re-decode the raw value with UseNumber preserved (json.Unmarshal ignores
+	// the decoder's option) so numeric claims arrive as json.Number.
+	dec2 := json.NewDecoder(bytes.NewReader(raw))
+	dec2.UseNumber()
 	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
+	if err := dec2.Decode(&out); err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", ErrUserInfo, err)
 	}
 	return out, nil

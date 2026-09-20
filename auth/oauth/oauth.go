@@ -136,14 +136,31 @@ type Tokens struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
+// exchangeErrorMaxLen caps the description we surface from a provider error
+// response. Real error_description values are a short sentence; anything beyond
+// a few hundred bytes is the provider echoing form fields or log noise.
+const exchangeErrorMaxLen = 512
+
 // Exchange swaps an authorization code for tokens at the token endpoint, sending
 // the PKCE code_verifier. ctx bounds the request.
 //
-// It returns ErrExchange on a transport error or a non-2xx response. For an
-// OIDC provider it also returns ErrNoIDToken when the response carried no
-// id_token; validate that token with VerifyIDToken before trusting it. For a
-// plain-OAuth2 provider (no issuer/JWKS) there is no id_token — call UserInfo.
+// It returns ErrExchange on a transport error, a non-2xx response, an OAuth
+// error response ({"error":"invalid_grant", ...} with HTTP 200), or a 200
+// whose body has no access_token/token_type. For an OIDC provider it also
+// returns ErrNoIDToken when the response carried no id_token; validate that
+// token with VerifyIDToken before trusting it. For a plain-OAuth2 provider
+// (no issuer/JWKS) there is no id_token, so call UserInfo.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
+	// Reject empty inputs before talking to the provider. An empty code or
+	// verifier would round-trip useless bytes and could mask a wiring bug in
+	// the caller (forgot to read the cookie, swapped two variables).
+	if code == "" {
+		return nil, fmt.Errorf("%w: code must not be empty", ErrExchange)
+	}
+	if verifier == "" {
+		return nil, fmt.Errorf("%w: code_verifier must not be empty", ErrExchange)
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -176,22 +193,55 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 		return nil, fmt.Errorf("%w: status %d", ErrExchange, resp.StatusCode)
 	}
 
+	// OAuth2 §5.2: an error response uses {"error":"...","error_description":"..."}.
+	// Many providers (and the spec) allow it with HTTP 200, so the status check
+	// above is not enough. Decode the error fields first and refuse the body
+	// if "error" is present. Treat a non-object body (e.g. "null", "[]", a
+	// bare string) as an error too: the spec requires an object.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
+	}
+	if probe == nil {
+		return nil, fmt.Errorf("%w: empty response", ErrExchange)
+	}
+	if rawErr, ok := probe["error"]; ok {
+		var code, desc string
+		_ = json.Unmarshal(rawErr, &code)
+		if rawDesc, ok := probe["error_description"]; ok {
+			_ = json.Unmarshal(rawDesc, &desc)
+		}
+		if len(desc) > exchangeErrorMaxLen {
+			desc = desc[:exchangeErrorMaxLen] + "…"
+		}
+		switch {
+		case desc != "":
+			return nil, fmt.Errorf("%w: provider returned %s: %s", ErrExchange, code, desc)
+		default:
+			return nil, fmt.Errorf("%w: provider returned %s", ErrExchange, code)
+		}
+	}
+
 	var tok Tokens
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
 	}
-	// An ID token is required only for an OIDC provider (one that has an issuer
-	// and JWKS to validate it against). A plain-OAuth2 provider (GitHub,
-	// Discord) returns no id_token — identity comes from UserInfo — so requiring
-	// one here would make every such login fail.
+	if tok.AccessToken == "" || tok.TokenType == "" {
+		return nil, fmt.Errorf("%w: response missing access_token or token_type", ErrExchange)
+	}
+	// An ID token is required only for an OIDC provider (one that has a JWKS
+	// and an issuer check to validate it against). A plain-OAuth2 provider
+	// (GitHub, Discord) returns no id_token, since identity comes from UserInfo,
+	// so requiring one here would make every such login fail.
 	if c.isOIDC() && tok.IDToken == "" {
 		return nil, ErrNoIDToken
 	}
 	return &tok, nil
 }
 
-// isOIDC reports whether the provider issues an ID token (issuer + JWKS set),
-// as opposed to a plain-OAuth2 provider identified via UserInfo.
+// isOIDC reports whether the provider issues an ID token (JWKS + issuer
+// check), as opposed to a plain-OAuth2 provider identified via UserInfo. The
+// single source of truth lives on Config; this just threads it through.
 func (c *Client) isOIDC() bool {
-	return c.cfg.Provider.Issuer != "" && c.cfg.Provider.JWKSURL != ""
+	return c.cfg.isOIDC()
 }

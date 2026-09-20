@@ -152,22 +152,33 @@ func TestVerifyIDToken_audArrayAndStringEmailVerified(t *testing.T) {
 	defer srv.Close()
 	c := newClient(t, srv)
 
-	cl := validClaims(srv.URL, "n")
-	cl["aud"] = []string{testClientID, "another"}
-	cl["azp"] = testClientID      // OIDC: multi-aud token must name us as authorized party
-	cl["email_verified"] = "true" // some providers send a string
-	tok := signIDToken(t, key, testKID, cl)
-
-	claims, err := c.VerifyIDToken(context.Background(), tok, "n")
-	if err != nil {
-		t.Fatalf("VerifyIDToken: %v", err)
-	}
-	if len(claims.Audience) != 2 {
-		t.Errorf("Audience = %v, want 2 entries", claims.Audience)
-	}
-	if !claims.EmailVerified {
-		t.Error("string email_verified \"true\" not parsed as true")
-	}
+	// Multi-aud tokens (aud names this client plus another) are refused even
+	// when azp matches: the verifier accepts only the configured client id as
+	// the sole audience.
+	t.Run("multi-aud rejected", func(t *testing.T) {
+		cl := validClaims(srv.URL, "n")
+		cl["aud"] = []string{testClientID, "another"}
+		cl["azp"] = testClientID
+		cl["email_verified"] = "true"
+		tok := signIDToken(t, key, testKID, cl)
+		if _, err := c.VerifyIDToken(context.Background(), tok, "n"); err == nil {
+			t.Error("expected rejection of a multi-audience token")
+		}
+	})
+	// The string form of email_verified still parses when the audience is the
+	// single configured client id.
+	t.Run("string email_verified parses", func(t *testing.T) {
+		cl := validClaims(srv.URL, "n")
+		cl["email_verified"] = "true"
+		tok := signIDToken(t, key, testKID, cl)
+		claims, err := c.VerifyIDToken(context.Background(), tok, "n")
+		if err != nil {
+			t.Fatalf("VerifyIDToken: %v", err)
+		}
+		if !claims.EmailVerified {
+			t.Error("string email_verified \"true\" not parsed as true")
+		}
+	})
 }
 
 func TestVerifyIDToken_multiAudWrongAZPRejected(t *testing.T) {
