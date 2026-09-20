@@ -117,7 +117,7 @@ func signToken(claims gjwt.Claims, key ed25519.PrivateKey, kid string) (string, 
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*accessClaims[T], error) {
 	if len(tokenStr) > maxTokenLen {
-		return nil, ErrTokenMalformed
+		return nil, fmt.Errorf("%w: length %d exceeds %d", ErrTokenOversized, len(tokenStr), maxTokenLen)
 	}
 	var c accessClaims[T]
 	_, err := gjwt.ParseWithClaims(
@@ -133,6 +133,12 @@ func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey
 	if err != nil {
 		return nil, mapJWTError(err)
 	}
+	if !isUUIDv7(c.Subject) {
+		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", ErrTokenInvalid)
+	}
+	if !isUUIDv7(c.ID) {
+		return nil, fmt.Errorf("%w: jti claim is not a UUID v7", ErrTokenInvalid)
+	}
 	return &c, nil
 }
 
@@ -144,7 +150,7 @@ func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyRefreshToken(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*refreshClaims, error) {
 	if len(tokenStr) > maxTokenLen {
-		return nil, ErrTokenMalformed
+		return nil, fmt.Errorf("%w: length %d exceeds %d", ErrTokenOversized, len(tokenStr), maxTokenLen)
 	}
 	var c refreshClaims
 	_, err := gjwt.ParseWithClaims(
@@ -159,6 +165,12 @@ func verifyRefreshToken(tokenStr string, keys map[string]ed25519.PublicKey, now 
 	)
 	if err != nil {
 		return nil, mapJWTError(err)
+	}
+	if !isUUIDv7(c.Subject) {
+		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", ErrTokenInvalid)
+	}
+	if !isUUIDv7(c.ID) {
+		return nil, fmt.Errorf("%w: jti claim is not a UUID v7", ErrTokenInvalid)
 	}
 	return &c, nil
 }
@@ -193,22 +205,48 @@ func eddsaKeyFunc(keys map[string]ed25519.PublicKey) gjwt.Keyfunc {
 // mapJWTError converts golang-jwt sentinel errors to our public sentinels.
 // This decouples callers from the underlying library's error types, so we can
 // swap or upgrade the JWT library without breaking the public API.
+//
+// When the underlying parser joins several failures into one error (for example
+// a token that is both expired and carries the wrong issuer), the non-expiry
+// failure takes precedence: a caller that treats ErrTokenExpired as "refresh
+// and retry" would otherwise loop on a token whose iss is wrong, because the
+// retry would carry the same wrong iss. ErrTokenExpired is therefore reserved
+// for the case where expiry is the only failure.
 func mapJWTError(err error) error {
+	for _, sentinel := range nonExpirySentinels {
+		if errors.Is(err, sentinel) {
+			return ErrTokenInvalid
+		}
+	}
 	switch {
 	case errors.Is(err, gjwt.ErrTokenExpired):
-		// Expired tokens are CLIENT-SAFE to communicate; prompt the client to refresh.
 		return ErrTokenExpired
-	case errors.Is(err, gjwt.ErrTokenSignatureInvalid):
-		// Bad signature — could be a wrong key, a tampered token, or an unsupported algorithm.
-		return ErrTokenInvalid
 	case errors.Is(err, gjwt.ErrTokenMalformed):
-		// Not a valid three-part JWT at all — likely user error or a non-token string.
 		return ErrTokenMalformed
 	default:
-		// Wrap any other library error under ErrTokenInvalid so callers
-		// can handle it generically without catching internal library types.
 		return fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
+}
+
+// nonExpirySentinels is the set of golang-jwt sentinel errors that indicate a
+// claim or signature mismatch other than exp. Membership in this list raises
+// the mapped error to ErrTokenInvalid even when the same input also expired,
+// so a refresh-and-retry caller does not loop on a token that is wrong for a
+// reason other than its lifetime.
+//
+// ErrTokenInvalidClaims is deliberately omitted: golang-jwt wraps every
+// validation failure (including expiry) under it, so its presence does not
+// distinguish a claim mismatch from an exp failure.
+var nonExpirySentinels = []error{
+	gjwt.ErrTokenSignatureInvalid,
+	gjwt.ErrTokenUnverifiable,
+	gjwt.ErrTokenInvalidIssuer,
+	gjwt.ErrTokenInvalidAudience,
+	gjwt.ErrTokenInvalidSubject,
+	gjwt.ErrTokenInvalidId,
+	gjwt.ErrTokenRequiredClaimMissing,
+	gjwt.ErrTokenNotValidYet,
+	gjwt.ErrTokenUsedBeforeIssued,
 }
 
 // accessClaimsToClaims converts internal accessClaims to the public Claims type.

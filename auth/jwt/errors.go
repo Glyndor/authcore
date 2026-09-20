@@ -46,6 +46,16 @@ var (
 	// Safety: INTERNAL — return a generic "unauthorized" to the client.
 	ErrTokenMalformed = errors.New("jwt: token is malformed")
 
+	// ErrTokenOversized is returned when a token string exceeds the library's
+	// length cap. The cap stops a caller from forcing base64+JSON work on a
+	// multi-megabyte string before the signature is even checked, and stops
+	// the same input at issuance so the issuer does not produce a token the
+	// verifier will refuse.
+	//
+	// Safety: INTERNAL. The wrapped message names the limit and the actual
+	// size for the operator; return a generic "unauthorized" to the client.
+	ErrTokenOversized = errors.New("jwt: token exceeds maximum size")
+
 	// ErrWrongTokenType is returned when an access token is passed to a
 	// function that expects a refresh token, or vice-versa.
 	//

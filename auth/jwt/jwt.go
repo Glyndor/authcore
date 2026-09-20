@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/internal/clock"
@@ -123,6 +124,27 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	}
 	resolved = applyDefaults(resolved)
 
+	// Defensive copy: the caller's slice can still be mutated after New
+	// returns, and the verification path reads cfg.Audience on every token.
+	// A caller who reassigns an entry later would otherwise change the
+	// audience of tokens the module still accepts.
+	audCopy := make([]string, len(resolved.Audience))
+	copy(audCopy, resolved.Audience)
+	resolved.Audience = audCopy
+
+	// Defensive copy of each previous public key: ed25519.PublicKey is a
+	// []byte, so a caller wiping the slice would silently break verification
+	// for tokens already signed under that key. Each entry is copied into a
+	// fresh slice of the same length.
+	if len(resolved.PreviousPublicKeys) > 0 {
+		prevCopy := make([]ed25519.PublicKey, len(resolved.PreviousPublicKeys))
+		for i, pk := range resolved.PreviousPublicKeys {
+			prevCopy[i] = make(ed25519.PublicKey, len(pk))
+			copy(prevCopy[i], pk)
+		}
+		resolved.PreviousPublicKeys = prevCopy
+	}
+
 	if err := validateConfig(resolved); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
@@ -209,10 +231,24 @@ func (j *JWT[T]) CreateTokens(subject string, extra T) (*TokenPair, error) {
 func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 	now := j.clock.Now()
 
+	// golang-jwt truncates the exp claim to whole seconds. Apply the same
+	// truncation here so AccessTokenExpiresAt reports exactly what the signed
+	// claim says; a sub-second TTL must not round in the operator's view.
+	accessExpiresAt := now.Add(j.cfg.AccessTokenTTL).Truncate(time.Second)
+	refreshExpiresAt := now.Add(j.cfg.RefreshTokenTTL).Truncate(time.Second)
+
 	// ----- Access token -----
 	accessToken, err := signToken(newAccessClaims(j.cfg.Issuer, subject, jti, j.cfg.Audience, extra, now, j.cfg.AccessTokenTTL), j.priv, j.kid)
 	if err != nil {
 		return nil, fmt.Errorf("sign access token: %w", err)
+	}
+	if n := len(accessToken); n > maxTokenLen {
+		// Enforce the same cap the verifier applies. A token that exceeds the
+		// limit would verify as ErrTokenOversized, so refuse at issuance with
+		// a message that names the limit and the actual length instead of
+		// letting the operator discover it on the next request.
+		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
+			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
 	}
 
 	// ----- Refresh token (no extra) -----
@@ -226,17 +262,31 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sign refresh token: %w", err)
 	}
+	if n := len(refreshToken); n > maxTokenLen {
+		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
+			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
+	}
 
 	j.log.Debug("jwt: token pair issued (sub=%s, jti=%s)", subject, jti)
 
 	return &TokenPair{
 		AccessToken:           accessToken,
-		AccessTokenExpiresAt:  now.Add(j.cfg.AccessTokenTTL),
+		AccessTokenExpiresAt:  accessExpiresAt,
 		RefreshToken:          refreshToken,
-		RefreshTokenExpiresAt: now.Add(j.cfg.RefreshTokenTTL),
+		RefreshTokenExpiresAt: refreshExpiresAt,
 		RefreshTokenHash:      computeHMAC(refreshToken, j.secret),
 		SessionID:             jti,
 	}, nil
+}
+
+// sumLen returns the sum of len(entry) across entries. Used to surface the
+// total audience bytes in an ErrTokenOversized message.
+func sumLen(entries []string) int {
+	n := 0
+	for _, e := range entries {
+		n += len(e)
+	}
+	return n
 }
 
 // VerifyAccessToken parses and validates an access token string.

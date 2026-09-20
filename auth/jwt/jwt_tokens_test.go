@@ -16,17 +16,19 @@ import (
 func TestVerifyAccessToken_wrongIssuerRejectsToken(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Issuer = "https://auth.service-a.example.com"
-	j := newTestJWT[struct{}](t, newFakeProvider(t), cfg)
+	prov := newFakeProvider(t)
+	j := newTestJWT[struct{}](t, prov, cfg)
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	// Another service that happens to share the signing key (e.g. accidental
+	// A second service that happens to share the signing key (e.g. accidental
 	// key reuse across microservices) must not accept a token issued by the
-	// first service. The iss claim must be checked on verification.
+	// first service. The iss claim must be checked on verification. Both
+	// modules must be built from the same provider so they share the key id
+	// and the verification map; otherwise an unknown-key rejection fires
+	// before the issuer check ever runs.
 	cfg2 := DefaultConfig()
 	cfg2.Issuer = "https://auth.service-b.example.com"
-	j2 := newTestJWT[struct{}](t, newFakeProvider(t), cfg2)
-	j2.priv = j.priv
-	j2.pub = j.pub
+	j2 := newTestJWT[struct{}](t, prov, cfg2)
 
 	_, err := j2.VerifyAccessToken(pair.AccessToken)
 	if !errors.Is(err, ErrTokenInvalid) {
@@ -103,14 +105,13 @@ func TestVerifyAccessToken_unknownKidRejectsToken(t *testing.T) {
 func TestRotateTokens_wrongIssuerRejectsRefreshToken(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Issuer = "https://auth.service-a.example.com"
-	j := newTestJWT[struct{}](t, newFakeProvider(t), cfg)
+	prov := newFakeProvider(t)
+	j := newTestJWT[struct{}](t, prov, cfg)
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
 	cfg2 := DefaultConfig()
 	cfg2.Issuer = "https://auth.service-b.example.com"
-	j2 := newTestJWT[struct{}](t, newFakeProvider(t), cfg2)
-	j2.priv = j.priv
-	j2.pub = j.pub
+	j2 := newTestJWT[struct{}](t, prov, cfg2)
 
 	_, err := j2.RotateTokens(pair.RefreshToken, struct{}{})
 	if !errors.Is(err, ErrTokenInvalid) {
@@ -263,6 +264,22 @@ func TestCreateTokens_accessAndRefreshShareSameJTI(t *testing.T) {
 	if claims.TokenID != pair.SessionID {
 		t.Errorf("access token jti %q must equal SessionID %q", claims.TokenID, pair.SessionID)
 	}
+
+	// Rotate to surface the refresh token's jti through the public API.
+	// Rotation preserves the session jti, so the new pair's SessionID is
+	// the refresh token's jti; comparing both to the original SessionID
+	// proves the two tokens share one identifier.
+	j.clock = clock.Fixed(epoch.Add(time.Second))
+	rotated, err := j.RotateTokens(pair.RefreshToken, struct{}{})
+	if err != nil {
+		t.Fatalf("RotateTokens() error = %v", err)
+	}
+	if rotated.SessionID != pair.SessionID {
+		t.Errorf("refresh token jti %q must equal SessionID %q", rotated.SessionID, pair.SessionID)
+	}
+	if claims.TokenID != rotated.SessionID {
+		t.Errorf("access token jti %q must equal refresh token jti %q", claims.TokenID, rotated.SessionID)
+	}
 }
 
 // ---- VerifyAccessToken() ----------------------------------------------------
@@ -305,13 +322,14 @@ func TestVerifyAccessToken_tokenAtExactExpiryIsExpired(t *testing.T) {
 	j := newTestJWT[struct{}](t, newFakeProvider(t), cfg)
 
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
-	// golang-jwt/v5 uses strict now.After(exp), so the token is still valid at
-	// the exact expiry second. Advance one second past exp to trigger expiry.
-	j.clock = clock.Fixed(epoch.Add(10*time.Minute + time.Second))
+	// golang-jwt/v5 uses cmp.Before(exp+leeway), so a token whose exp has
+	// already been reached is rejected at the exact expiry second. Verify
+	// that boundary.
+	j.clock = clock.Fixed(epoch.Add(10 * time.Minute))
 
 	_, err := j.VerifyAccessToken(pair.AccessToken)
 	if !errors.Is(err, ErrTokenExpired) {
-		t.Errorf("token one second past expiry should return ErrTokenExpired, got %v", err)
+		t.Errorf("token at the exact expiry second should return ErrTokenExpired, got %v", err)
 	}
 }
 
@@ -333,8 +351,8 @@ func TestVerifyAccessToken_tamperedSignatureReturnsErrTokenInvalid(t *testing.T)
 	tampered := token[:mid] + string(replacement) + token[mid+1:]
 
 	_, err := j.VerifyAccessToken(tampered)
-	if !errors.Is(err, ErrTokenInvalid) && !errors.Is(err, ErrTokenMalformed) {
-		t.Errorf("expected ErrTokenInvalid or ErrTokenMalformed, got %v", err)
+	if !errors.Is(err, ErrTokenInvalid) {
+		t.Errorf("expected ErrTokenInvalid for a tampered signature, got %v", err)
 	}
 }
 
@@ -344,7 +362,7 @@ func TestVerifyAccessToken_malformedTokenReturnsErrTokenMalformed(t *testing.T) 
 	cases := []string{"", "only-one-part", "two.parts", "a.b.c.d"}
 	for _, tc := range cases {
 		_, err := j.VerifyAccessToken(tc)
-		if !errors.Is(err, ErrTokenMalformed) && !errors.Is(err, ErrTokenInvalid) {
+		if !errors.Is(err, ErrTokenMalformed) {
 			t.Errorf("input %q: expected ErrTokenMalformed, got %v", tc, err)
 		}
 	}

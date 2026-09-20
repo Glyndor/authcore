@@ -12,12 +12,14 @@ type stubDenylist struct {
 	revoked bool
 	err     error
 	gotJTI  string
+	gotCtx  context.Context
 	calls   int
 }
 
-func (s *stubDenylist) IsRevoked(_ context.Context, jti string) (bool, error) {
+func (s *stubDenylist) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	s.calls++
 	s.gotJTI = jti
+	s.gotCtx = ctx
 	return s.revoked, s.err
 }
 
@@ -117,10 +119,32 @@ func TestVerifyAccessToken_denylistRunsUnderDeadline(t *testing.T) {
 }
 
 func TestVerifyAccessToken_oversizedTokenRejected(t *testing.T) {
+	j := newTestJWT[string](t, newFakeProvider(t), DefaultConfig())
+
+	// Build an otherwise-valid access token whose signed length exceeds the
+	// 8 KiB cap. The token's signature, issuer, audience, expiry and type
+	// all check out; only the size disqualifies it.
+	claims := newAccessClaims(j.cfg.Issuer, testSubject, "019600ab-0000-7000-8000-000000000099", j.cfg.Audience, strings.Repeat("a", 8192), epoch, j.cfg.AccessTokenTTL)
+	claims.Type = tokenTypeAccess
+	oversized := signAccessClaimsForTest(t, claims, j.priv, j.kid)
+
+	_, err := j.VerifyAccessToken(oversized)
+	if !errors.Is(err, ErrTokenOversized) {
+		t.Errorf("expected ErrTokenOversized for an oversized but otherwise valid token, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("error must name the failure shape, got %q", err.Error())
+	}
+}
+
+// TestVerifyAccessToken_oversizedRawStringRejected keeps the original
+// coverage: a string that is not a JWT at all and is also too long must be
+// refused as oversized, not as malformed.
+func TestVerifyAccessToken_oversizedRawStringRejected(t *testing.T) {
 	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
-	oversized := strings.Repeat("a", 9000) // over the 8 KiB cap
-	if _, err := j.VerifyAccessToken(oversized); !errors.Is(err, ErrTokenMalformed) {
-		t.Errorf("expected ErrTokenMalformed for an oversized token, got %v", err)
+	oversized := strings.Repeat("a", 9000)
+	if _, err := j.VerifyAccessToken(oversized); !errors.Is(err, ErrTokenOversized) {
+		t.Errorf("expected ErrTokenOversized for an oversized non-JWT string, got %v", err)
 	}
 }
 
@@ -129,11 +153,18 @@ func TestVerifyAccessTokenContext_passesContext(t *testing.T) {
 	j := jwtWithDenylist(t, stub)
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	ctx := context.Background()
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
 	if _, err := j.VerifyAccessTokenContext(ctx, pair.AccessToken); err != nil {
 		t.Fatalf("VerifyAccessTokenContext error = %v", err)
 	}
 	if stub.calls != 1 {
 		t.Errorf("denylist calls = %d, want 1", stub.calls)
+	}
+	if stub.gotCtx == nil {
+		t.Fatal("denylist did not receive a context")
+	}
+	if got, _ := stub.gotCtx.Value(ctxKey{}).(string); got != "marker" {
+		t.Errorf("denylist received the wrong context: marker = %q, want %q", got, "marker")
 	}
 }

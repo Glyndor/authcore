@@ -141,8 +141,8 @@ func TestVerifyAccessToken_refusesAnOversizedToken(t *testing.T) {
 	s := newSigner(t)
 
 	err := s.verify(t, s.oversizedButValid(t))
-	if !errors.Is(err, ErrTokenMalformed) {
-		t.Fatalf("want ErrTokenMalformed for a valid token over %d bytes, got: %v", maxTokenLen, err)
+	if !errors.Is(err, ErrTokenOversized) {
+		t.Fatalf("want ErrTokenOversized for a valid token over %d bytes, got: %v", maxTokenLen, err)
 	}
 }
 
@@ -150,7 +150,7 @@ func TestVerifyRefreshToken_refusesAnOversizedToken(t *testing.T) {
 	s := newSigner(t)
 
 	_, err := verifyRefreshToken(s.oversizedButValid(t), s.keys, time.Now(), optIssuer, optAudience, 0)
-	if !errors.Is(err, ErrTokenMalformed) {
-		t.Fatalf("want ErrTokenMalformed for a valid token over %d bytes, got: %v", maxTokenLen, err)
+	if !errors.Is(err, ErrTokenOversized) {
+		t.Fatalf("want ErrTokenOversized for a valid token over %d bytes, got: %v", maxTokenLen, err)
 	}
 }
