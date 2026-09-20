@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore"
 )
@@ -276,7 +278,15 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 func TestVerify_wrongAlgorithmReturnsErrInvalidHash(t *testing.T) {
 	mod := newMod(t)
-	wrongAlg := "$bcrypt$v=19$m=65536,t=3,p=2$c29tZXNhbHQ$c29tZWtleQ"
+
+	// The fixture uses the phc() helper, which gives a salt and key of the
+	// exact lengths parsePHC requires. The four-byte salt the previous
+	// fixture carried was what made the test green with the algorithm
+	// check removed: parsePHC refused on salt length first and never
+	// reached the algorithm. With valid salt and key, removing the
+	// algorithm check lets the bcrypt-shaped hash pass into argon2.IDKey
+	// and the test no longer catches the sabotage.
+	wrongAlg := phc(t, "bcrypt", argon2.Version, minMemory, 3, 1)
 
 	_, err := mod.Verify("password", wrongAlg)
 	if !errors.Is(err, ErrInvalidHash) {
@@ -408,6 +418,64 @@ func TestValidatePolicy_nfcAndNfdFormsAgree(t *testing.T) {
 	}
 }
 
+// TestValidatePolicy_lengthBoundaryStraddlesNFCAndNFD pins the normalisation
+// at the length boundary. With a length-only policy (12..64 runes, no class
+// requirements), a password of 64 precomposed "ñ" characters is 64 runes in
+// NFC and at the cap. The same visual password written with one of those
+// characters in NFD ("n" + combining tilde) is 65 runes without
+// normalisation, over the cap, and 64 runes after normalisation. Without
+// NFC normalisation the policy would reject the NFD form even though the
+// NFC form passes, the bug a caller from a system that produces decomposed
+// text would hit on the first attempt to register.
+//
+// The acceptance twin: the NFC form must also pass, otherwise a test that
+// rejected both forms would still be a pass.
+func TestValidatePolicy_lengthBoundaryStraddlesNFCAndNFD(t *testing.T) {
+	// Length-only policy: the class requirements would otherwise force the
+	// fixture to include an uppercase letter, a lowercase letter, a digit
+	// and a symbol, none of which matters for the boundary being tested.
+	off := false
+	cfg := DefaultConfig()
+	cfg.MinLength = 12
+	cfg.MaxLength = 64
+	cfg.RequireUpper = &off
+	cfg.RequireLower = &off
+	cfg.RequireDigit = &off
+	cfg.RequireSymbol = &off
+
+	p, err := New(fakeProvider{}, cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// 64 precomposed ñ: exactly 64 runes in NFC, at the cap.
+	nfcAtCap := strings.Repeat("ñ", 64)
+	if utf8.RuneCountInString(nfcAtCap) != 64 {
+		t.Fatalf("test setup: NFC fixture should be 64 runes, got %d", utf8.RuneCountInString(nfcAtCap))
+	}
+	if err := p.ValidatePolicy(nfcAtCap); err != nil {
+		t.Fatalf("64-rune NFC ñ-chain should be at the cap and accepted, got %v", err)
+	}
+
+	// 63 precomposed ñ plus one decomposed ñ: 63 + 2 = 65 runes without
+	// normalisation, which would be refused; 63 + 1 = 64 runes after
+	// normalisation, which is at the cap and must be accepted.
+	nfdOverCap := strings.Repeat("ñ", 63) + "n\u0303"
+	if got := utf8.RuneCountInString(nfdOverCap); got != 65 {
+		t.Fatalf("test setup: expected 65 runes before normalisation, got %d", got)
+	}
+	if err := p.ValidatePolicy(nfdOverCap); err != nil {
+		t.Errorf("NFD form over the rune cap before normalisation must pass after NFC normalisation, got %v", err)
+	}
+
+	// Acceptance twin: the NFD form, after explicit NFC normalisation, is
+	// still 64 runes and still passes, so the policy is unchanged when the
+	// input already happens to be NFC.
+	if err := p.ValidatePolicy(norm.NFC.String(nfdOverCap)); err != nil {
+		t.Errorf("explicitly NFC-normalised form should be accepted too, got %v", err)
+	}
+}
+
 // ---- parsePHC() -------------------------------------------------------------
 
 func TestParsePHC_wrongSegmentCount(t *testing.T) {
@@ -425,7 +493,10 @@ func TestParsePHC_unparsableVersion(t *testing.T) {
 }
 
 func TestParsePHC_unsupportedVersion(t *testing.T) {
-	_, _, _, err := parsePHC("$argon2id$v=18$m=65536,t=3,p=2$c2FsdA$a2V5")
+	// Valid salt and key, only the version is wrong. The four-byte salt the
+	// previous fixture carried was refused before the version check could
+	// fire, so a version check deletion stayed green.
+	_, _, _, err := parsePHC(phc(t, "argon2id", argon2.Version-1, minMemory, 3, 1))
 	if err == nil {
 		t.Error("expected error for unsupported Argon2 version, got nil")
 	}

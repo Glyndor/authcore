@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,6 +370,59 @@ func TestVerifyDomain_dnsFailureIsWrapped(t *testing.T) {
 	err := m.VerifyDomain(context.Background(), "user@unreachable.example")
 	if errors.Unwrap(err) == nil {
 		t.Error("ErrDomainUnresolvable must wrap the underlying DNS error")
+	}
+}
+
+// TestVerifyDomain_dnsFailureIsServedFromCache pins the dnsFailure flag
+// on the cached entry: a DNS failure has to be cached as dnsFailure=true
+// so the second call returns ErrDomainUnresolvable (soft failure) rather
+// than ErrDomainNoMX (hard failure, which would block the user on a
+// transient transport error).
+//
+// The test counts the resolver dial attempts: the first call must hit
+// DNS at least once, and the second must hit it zero additional times
+// (a cache hit). The exact count on the first call is left to the Go
+// resolver's retry policy. What matters for the assertion is that the
+// second call does not increase it. Together, the no-increment-on-second-
+// call and the error code are what catch the "remove dnsFailure: true
+// from the cache write" sabotage. A cache that stores the failure with
+// dnsFailure=false and hasMX=false still returns ErrDomainNoMX on the
+// second call, and the test sees the wrong error type instead of the
+// soft one.
+func TestVerifyDomain_dnsFailureIsServedFromCache(t *testing.T) {
+	m := newMod(t)
+	var calls int32
+	m.resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			atomic.AddInt32(&calls, 1)
+			return nil, errors.New("no network")
+		},
+	}
+
+	// First call: must hit DNS at least once and must return
+	// ErrDomainUnresolvable; the failure must be cached under
+	// dnsFailure=true.
+	first := m.VerifyDomain(context.Background(), "user@flaky.example")
+	if !errors.Is(first, ErrDomainUnresolvable) {
+		t.Fatalf("first VerifyDomain: got %v, want ErrDomainUnresolvable", first)
+	}
+	firstCalls := atomic.LoadInt32(&calls)
+	if firstCalls < 1 {
+		t.Fatalf("first VerifyDomain: no DNS dial attempted, got %d", firstCalls)
+	}
+
+	// Second call: must NOT hit DNS again (cache hit) and must still
+	// return ErrDomainUnresolvable (not ErrDomainNoMX).
+	second := m.VerifyDomain(context.Background(), "user@flaky.example")
+	if !errors.Is(second, ErrDomainUnresolvable) {
+		t.Errorf("second VerifyDomain: got %v, want ErrDomainUnresolvable", second)
+	}
+	if errors.Is(second, ErrDomainNoMX) {
+		t.Error("second VerifyDomain: got ErrDomainNoMX; cached DNS failure must not be served as ErrDomainNoMX")
+	}
+	if got := atomic.LoadInt32(&calls); got != firstCalls {
+		t.Errorf("second VerifyDomain: dial count went from %d to %d; cache must be hit, not DNS", firstCalls, got)
 	}
 }
 

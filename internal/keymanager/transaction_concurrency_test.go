@@ -22,6 +22,7 @@ func TestConcurrentInitAllAgree(t *testing.T) {
 		var wg sync.WaitGroup
 		errs := make([]error, 8)
 		sets := make([][3][]byte, 8)
+		kms := make([]*KeyManager, 8)
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
 			go func(idx int) {
@@ -32,7 +33,7 @@ func TestConcurrentInitAllAgree(t *testing.T) {
 					errs[idx] = err
 					return
 				}
-				_ = km
+				kms[idx] = km
 				sets[idx] = readSet(t, dir)
 			}(i)
 		}
@@ -43,11 +44,29 @@ func TestConcurrentInitAllAgree(t *testing.T) {
 				t.Fatalf("round %d, goroutine %d: %v", round, i, e)
 			}
 		}
+		// Every goroutine must return a manager whose private key, public
+		// key, refresh secret and key id match the on-disk winner. A losing
+		// initialiser that wraps its own unpublished material in a manager
+		// would diverge here: the bytes it linked are not the bytes it
+		// exposes, because it raced and did not reload.
+		winnerSet := sets[0]
 		for i := 1; i < 8; i++ {
 			for j := 0; j < 3; j++ {
-				if !bytes.Equal(sets[0][j], sets[i][j]) {
+				if !bytes.Equal(winnerSet[j], sets[i][j]) {
 					t.Fatalf("round %d: goroutine %d disagrees on key %d", round, i, j)
 				}
+			}
+			if !bytes.Equal(kms[0].PrivateKey(), kms[i].PrivateKey()) {
+				t.Fatalf("round %d: goroutine %d returns its own private key, not the persisted one", round, i)
+			}
+			if !bytes.Equal(kms[0].PublicKey(), kms[i].PublicKey()) {
+				t.Fatalf("round %d: goroutine %d returns its own public key, not the persisted one", round, i)
+			}
+			if !bytes.Equal(kms[0].RefreshSecret(), kms[i].RefreshSecret()) {
+				t.Fatalf("round %d: goroutine %d returns its own refresh secret, not the persisted one", round, i)
+			}
+			if kms[0].KeyID() != kms[i].KeyID() {
+				t.Fatalf("round %d: goroutine %d returns its own key id %q, not the persisted %q", round, i, kms[i].KeyID(), kms[0].KeyID())
 			}
 		}
 		if _, err := New(dir, silentLog{}); err != nil {

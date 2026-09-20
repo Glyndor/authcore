@@ -44,10 +44,22 @@ func newMod(tb testing.TB, cfg ...apikey.Config) *apikey.APIKey {
 
 // ---- New --------------------------------------------------------------------
 
+// TestNew_defaultPrefix pins the documented default. The previous version
+// of this test asserted only that Name() returned "apikey", which is also
+// what TestName and the module wiring already pin. The actual contract
+// being tested is "no Config => prefix 'ak'", so the test generates a key
+// and asserts the prefix on the emitted string. A sabotage that swaps
+// the default to something else (or removes the defaulting pass entirely)
+// fails this test because Generate keys under the actual prefix the module
+// was built with.
 func TestNew_defaultPrefix(t *testing.T) {
 	m := newMod(t)
-	if m.Name() != "apikey" {
-		t.Errorf("Name() = %q, want apikey", m.Name())
+	key, err := m.Generate()
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !strings.HasPrefix(key.Key, "ak_") {
+		t.Errorf("default prefix: key %q does not start with %q", key.Key, "ak_")
 	}
 }
 
