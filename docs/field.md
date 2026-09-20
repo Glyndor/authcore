@@ -18,13 +18,24 @@ database. See the [error reference](errors.md).
 ## Setup
 
 ```go
-auth, err := authcore.New(authcore.DefaultConfig())
+cfg := authcore.DefaultConfig()
+cfg.RequireExistingKeys = true // refuse to run if KeysDir is missing
+                              // or empty: a fresh key set would silently
+                              // invalidate every ciphertext and blind
+                              // index already in the database.
+auth, err := authcore.New(cfg)
 fld, err := field.New(auth, field.Config{Context: "email"})
 // One module per column. Context is the column name; it is bound
 // into the AAD and the index so a ciphertext from "email" cannot
 // be decrypted as "phone".
 fldPhone, err := field.New(auth, field.Config{Context: "phone"})
 ```
+
+`RequireExistingKeys` is the load-only flag on `authcore.Config` (see
+[Key management](key-management.md)). Leaving it at its zero value lets the
+library generate a fresh key set on first start; if the configured `KeysDir`
+later goes missing or is empty, `New` succeeds with brand-new material and
+every existing row becomes permanently undecryptable.
 
 `Context` has no default. An empty value is rejected at `New` with
 `field.ErrInvalidConfig`, because silently accepting `""` would
@@ -59,7 +70,8 @@ ct, err := fldEmail.Encrypt(plain)
 if err != nil { return serverError() }
 
 // 3. Produce the blind index the UNIQUE constraint runs against.
-idx := fldEmail.BlindIndex(plain)
+idx, err := fldEmail.BlindIndex(plain)
+if err != nil { return serverError() }
 
 // 4. Insert. ON CONFLICT (email_idx) DO NOTHING enforces uniqueness
 //    at the database; the application learns whether the row was
@@ -73,14 +85,23 @@ n, _ := res.RowsAffected()
 if n == 0 { return conflictError() } // generic: "could not create account"
 
 // 5. Login path: hash the candidate, look up the row, then decrypt.
-//    A hit in the blind index proves the ciphertext came from a row
-//    that shared the same plaintext; a miss proves it didn't.
-candidate := fldEmail.BlindIndex(strings.ToLower(strings.TrimSpace(form.Email)))
+candidate, err := fldEmail.BlindIndex(strings.ToLower(strings.TrimSpace(form.Email)))
+if err != nil { return serverError() }
 row := db.QueryRow(`SELECT email_ct FROM users WHERE email_idx = $1`, candidate)
 var stored string
 if err := row.Scan(&stored); err != nil { return notFound() }
 plain, err := fldEmail.Decrypt(stored)
 if err != nil { return serverError() }
+// An index hit is not the same as a plaintext match. Nothing in the
+// database schema prevents a row holding BlindIndex("alice") next to
+// Encrypt("bob"), so the lookup succeeds while the decrypted value is
+// not what was indexed. Confirm by recomputing the index of the
+// decrypted value and comparing; reject on mismatch.
+check, err := fldEmail.BlindIndex(plain)
+if err != nil { return serverError() }
+if check != candidate {
+    return notFound()
+}
 ```
 
 The `ON CONFLICT (email_idx) DO NOTHING` pattern is the whole
@@ -145,16 +166,40 @@ forgetting any one of them ships a broken field:
    ```go
    // Migration sketch. Run in batches of 1000 rows; every
    // row is in a transaction so a crash mid-batch leaves
-   // the rest of the table consistent.
+   // the rest of the table consistent. The blind index
+   // MUST be recomputed and written in the same UPDATE as
+   // the new ciphertext: leaving the index on the old key
+   // makes lookups miss, and a later UPDATE that writes the
+   // same plaintext again passes the UNIQUE index only
+   // because the old index for that plaintext has already
+   // been replaced, and a duplicate slips through if it
+   // lands between two rows migrating out of order.
    for {
        rows, _ := db.Query(`SELECT id, email_ct FROM users
                              WHERE email_migrated_at IS NULL
                              LIMIT 1000`)
        if !rows.Next() { break }
-       // ... open tx, read with old module, write with new,
-       // set email_migrated_at, commit ...
+       var (
+           id  int64
+           ct  string
+       )
+       _ = rows.Scan(&id, &ct)
+       // ... open tx, decrypt with old module,
+       // re-encrypt with new module,
+       // compute the new index from the plaintext,
+       // UPDATE email_ct, email_idx, email_migrated_at,
+       // commit ...
    }
    ```
+
+   Pausing writes to the column for the duration of the migration is
+   required by this simple recipe: any concurrent INSERT or UPDATE
+   that lands while a row is being migrated can write against an index
+   the migration is about to replace, and the UNIQUE guarantee this column
+   exists to enforce breaks down for the window. For a non-trivial
+   migration run a dual-key window instead, old module reads and new
+   module writes with a verification step on every read, and rotate
+   `Keys().RefreshSecret()` only after the dual-key path has caught up.
 
 ## Ciphertext shape
 
