@@ -8,7 +8,9 @@ var (
 	// ErrInvalidConfig is returned when the supplied Config fails validation.
 	ErrInvalidConfig = errors.New("authcore: invalid configuration")
 
-	// ErrInvalidTimezone is returned when Config.Timezone is nil.
+	// ErrInvalidTimezone is returned when Config.Timezone is nil. New replaces
+	// a nil Timezone with time.UTC before validation, so this error is not
+	// observable through New.
 	ErrInvalidTimezone = errors.New("authcore: timezone must not be nil")
 
 	// ErrKeyManager is returned when the key management system fails to

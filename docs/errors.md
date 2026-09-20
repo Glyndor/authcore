@@ -14,7 +14,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | Error | When |
 |---|---|
 | `authcore.ErrInvalidConfig` | `Config` validation failed |
-| `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil |
+| `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil. Unreachable from `authcore.New`: `New` replaces a nil `Timezone` with `time.UTC` before validation. Reserved for direct calls to the unexported validator. |
 | `authcore.ErrKeyManager` | key generation or loading failed, or a `Config.KeyStore` returned no material or material of the wrong shape (see [Key management](key-management.md#what-a-custom-load-must-return)) |
 
 ## `auth/jwt` package
@@ -42,7 +42,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation; `errors.Unwrap` gives the specific rule |
+| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
 | `email.ErrDomainNoMX` | ✓ Yes | Domain exists but has no MX records (cannot receive email) |
 | `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
 
@@ -51,6 +51,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | Error | Client-safe? | When |
 |---|---|---|
 | `username.ErrInvalidUsername` | ✓ Yes | Username fails a validation rule; `errors.Unwrap` gives the specific rule |
+| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
 
 ## `auth/apikey` package
 
@@ -71,7 +72,6 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
-| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
 
 ## `auth/totp` package
 

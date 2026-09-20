@@ -65,6 +65,12 @@ var (
 	//
 	// Safety: INTERNAL — return a generic "unauthorized" to the client, which
 	// should re-authenticate.
+	//
+	// A Denylist store that returns its own error (transport, timeout, parse)
+	// is wrapped with the store's error verbatim and surfaced through the
+	// same Verify call. There is no sentinel for store failures; check for
+	// ErrTokenRevoked to handle a clean revocation, and treat any other
+	// error as an internal problem with the denylist itself.
 	ErrTokenRevoked = errors.New("jwt: token has been revoked")
 
 	// ErrNotInitialised is returned by HashRefreshToken on a zero-value

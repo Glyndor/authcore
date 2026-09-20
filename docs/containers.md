@@ -165,10 +165,12 @@ keys, and tokens then verify on some replicas and not others. Behind a load
 balancer, login appears to fail at random and never for the same user twice.
 
 The named volume in the recommended setup is read-only and shared, which is
-exactly what the constraint requires. With `:ro` and a complete set already
-present, authcore loads the files and validates them; the only writes it tries
-are the directory mode, `.gitignore`, and `metadata.json`, all of which fail
-harmlessly on a read-only mount and are logged as warnings.
+exactly what the constraint requires. With `:ro`, a complete set already
+present, and `Config.RequireExistingKeys` set to `true`, authcore reads the
+three files and validates them without performing any filesystem writes: no
+`MkdirAll`, no directory chmod, no `.gitignore`, no `metadata.json` refresh.
+The default disk store (no `RequireExistingKeys`) does attempt those writes,
+and on a read-only mount they fail harmlessly and are logged as warnings.
 
 ## Podman secrets instead of a volume
 

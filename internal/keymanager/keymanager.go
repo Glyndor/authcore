@@ -91,9 +91,10 @@ type KeyManager struct {
 // matching staging directory is refused with advice that never asks the
 // operator to delete refresh_secret.key.
 //
-// dir must be a writable path. Use "." to place the ".authcore" folder
-// in the current working directory, or provide an absolute path for
-// containerised / restricted environments.
+// dir is used verbatim: New does not append ".authcore" or any other
+// subdirectory, and Dir returns the value as passed in (no resolution to
+// an absolute path). Callers who want the keys inside a ".authcore"
+// subdirectory must pass ".authcore" explicitly.
 func New(dir string, log logger) (*KeyManager, error) {
 	if _, err := os.Stat(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("inspect key directory %q: %w", dir, err)
@@ -333,7 +334,8 @@ func (km *KeyManager) KeyID() string {
 	return km.keyID
 }
 
-// Dir returns the absolute path of the key directory.
+// Dir returns the value passed to New, verbatim. No resolution to an
+// absolute path is performed; a relative argument is returned as given.
 func (km *KeyManager) Dir() string {
 	return km.dir
 }
