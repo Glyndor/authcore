@@ -105,7 +105,16 @@ func (c *Client) AuthCodeURL() (*AuthRequest, error) {
 		return nil, err
 	}
 
-	q := url.Values{}
+	// Parse the configured AuthURL and merge our parameters onto its existing
+	// query string with Set, so a config that already carries state or
+	// code_challenge does not produce duplicates. Most OIDC servers read the
+	// first value of a repeated key, which was the caller's pre-existing one
+	// and not the one we just generated.
+	u, err := url.Parse(c.cfg.Provider.AuthURL)
+	if err != nil {
+		return nil, fmt.Errorf("oauth: provider auth URL is not parseable: %w", err)
+	}
+	q := u.Query()
 	q.Set("response_type", "code")
 	q.Set("client_id", c.cfg.ClientID)
 	q.Set("redirect_uri", c.cfg.RedirectURL)
@@ -114,13 +123,9 @@ func (c *Client) AuthCodeURL() (*AuthRequest, error) {
 	q.Set("nonce", nonce)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
-
-	sep := "?"
-	if strings.Contains(c.cfg.Provider.AuthURL, "?") {
-		sep = "&"
-	}
+	u.RawQuery = q.Encode()
 	return &AuthRequest{
-		URL:      c.cfg.Provider.AuthURL + sep + q.Encode(),
+		URL:      u.String(),
 		State:    state,
 		Nonce:    nonce,
 		Verifier: verifier,
@@ -150,6 +155,14 @@ const exchangeErrorMaxLen = 512
 // returns ErrNoIDToken when the response carried no id_token; validate that
 // token with VerifyIDToken before trusting it. For a plain-OAuth2 provider
 // (no issuer/JWKS) there is no id_token, so call UserInfo.
+//
+// Client authentication at the token endpoint is chosen from the provider's
+// advertised methods: when the discovery document listed "client_secret_basic"
+// (or "basic"), the secret is sent in the HTTP Basic header; when only
+// "client_secret_post" (or "post") is advertised, it is sent in the form
+// body; when the field is absent the OIDC default (Basic) applies. A
+// provider that advertises a method this library does not know is refused
+// before the round trip.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
 	// Reject empty inputs before talking to the provider. An empty code or
 	// verifier would round-trip useless bytes and could mask a wiring bug in
@@ -167,8 +180,10 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	form.Set("redirect_uri", c.cfg.RedirectURL)
 	form.Set("client_id", c.cfg.ClientID)
 	form.Set("code_verifier", verifier)
-	if c.cfg.ClientSecret != "" {
-		form.Set("client_secret", c.cfg.ClientSecret)
+
+	method := clientAuthMethod(c.cfg.Provider.AuthMethods, c.cfg.ClientSecret != "")
+	if method == authMethodNone && c.cfg.ClientSecret != "" {
+		return nil, fmt.Errorf("%w: provider advertises no supported client auth method (advertised %v)", ErrExchange, c.cfg.Provider.AuthMethods)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Provider.TokenURL, strings.NewReader(form.Encode()))
@@ -177,6 +192,19 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	switch method {
+	case authMethodBasic:
+		// The secret goes in the Authorization header, never in the body.
+		req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
+	case authMethodPost:
+		form.Set("client_id", c.cfg.ClientID)
+		form.Set("client_secret", c.cfg.ClientSecret)
+		// Reissue the request body after we mutate the form.
+		req.Body, req.ContentLength, err = formBody(form)
+		if err != nil {
+			return nil, fmt.Errorf("%w: build request body: %w", ErrExchange, err)
+		}
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

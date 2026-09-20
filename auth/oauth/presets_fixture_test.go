@@ -174,15 +174,17 @@ func TestPreset_DiscordDiscoveryParsesAndMatchesPresetTokenURL(t *testing.T) {
 }
 
 // TestPreset_DiscoveryDocumentIgnoresUnknownFields is the single most
-// valuable assertion in this file. The decoder this module ships reads five
-// fields out of the discovery document and ignores the rest; the fixtures
-// carry a long tail of OIDC extensions that a hand-written fixture would
-// never include (Microsoft's "cloud_instance_name", "mtls_endpoint_aliases",
-// "claims_supported", Discord's "subject_types_supported", Google's
-// "code_challenge_methods_supported", and so on). A future tightening of the
-// decoder (DisallowUnknownFields, a typed-map round trip) would break
-// every real document this library is meant to handle, and a hand-written
-// fixture would not catch it.
+// valuable assertion in this file. The decoder this module ships reads a
+// fixed set of fields out of the discovery document and ignores the rest;
+// the fixtures carry a long tail of OIDC extensions that a hand-written
+// fixture would never include (Microsoft's "cloud_instance_name",
+// "mtls_endpoint_aliases", "claims_supported", Discord's
+// "subject_types_supported", Google's "code_challenge_methods_supported",
+// and so on). A future tightening of the decoder (DisallowUnknownFields, a
+// typed-map round trip) would break every real document this library is
+// meant to handle, and a hand-written fixture would not catch it, so the
+// test drives the real Discover through the fixture transport rather than
+// decoding into a separate struct.
 func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 	t.Parallel()
 	for name, file := range map[string]string{
@@ -192,16 +194,47 @@ func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			var doc struct {
-				Issuer   string `json:"issuer"`
-				Auth     string `json:"authorization_endpoint"`
-				Token    string `json:"token_endpoint"`
-				JWKS     string `json:"jwks_uri"`
-				UserInfo string `json:"userinfo_endpoint"`
+			var issuer, wellKnown string
+			switch name {
+			case "google":
+				issuer = "https://accounts.google.com"
+			case "microsoft":
+				issuer = "https://login.microsoftonline.com/common/v2.0"
+				// The common/v2.0 document uses a template issuer, which
+				// Discover rightly rejects, but the path the decoder takes
+				// up to that rejection (json.Unmarshal of the whole document)
+				// still has to accept the unknown fields. The well-known URL
+				// is what the transport serves; the issuer mismatch only
+				// fires after decoding.
+				wellKnown = "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
+			case "discord":
+				issuer = "https://discord.com"
 			}
-			if err := json.Unmarshal(readFixture(t, file), &doc); err != nil {
-				t.Fatalf("decode %s: %v", file, err)
+			if wellKnown == "" {
+				wellKnown = strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
 			}
+			routes := map[string][]byte{
+				wellKnown: readFixture(t, file),
+			}
+			_, err := Discover(context.Background(), issuer, stubClient(routes))
+			// Microsoft fails with the documented template issuer mismatch,
+			// accept that explicitly so this test only fires on a decoder
+			// regression (the mismatch is discovered only after the decoder
+			// has parsed the whole document, including every unknown field).
+			if name == "microsoft" {
+				if err == nil || !strings.Contains(err.Error(), "issuer mismatch") {
+					t.Fatalf("%s: Discover must surface the template mismatch, got %v", file, err)
+				}
+				return
+			}
+			// Google and Discord documents match the issuer and decode
+			// cleanly: any error here means the decoder choked on an
+			// unknown field, which is what this test guards against.
+			if err != nil {
+				t.Fatalf("%s: decoder refused an unknown field, got %v", file, err)
+			}
+			// No error means Discover accepted the document, including the
+			// unknown fields the fixtures carry.
 		})
 	}
 }

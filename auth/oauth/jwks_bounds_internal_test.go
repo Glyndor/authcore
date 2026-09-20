@@ -59,6 +59,26 @@ func TestParseJWK_rejectsAnOversizedRSAModulus(t *testing.T) {
 	}
 }
 
+// TestParseJWK_rejectsAnOversizedRSAExponent pins the exponent bound. An
+// exponent wider than 31 bits would overflow int(e.Int64()) on a 32-bit
+// build, and a real RSA exponent is tiny (commonly 65537). The bound fires at
+// parse time, before signature verification, so it must be exercised here.
+func TestParseJWK_rejectsAnOversizedRSAExponent(t *testing.T) {
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate 2048-bit RSA key: %v", err)
+	}
+	wide := new(big.Int).Lsh(big.NewInt(1), 33) // 33 bits, past the 31-bit cap
+	j := jwk{Kty: "RSA", N: b64(k.N), E: b64(wide)}
+	_, err = parseJWK(j)
+	if err == nil {
+		t.Fatal("a 33-bit exponent must be refused")
+	}
+	if !strings.Contains(err.Error(), "exponent") {
+		t.Fatalf("refusal must name the exponent, got %v", err)
+	}
+}
+
 func TestParseJWK_rejectsECCoordinatesOutsideTheField(t *testing.T) {
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -103,5 +123,31 @@ func TestParseJWK_rejectsAnUnknownCurve(t *testing.T) {
 	_, err := parseJWK(jwk{Kty: "EC", Crv: "P-999", X: b64(big.NewInt(1)), Y: b64(big.NewInt(1))})
 	if err == nil {
 		t.Fatal("an unknown curve must be refused rather than defaulted")
+	}
+}
+
+// TestParseJWK_rejectsAnOffCurvePoint pins the on-curve check at parse time.
+// Without this guard the verifier would refuse an off-curve key in the JWKS
+// for the wrong reason (no candidate for the kid), so a regression that
+// removes the check would still pass the end-to-end test.
+func TestParseJWK_rejectsAnOffCurvePoint(t *testing.T) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate P-256 key: %v", err)
+	}
+	x := b64(k.X)
+	// Flip a bit in y so the point is no longer on the curve.
+	yBytes := k.Y.Bytes()
+	if len(yBytes) == 0 {
+		t.Fatal("y coordinate is empty")
+	}
+	yBytes[0] ^= 0x01
+	j := jwk{Kty: "EC", Crv: "P-256", X: x, Y: base64.RawURLEncoding.EncodeToString(yBytes)}
+	_, err = parseJWK(j)
+	if err == nil {
+		t.Fatal("an off-curve point must be refused by the parser")
+	}
+	if !strings.Contains(err.Error(), "on curve") {
+		t.Fatalf("rejection must name the curve check, got %v", err)
 	}
 }
