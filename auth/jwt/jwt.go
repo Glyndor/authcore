@@ -252,6 +252,11 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 //	jwt.ErrWrongTokenType — token is a refresh token, not an access token
 //	jwt.ErrTokenRevoked   — a configured Denylist reports the token's session revoked
 //
+// If a configured Denylist returns its own error (transport, timeout, parse),
+// the error is wrapped with the store's error verbatim and returned through
+// this call. There is no sentinel for store failures; treat any error that
+// is not ErrTokenRevoked as an internal problem with the denylist itself.
+//
 // Use errors.Is for error inspection:
 //
 //	claims, err := jwtMod.VerifyAccessToken(token)
@@ -363,7 +368,13 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 // whether the hash exists in a database — that is the application's responsibility
 // and must happen before calling RotateTokens.
 //
-// Returns the same errors as VerifyAccessToken.
+// Returns the same verification errors as VerifyAccessToken (a refresh token
+// goes through the same signature / expiry / iss / aud pipeline). It does
+// NOT consult the Denylist: refresh tokens are not checked for revocation.
+// It can also fail during signing, for example if the JSON encoder refuses
+// a NaN or Inf in extra (rotating JWT[float64] with math.NaN() returns
+// "sign access token: json: unsupported value: NaN"); verifyAccessToken
+// cannot fail this way because it never serialises extra.
 func (j *JWT[T]) RotateTokens(refreshToken string, extra T) (*TokenPair, error) {
 	c, err := verifyRefreshToken(refreshToken, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {

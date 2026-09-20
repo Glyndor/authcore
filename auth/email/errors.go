@@ -2,7 +2,9 @@ package email
 
 import "errors"
 
-// ErrInvalidEmail signals that an address failed RFC 5321/5322 validation.
+// ErrInvalidEmail signals that an address failed RFC 5321/5322 validation,
+// or that Config.RejectPlusAddressing is set and the address contains a '+'
+// in the local part.
 //
 // CLIENT-SAFE: the wrapped reason describes exactly which rule failed and is
 // suitable for returning in a 400 response:

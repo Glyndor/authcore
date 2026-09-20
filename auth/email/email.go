@@ -41,8 +41,11 @@
 // # Domain MX verification
 //
 // VerifyDomain performs an optional DNS MX lookup to confirm the domain can
-// receive email. Results are cached per domain using the DNS TTL (capped at
-// [DefaultCacheTTL]) to avoid repeated lookups for the same domain.
+// receive email. Results are cached per domain for [DefaultCacheTTL]
+// (5 minutes by default) to avoid repeated lookups for the same domain.
+// The Go stdlib LookupMX API does not surface DNS TTLs, so entries are
+// held for the fixed [DefaultCacheTTL] regardless of the authority
+// section of the response.
 // This check is network I/O — always call it after ValidateAndNormalize and
 // handle [ErrDomainUnresolvable] as a soft failure:
 //
@@ -325,8 +328,9 @@ func validate(address string) error {
 // can receive messages. It is an optional, network-bound complement to
 // ValidateAndNormalize — call it only after format validation succeeds.
 //
-// Results are cached per domain for the duration of the DNS TTL, capped at
-// [DefaultCacheTTL], to avoid repeated lookups for the same domain.
+// Results are cached per domain for [DefaultCacheTTL] (5 minutes by default).
+// Go's net.Resolver.LookupMX does not expose the DNS TTL, so entries are
+// held for the fixed duration regardless of the authority section.
 //
 // The cache and the single-flight de-duplication bound repeated and concurrent
 // lookups for the SAME domain, but each uncached distinct domain still costs one
