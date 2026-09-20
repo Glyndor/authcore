@@ -53,19 +53,31 @@ func TestName(t *testing.T) {
 // ---- normalize() — internal -------------------------------------------------
 
 func TestNormalize_lowercases(t *testing.T) {
-	if got := normalize("USER@EXAMPLE.COM"); got != "user@example.com" {
+	got, err := normalize("USER@EXAMPLE.COM")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "user@example.com" {
 		t.Errorf("got %q", got)
 	}
 }
 
 func TestNormalize_trimsSpaces(t *testing.T) {
-	if got := normalize("  user@example.com  "); got != "user@example.com" {
+	got, err := normalize("  user@example.com  ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "user@example.com" {
 		t.Errorf("got %q", got)
 	}
 }
 
 func TestNormalize_mixedCaseAndSpaces(t *testing.T) {
-	if got := normalize("  Ana@Example.COM  "); got != "ana@example.com" {
+	got, err := normalize("  Ana@Example.COM  ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "ana@example.com" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -205,9 +217,10 @@ func TestValidateAndNormalize_idnSubdomainEachLabelConverted(t *testing.T) {
 }
 
 func TestValidateAndNormalize_idnWithOverlongLabelRejected(t *testing.T) {
-	// idna.Lookup caps a single label at 63 characters. When ToASCII cannot
-	// produce a valid ASCII form, normalize falls back to the raw input and
-	// the downstream validator rejects it with ErrInvalidEmail.
+	// idna.Lookup caps a single label at 63 characters. When ToASCII produces
+	// a valid ASCII form whose label exceeds that cap, normalize accepts the
+	// conversion and the downstream 63-character label rule rejects the
+	// address with ErrInvalidEmail.
 	overlongLabel := strings.Repeat("ä", 60) // ~120 bytes UTF-8, punycode expands further → >63
 	_, err := newMod(t).ValidateAndNormalize("user@" + overlongLabel + ".com")
 	if !errors.Is(err, ErrInvalidEmail) {
@@ -225,6 +238,44 @@ func TestValidateAndNormalize_idnDomainConvertedToPunycode(t *testing.T) {
 		t.Fatalf("unexpected error for IDN email: %v", err)
 	}
 	want := "user@xn--mnchen-3ya.de"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestValidateAndNormalize_rejectsIDNAFailure covers the regression where a
+// domain that IDNA cannot convert (leading-hyphen label, underscore in a
+// label, etc.) silently fell through to the raw input and the downstream
+// structural checks accepted it. The conversion failure must be propagated
+// as ErrInvalidEmail with an empty canonical form: a malformed IDN has no
+// canonical form to store or query.
+func TestValidateAndNormalize_rejectsIDNAFailure(t *testing.T) {
+	m := newMod(t)
+	for _, addr := range []string{
+		"user@-example.com",   // leading hyphen in a label
+		"user@exa_mple.com",   // underscore, forbidden in DNS labels
+		"user@example-.com",   // trailing hyphen in a label
+		"user@example.com:80", // colon, forbidden in DNS labels
+	} {
+		got, err := m.ValidateAndNormalize(addr)
+		if !errors.Is(err, ErrInvalidEmail) {
+			t.Errorf("%s: expected ErrInvalidEmail, got %v", addr, err)
+		}
+		if got != "" {
+			t.Errorf("%s: expected empty result on rejection, got %q", addr, got)
+		}
+	}
+}
+
+// Acceptance pair for TestValidateAndNormalize_rejectsIDNAFailure: a domain
+// IDNA does convert must still normalise to its punycode form, otherwise
+// the rejection path above could pass for any input at all.
+func TestValidateAndNormalize_acceptsConvertibleIDN(t *testing.T) {
+	got, err := newMod(t).ValidateAndNormalize("user@bücher.example")
+	if err != nil {
+		t.Fatalf("unexpected error for convertible IDN: %v", err)
+	}
+	want := "user@xn--bcher-kva.example"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
