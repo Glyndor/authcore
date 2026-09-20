@@ -75,13 +75,24 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		gjwt.WithExpirationRequired(),
 		gjwt.WithIssuedAt(),
 	}
-	// Exact issuer match unless a validator is configured (multi-tenant), in
-	// which case the issuer is checked by the predicate after parsing. When no
-	// validator is set the fixed issuer is non-empty by construction
-	// (validateConfig rejects a JWKS without an issuer check); the guard
-	// prevents a future caller from slipping an empty issuer past us, because
-	// golang-jwt v5's WithIssuer("") silently disables the iss check.
-	if c.cfg.IssuerValidator == nil {
+	// Exact issuer match unless a validator is configured (multi-tenant or
+	// preset-supplied), in which case the issuer is checked by the predicate
+	// after parsing. When no validator is set the fixed issuer is non-empty
+	// by construction (validateConfig rejects a JWKS without an issuer
+	// check); the guard prevents a future caller from slipping an empty
+	// issuer past us, because golang-jwt v5's WithIssuer("") silently
+	// disables the iss check.
+	//
+	// Two validators exist: Config.IssuerValidator (caller-supplied, used
+	// for multi-tenant Azure-style setups) and Provider.IssuerValidator
+	// (preset-supplied, used by Google to accept two issuer spellings).
+	// Either approves the iss claim; the fixed Provider.Issuer is ignored
+	// when either is set.
+	validator := c.cfg.IssuerValidator
+	if validator == nil {
+		validator = c.cfg.Provider.IssuerValidator
+	}
+	if validator == nil {
 		if c.cfg.Provider.Issuer == "" {
 			return nil, fmt.Errorf("%w: no issuer configured", ErrIDTokenInvalid)
 		}
@@ -100,11 +111,11 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
 	}
 
-	// Custom issuer validation (multi-tenant): the iss claim must be approved by
-	// the configured predicate.
-	if c.cfg.IssuerValidator != nil {
+	// Predicate validation (multi-tenant or preset-supplied): the iss claim
+	// must be approved by the effective validator.
+	if validator != nil {
 		iss, _ := claims["iss"].(string)
-		if iss == "" || !c.cfg.IssuerValidator(iss) {
+		if iss == "" || !validator(iss) {
 			return nil, fmt.Errorf("%w: issuer %q rejected", ErrIDTokenInvalid, iss)
 		}
 	}

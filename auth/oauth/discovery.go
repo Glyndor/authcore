@@ -64,18 +64,24 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Prov
 	}
 
 	var doc struct {
-		Issuer   string `json:"issuer"`
-		Auth     string `json:"authorization_endpoint"`
-		Token    string `json:"token_endpoint"`
-		JWKS     string `json:"jwks_uri"`
-		UserInfo string `json:"userinfo_endpoint"`
+		Issuer           string   `json:"issuer"`
+		Auth             string   `json:"authorization_endpoint"`
+		Token            string   `json:"token_endpoint"`
+		JWKS             string   `json:"jwks_uri"`
+		UserInfo         string   `json:"userinfo_endpoint"`
+		TokenAuthMethods []string `json:"token_endpoint_auth_methods_supported"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return Provider{}, fmt.Errorf("%w: decode: %w", ErrDiscovery, err)
 	}
 
 	// The discovered issuer must match the one asked for (OIDC Discovery §4.3).
-	if doc.Issuer != issuer && doc.Issuer != trimmed {
+	// The trimming above only builds the well-known URL. The comparison itself
+	// is exact, against the issuer the caller passed in. A document that
+	// echoes back the trimmed form (trailing slash dropped) is rejected: the
+	// two are not the same value to a comparison that does not know which
+	// form was canonicalised when.
+	if doc.Issuer != issuer {
 		return Provider{}, fmt.Errorf("%w: issuer mismatch: document says %q", ErrDiscovery, doc.Issuer)
 	}
 	if doc.Auth == "" || doc.Token == "" || doc.JWKS == "" {
@@ -104,5 +110,6 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Prov
 		TokenURL:    doc.Token,
 		JWKSURL:     doc.JWKS,
 		UserInfoURL: doc.UserInfo,
+		AuthMethods: doc.TokenAuthMethods,
 	}, nil
 }

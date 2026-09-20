@@ -57,7 +57,11 @@ func TestDiscover_issuerMismatchRejected(t *testing.T) {
 
 func TestDiscover_non200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Return a valid JSON body at the failing status so the rejection
+		// must come from the status check, not from decoding an empty body.
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
 	}))
 	defer srv.Close()
 	if _, err := oauth.Discover(context.Background(), srv.URL, nil); err == nil {

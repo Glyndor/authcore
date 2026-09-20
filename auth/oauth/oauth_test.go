@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -126,6 +127,15 @@ func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
 	}
 	if q.Get("code_challenge") == req.Verifier {
 		t.Error("challenge must be the hash of the verifier, not the verifier itself")
+	}
+	// Acceptance pair: the challenge must equal base64url(sha256(verifier)),
+	// not just differ from it. A regression that sends the verifier base64'd
+	// again (or skips the hash) still differs and would pass a "differs" check
+	// alone; pinning the expected value closes that hole.
+	sum := sha256.Sum256([]byte(req.Verifier))
+	wantChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	if q.Get("code_challenge") != wantChallenge {
+		t.Errorf("code_challenge = %q, want %q", q.Get("code_challenge"), wantChallenge)
 	}
 }
 
@@ -268,7 +278,13 @@ func TestExchange_success(t *testing.T) {
 func TestExchange_errors(t *testing.T) {
 	t.Run("non-2xx", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			// Return a valid JSON object so the rejection must come from the
+			// status check, not from decoding an empty body. An empty body
+			// would also fail decoding and pass the assertion for the wrong
+			// reason.
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"bad"}`))
 		}))
 		defer srv.Close()
 		if _, err := newClient(t, srv).Exchange(context.Background(), "c", "v"); err == nil {
