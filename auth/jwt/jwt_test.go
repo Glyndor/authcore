@@ -395,18 +395,19 @@ func TestCreateTokens_audienceEmbeddedInAccessToken(t *testing.T) {
 func TestCreateTokens_wrongAudienceRejectsToken(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Audience = []string{"https://api.example.com"}
-	j := newTestJWT[struct{}](t, newFakeProvider(t), cfg)
+	prov := newFakeProvider(t)
+	j := newTestJWT[struct{}](t, prov, cfg)
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	// Verify with a different audience config — must fail.
+	// Verify with a different audience config but the same provider, so the
+	// modules share the signing key and key id. Otherwise an unknown-key
+	// rejection would fire before the audience check ever runs.
 	cfg2 := DefaultConfig()
 	cfg2.Audience = []string{"https://other.example.com"}
-	j2 := newTestJWT[struct{}](t, newFakeProvider(t), cfg2)
-	j2.priv = j.priv
-	j2.pub = j.pub
+	j2 := newTestJWT[struct{}](t, prov, cfg2)
 
 	_, err := j2.VerifyAccessToken(pair.AccessToken)
-	if err == nil {
-		t.Error("expected error when audience does not match, got nil")
+	if !errors.Is(err, ErrTokenInvalid) {
+		t.Errorf("expected ErrTokenInvalid when audience does not match, got %v", err)
 	}
 }
