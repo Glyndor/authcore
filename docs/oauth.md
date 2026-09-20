@@ -103,15 +103,20 @@ http.Redirect(w, r, req.URL, http.StatusFound)
 **Callback** — check `state`, exchange the code, validate the ID token:
 
 ```go
-if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(savedState)) != 1 {
+// Reject an empty saved state before the comparison: two empty byte
+// slices compare equal under ConstantTimeCompare, so a callback that
+// carries no "state" would otherwise pass when the cookie/session is
+// missing, and Exchange would be called with an empty PKCE verifier.
+gotState := r.FormValue("state")
+if savedState == "" || subtle.ConstantTimeCompare([]byte(gotState), []byte(savedState)) != 1 {
     http.Error(w, "bad state", http.StatusBadRequest) // CSRF / stale
     return
 }
 tok, err := mod.Exchange(r.Context(), r.FormValue("code"), savedVerifier)
-if err != nil { /* 401 */ }
+if err != nil { /* 401, Exchange returns nil on transport errors, non-2xx, and decode failures */ }
 
 claims, err := mod.VerifyIDToken(r.Context(), tok.IDToken, savedNonce)
-if err != nil { /* 401 — never show the reason */ }
+if err != nil { /* 401, never show the reason */ }
 
 // claims.Subject is the stable user id AT THIS PROVIDER.
 // Key your account on (claims.Issuer, claims.Subject), not on email.
@@ -131,7 +136,8 @@ mod, _ := oauth.New(auth, oauth.Config{
 })
 
 // Callback: check state, exchange, then fetch the profile.
-tok, _ := mod.Exchange(r.Context(), code, savedVerifier)
+tok, err := mod.Exchange(r.Context(), code, savedVerifier)
+if err != nil { /* 401, Exchange returns nil on transport errors, non-2xx, and decode failures */ }
 info, err := mod.UserInfo(r.Context(), tok.AccessToken)
 if err != nil { /* 401 */ }
 // info is the provider's raw JSON: GitHub "id"/"login", Discord "id"/"username".
@@ -165,8 +171,16 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
   closed with `ErrIDTokenInvalid`.
 - **Safe redirects.** The default HTTP client refuses redirects that are
   cross-origin (the token POST replays the client secret on a 307/308),
-  downgrade to `http`, or target a loopback / link-local / private host (SSRF).
-  If you set `Config.HTTPClient`, you own that policy.
+  downgrade to `http`, or target a loopback, link-local or private IP
+  literal (SSRF; hostnames are not parsed as IPs, so a same-host https
+  redirect to `localhost` does not match this check; the cross-origin
+  rule still applies). The library's redirect policy always runs, on
+  the default client and on any client you pass in: `Config.HTTPClient`
+  is composed with that policy, not used in place of it. Your client's
+  Transport, Timeout and Jar are preserved, and a `CheckRedirect` you
+  provide is only invoked for redirects the library's redirect rule
+  has already accepted. A client that allows cross-origin redirects
+  still has them refused by the library before yours is consulted.
 
 ## What is yours
 
