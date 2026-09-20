@@ -52,3 +52,16 @@ func (e *domainUnresolvable) Error() string {
 }
 func (e *domainUnresolvable) Is(t error) bool { return t == ErrDomainUnresolvable }
 func (e *domainUnresolvable) Unwrap() error   { return e.cause }
+
+// noMXFromDNS wraps ErrDomainNoMX when the resolver authoritatively reports
+// that no MX records exist for the domain (NXDOMAIN or NODATA, surfaced by
+// Go's resolver as *net.DNSError with IsNotFound set). The cause is kept for
+// logging; the sentinel comparison is preserved so callers' errors.Is checks
+// still match.
+type noMXFromDNS struct{ cause error }
+
+func (e *noMXFromDNS) Error() string {
+	return ErrDomainNoMX.Error() + ": " + e.cause.Error()
+}
+func (e *noMXFromDNS) Is(t error) bool { return t == ErrDomainNoMX }
+func (e *noMXFromDNS) Unwrap() error   { return e.cause }
