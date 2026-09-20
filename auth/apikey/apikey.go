@@ -55,6 +55,11 @@ import (
 const (
 	idLen     = 16 // bytes — 128-bit public identifier, hex-encoded (32 chars)
 	secretLen = 32 // bytes — 256-bit secret, hex-encoded (64 chars)
+	// refreshSecretLen is the byte length New demands from
+	// Keys().RefreshSecret(). The HMAC-SHA256 pepper must match across
+	// all servers that share an installation; a short or absent secret
+	// would silently weaken every key derived from it.
+	refreshSecretLen = 32
 )
 
 // Compile-time assertion: *APIKey must satisfy authcore.Module.
@@ -64,10 +69,15 @@ var _ authcore.Module = (*APIKey)(nil)
 //
 // Construct one instance at application startup using New and share it across
 // goroutines. APIKey is safe for concurrent use after construction.
+//
+// A zero-value APIKey is unusable: Generate and Hash return ErrNotInitialised,
+// and Verify returns false. New sets initialised as its last act, so a
+// successful New is the only path to a working module.
 type APIKey struct {
-	cfg    Config
-	log    authcore.Logger
-	secret []byte // HMAC-SHA256 pepper, sourced from the parent AuthCore instance
+	cfg         Config
+	log         authcore.Logger
+	secret      []byte // HMAC-SHA256 pepper, sourced from the parent AuthCore instance
+	initialised bool   // set by New; zero-value methods refuse to produce output
 }
 
 // GeneratedKey is the result of Generate.
@@ -90,7 +100,28 @@ type GeneratedKey struct {
 //
 //	keyMod, err := apikey.New(auth)
 //	keyMod, err := apikey.New(auth, apikey.Config{Prefix: "svc"})
+//
+// New returns a wrapped ErrInvalidConfig when the provider is unusable
+// (a nil interface, a Logger() or Keys() that returns nil) or when
+// Keys().RefreshSecret() is not exactly 32 bytes. A module that
+// successfully returned is the only path to a working APIKey; every
+// method on a zero value refuses to produce output.
 func New(p authcore.Provider, cfg ...Config) (*APIKey, error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = cfg[0]
@@ -100,7 +131,18 @@ func New(p authcore.Provider, cfg ...Config) (*APIKey, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
-	a := &APIKey{cfg: resolved, log: p.Logger(), secret: p.Keys().RefreshSecret()}
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
+	a := &APIKey{
+		cfg:         resolved,
+		log:         logger,
+		secret:      secret,
+		initialised: true,
+	}
 	a.log.Info("apikey: module initialised (prefix=%s)", resolved.Prefix)
 	return a, nil
 }
@@ -110,7 +152,14 @@ func (a *APIKey) Name() string { return "apikey" }
 
 // Generate mints a new opaque API key. The id and secret are independent
 // CSPRNG draws; the returned Hash is what you store.
+//
+// Generate returns ErrNotInitialised on a zero-value APIKey, so a module
+// that was never constructed by New cannot emit output derived from an
+// empty HMAC pepper.
 func (a *APIKey) Generate() (*GeneratedKey, error) {
+	if !a.initialised {
+		return nil, ErrNotInitialised
+	}
 	idBytes := make([]byte, idLen)
 	if _, err := rand.Read(idBytes); err != nil {
 		return nil, fmt.Errorf("apikey: generate id: %w", err)
@@ -129,13 +178,27 @@ func (a *APIKey) Generate() (*GeneratedKey, error) {
 
 // Hash returns the keyed HMAC-SHA256 digest of key. Use it to recompute the
 // stored value (it matches GeneratedKey.Hash for the same key).
-func (a *APIKey) Hash(key string) string {
-	return a.hash(key)
+//
+// Hash returns ErrNotInitialised on a zero-value APIKey, so a module that
+// was never constructed by New cannot emit a digest derived from an empty
+// HMAC pepper.
+func (a *APIKey) Hash(key string) (string, error) {
+	if !a.initialised {
+		return "", ErrNotInitialised
+	}
+	return a.hash(key), nil
 }
 
 // Verify reports whether key matches storedHash, comparing in constant time to
 // prevent timing attacks.
+//
+// Verify returns false on a zero-value APIKey: a module with no HMAC pepper
+// cannot verify anything, and answering true would let a caller mistake
+// "no key was used" for "the key matched".
 func (a *APIKey) Verify(key, storedHash string) bool {
+	if !a.initialised {
+		return false
+	}
 	return subtle.ConstantTimeCompare([]byte(a.hash(key)), []byte(storedHash)) == 1
 }
 

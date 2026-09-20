@@ -112,11 +112,18 @@ func TestCrossContext_DifferentCiphertextsForSamePlaintext(t *testing.T) {
 
 // TestBlindIndex_DeterministicAcrossCalls: BlindIndex of the same
 // value under the same module must be stable. BlindIndex returns a
-// string and no error, since HMAC-SHA256 over a fixed key cannot fail.
+// string and an error; the happy path has no error and the digest is
+// 32 bytes hex-encoded.
 func TestBlindIndex_DeterministicAcrossCalls(t *testing.T) {
 	f := newFld(t, "email")
-	a := f.BlindIndex("alice@example.com")
-	b := f.BlindIndex("alice@example.com")
+	a, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	b, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
 	if a != b {
 		t.Errorf("BlindIndex not deterministic: %s vs %s", a, b)
 	}
@@ -134,8 +141,14 @@ func TestBlindIndex_DeterministicAcrossModules(t *testing.T) {
 	a, _ := New(p, Config{Context: "email"})
 	b, _ := New(p, Config{Context: "email"})
 
-	idxA := a.BlindIndex("alice@example.com")
-	idxB := b.BlindIndex("alice@example.com")
+	idxA, err := a.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxB, err := b.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
 	if idxA != idxB {
 		t.Errorf("BlindIndex across same-config modules differs: %s vs %s", idxA, idxB)
 	}
@@ -151,7 +164,15 @@ func TestBlindIndex_DiffersAcrossContexts(t *testing.T) {
 	phone, _ := New(p, Config{Context: "phone"})
 
 	const value = "alice@example.com"
-	if email.BlindIndex(value) == phone.BlindIndex(value) {
+	idxEmail, err := email.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("email.BlindIndex: %v", err)
+	}
+	idxPhone, err := phone.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("phone.BlindIndex: %v", err)
+	}
+	if idxEmail == idxPhone {
 		t.Errorf("BlindIndex of %q under different contexts matched", value)
 	}
 }
@@ -174,7 +195,15 @@ func TestLengthPrefix_NoCollisionBetweenAdjacentFields(t *testing.T) {
 	// a + "bc" vs "ab" + "c": the bytes inside the HMAC are the same,
 	// but the framing differs. A separator would collapse them; a
 	// length prefix does not.
-	if a.BlindIndex("bc") == ab.BlindIndex(value) {
+	idxA, err := a.BlindIndex("bc")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxAB, err := ab.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxA == idxAB {
 		t.Error("length prefix collision: BlindIndex(\"bc\") under context \"a\" matched BlindIndex(\"c\") under context \"ab\"")
 	}
 }
@@ -191,7 +220,15 @@ func TestLengthPrefix_NoCollisionBetweenContextAndValue(t *testing.T) {
 	// context "ab", value "c" -> bytes a, b, c
 	ab, _ := New(p, Config{Context: "ab"})
 
-	if a.BlindIndex("bc") == ab.BlindIndex("c") {
+	idxA, err := a.BlindIndex("bc")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxAB, err := ab.BlindIndex("c")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxA == idxAB {
 		t.Error("length prefix collision: (\"a\",\"bc\") matched (\"ab\",\"c\")")
 	}
 }
@@ -202,7 +239,15 @@ func TestLengthPrefix_NoCollisionBetweenContextAndValue(t *testing.T) {
 // "all four quadrants of the collision matrix" symmetry).
 func TestLengthPrefix_NoCollisionSameContextSameValue(t *testing.T) {
 	f := newFld(t, "email")
-	if f.BlindIndex("alice@example.com") != f.BlindIndex("alice@example.com") {
+	a, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	b, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if a != b {
 		t.Error("same context, same value produced different indexes")
 	}
 }
@@ -214,7 +259,15 @@ func TestLengthPrefix_NoCollisionSameContextSameValue(t *testing.T) {
 // not reachable by a test seed.
 func TestBlindIndex_DifferentValuesDifferentIndexes(t *testing.T) {
 	f := newFld(t, "email")
-	if f.BlindIndex("alice@example.com") == f.BlindIndex("bob@example.com") {
+	idxAlice, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxBob, err := f.BlindIndex("bob@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxAlice == idxBob {
 		t.Error("different values produced the same blind index")
 	}
 }

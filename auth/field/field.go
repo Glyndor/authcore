@@ -26,7 +26,8 @@
 //	plain := strings.ToLower(strings.TrimSpace(userInput))
 //	ct, err := fld.Encrypt(plain)
 //	if err != nil { return serverError() }
-//	idx := fld.BlindIndex(plain)
+//	idx, err := fld.BlindIndex(plain)
+//	if err != nil { return serverError() }
 //	db.Exec(`INSERT INTO users (email_ct, email_idx) VALUES (?, ?)
 //	         ON CONFLICT (email_idx) DO NOTHING`, ct, idx)
 //
@@ -34,8 +35,10 @@
 //	// then decrypt. A hit in the blind index proves the ciphertext
 //	// came from a row that shared the same plaintext; a miss proves
 //	// it didn't.
+//	candidate, err := fld.BlindIndex(plain)
+//	if err != nil { return serverError() }
 //	row := db.QueryRow(`SELECT email_ct FROM users WHERE email_idx = ?`,
-//	                   fld.BlindIndex(plain))
+//	                   candidate)
 //	var ct string
 //	if err := row.Scan(&ct); err != nil { return notFound() }
 //	decrypted, err := fld.Decrypt(ct)
@@ -91,6 +94,11 @@ const (
 	// (the standard library's default). It is appended to the sealed
 	// payload and verified on Decrypt.
 	aeadTagLen = 16
+	// refreshSecretLen is the byte length New demands from
+	// Keys().RefreshSecret(). HKDF-SHA256 reads the input secret as a
+	// single message; a short or absent secret would weaken every key
+	// derived from it, so New refuses anything other than 32 bytes.
+	refreshSecretLen = 32
 )
 
 // HKDF info labels. The version suffix is deliberate: if the
@@ -112,12 +120,17 @@ const (
 // the index HMAC key). It holds no per-call state, so two concurrent
 // Encrypt or Decrypt calls are independent and a fresh nonce is drawn
 // on every Encrypt.
+//
+// A zero-value Field is unusable: Encrypt, Decrypt and BlindIndex
+// return ErrNotInitialised. New sets initialised as its last act, so
+// a successful New is the only path to a working module.
 type Field struct {
-	cfg     Config
-	log     authcore.Logger
-	aead    cipher.AEAD // AES-256-GCM bound to the derived encKey
-	idxKey  []byte      // HMAC-SHA256 key for BlindIndex
-	context []byte      // bound Context as bytes, captured once for both AAD and the index
+	cfg         Config
+	log         authcore.Logger
+	aead        cipher.AEAD // AES-256-GCM bound to the derived encKey
+	idxKey      []byte      // HMAC-SHA256 key for BlindIndex
+	context     []byte      // bound Context as bytes, captured once for both AAD and the index
+	initialised bool        // set by New; zero-value methods refuse to produce output
 }
 
 // New creates a Field module.
@@ -133,7 +146,28 @@ type Field struct {
 // The module derives its encryption and index keys from
 // Keys().RefreshSecret() using HKDF-SHA256. It generates no key
 // material of its own.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is
+// unusable (a nil interface, a Logger() or Keys() that returns nil)
+// or when Keys().RefreshSecret() is not exactly 32 bytes. A module
+// that successfully returned is the only path to a working Field;
+// every method on a zero value refuses to produce output.
 func New(p authcore.Provider, cfg ...Config) (*Field, error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = applyDefaults(cfg[0])
@@ -144,11 +178,17 @@ func New(p authcore.Provider, cfg ...Config) (*Field, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
-	encKey, err := deriveKey(p.Keys().RefreshSecret(), encKeyInfo)
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
+	encKey, err := deriveKey(secret, encKeyInfo)
 	if err != nil {
 		return nil, fmt.Errorf("field: derive encryption key: %w", err)
 	}
-	idxKey, err := deriveKey(p.Keys().RefreshSecret(), idxKeyInfo)
+	idxKey, err := deriveKey(secret, idxKeyInfo)
 	if err != nil {
 		return nil, fmt.Errorf("field: derive index key: %w", err)
 	}
@@ -163,11 +203,12 @@ func New(p authcore.Provider, cfg ...Config) (*Field, error) {
 	}
 
 	f := &Field{
-		cfg:     resolved,
-		log:     p.Logger(),
-		aead:    aead,
-		idxKey:  idxKey,
-		context: []byte(resolved.Context),
+		cfg:         resolved,
+		log:         logger,
+		aead:        aead,
+		idxKey:      idxKey,
+		context:     []byte(resolved.Context),
+		initialised: true,
 	}
 	f.log.Info("field: module initialised (context=%q)", resolved.Context)
 	return f, nil
@@ -192,7 +233,14 @@ func (f *Field) Name() string { return "field" }
 // no matter what bytes the Context contains. A ciphertext written
 // for "email" cannot be decrypted as "phone" because the AAD will
 // differ and GCM authentication will fail.
+//
+// Encrypt returns ErrNotInitialised on a zero-value Field, so a module
+// that was never constructed by New cannot emit ciphertext derived
+// from an empty AES key.
 func (f *Field) Encrypt(plaintext string) (string, error) {
+	if !f.initialised {
+		return "", ErrNotInitialised
+	}
 	nonce := make([]byte, nonceLen)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("field: generate nonce: %w", err)
@@ -212,8 +260,17 @@ func (f *Field) Encrypt(plaintext string) (string, error) {
 // stored data and the caller has nothing useful to do differently.
 //
 // Decrypt never panics, including on input shorter than the nonce:
-// the base64 decoder would otherwise panic on a too-short slice.
+// the base64 decoder would otherwise panic on a too-short slice, and
+// a zero-value Field would panic on the missing AEAD before any of
+// the input checks could run.
+//
+// Decrypt returns ErrNotInitialised on a zero-value Field, so a
+// module that was never constructed by New cannot claim to read
+// data it has no key to read.
 func (f *Field) Decrypt(ciphertext string) (string, error) {
+	if !f.initialised {
+		return "", ErrNotInitialised
+	}
 	raw, err := base64.RawStdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", ErrDecrypt
@@ -243,9 +300,7 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 // database the same way it would pass a SHA-256 hash, and a UNIQUE
 // index on the column enforces one row per value.
 //
-// The function never returns an error and never panics, because
-// HMAC-SHA256 over a fixed-size key cannot fail at runtime. The
-// caller MUST normalise value first (lowercase, trim, fold, etc.)
+// The caller MUST normalise value first (lowercase, trim, fold, etc.)
 // and BlindIndex the same form it stores; a module that normalised
 // silently would make BlindIndex disagree with whatever the caller
 // stored, and lookups would miss.
@@ -256,11 +311,18 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 // ("ab", "c") cannot collide, and neither can ("email", "user@x")
 // and ("emailuser", "@x"). A separator byte would only disambiguate
 // while no field contained it, and a Go string can contain any byte.
-func (f *Field) BlindIndex(value string) string {
+//
+// BlindIndex returns ErrNotInitialised on a zero-value Field, so a
+// module that was never constructed by New cannot emit an index
+// derived from an empty key under an empty context.
+func (f *Field) BlindIndex(value string) (string, error) {
+	if !f.initialised {
+		return "", ErrNotInitialised
+	}
 	mac := hmac.New(sha256.New, f.idxKey)
 	writeLengthPrefixed(mac, f.context)
 	writeLengthPrefixed(mac, []byte(value))
-	return hex.EncodeToString(mac.Sum(nil))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // deriveKey runs HKDF-SHA256 over the library-managed refresh secret

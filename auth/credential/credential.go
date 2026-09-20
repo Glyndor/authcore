@@ -88,7 +88,15 @@ type Credential struct {
 	log    authcore.Logger
 	secret []byte      // HMAC-SHA256 pepper, sourced from the parent AuthCore
 	clock  clock.Clock // injected; replaced by clock.Fixed in tests
+
+	initialised bool // set by New; zero-value methods refuse to run
 }
+
+// refreshSecretLen is the byte length New demands from
+// Keys().RefreshSecret(). The HMAC-SHA256 pepper must match across
+// every server that shares an installation; a short or absent secret
+// would silently weaken every token's stored hash.
+const refreshSecretLen = 32
 
 // The module holds no per-issue state on purpose. An earlier draft kept the
 // most recent Token and Hash on this struct, which made two concurrent Issue
@@ -122,7 +130,26 @@ type Issued struct {
 //
 // The module reads the parent AuthCore's logger, refresh secret, and
 // timezone; it generates no key material of its own.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is
+// unusable (a nil interface, a Logger() or Keys() that returns nil)
+// or when Keys().RefreshSecret() is not exactly 32 bytes.
 func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = applyDefaults(cfg[0])
@@ -133,11 +160,18 @@ func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
 	c := &Credential{
-		cfg:    resolved,
-		log:    p.Logger(),
-		secret: p.Keys().RefreshSecret(),
-		clock:  clock.New(p.Config().Timezone),
+		cfg:         resolved,
+		log:         logger,
+		secret:      secret,
+		clock:       clock.New(p.Config().Timezone),
+		initialised: true,
 	}
 	c.log.Info("credential: module initialised (ttl=%s)", resolved.TTL)
 	return c, nil
@@ -160,7 +194,11 @@ func (c *Credential) Name() string { return "credential" }
 //
 //	credential.ErrEmptyPurpose - purpose is ""
 //	credential.ErrEmptySubject - subject is ""
+//	credential.ErrNotInitialised - the receiver is a zero value
 func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
+	if !c.initialised {
+		return nil, ErrNotInitialised
+	}
 	if purpose == "" {
 		return nil, ErrEmptyPurpose
 	}
@@ -206,6 +244,9 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // token existed. Compare, then check expiry; both run on every call so
 // wall-clock time does not reveal whether the token was unknown.
 func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt time.Time) error {
+	if !c.initialised {
+		return ErrNotInitialised
+	}
 	// Always recompute the hash and run the constant-time comparison,
 	// even if a later check would reject the call anyway. This is what
 	// keeps the wall-clock timing of Verify independent of whether the

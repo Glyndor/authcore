@@ -66,4 +66,15 @@ var (
 	// Safety: INTERNAL — return a generic "unauthorized" to the client, which
 	// should re-authenticate.
 	ErrTokenRevoked = errors.New("jwt: token has been revoked")
+
+	// ErrNotInitialised is returned by HashRefreshToken on a zero-value
+	// JWT[T] (a module that was never constructed by New). A zero-value
+	// module carries no HMAC secret, so calling it would emit a hash
+	// under an empty key, a fingerprint no caller asked for.
+	// VerifyRefreshTokenHash returns false instead, since its result
+	// type is bool.
+	//
+	// Safety: INTERNAL. The call site that owns the zero value is the one
+	// to fix.
+	ErrNotInitialised = errors.New("jwt: module not initialised")
 )

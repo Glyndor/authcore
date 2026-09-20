@@ -219,7 +219,10 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 
 		// 1. Look the session up by the hash of the presented token, then
 		//    confirm the match in constant time.
-		presented := jwtMod.HashRefreshToken(req.RefreshToken)
+		presented, hashErr := jwtMod.HashRefreshToken(req.RefreshToken)
+		if hashErr != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal server error"})
+		}
 		found, ok := db.findByRefreshHash(presented)
 		if !ok || !jwtMod.VerifyRefreshTokenHash(req.RefreshToken, found.refreshHash) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid refresh token"})

@@ -17,4 +17,13 @@ var (
 	// Safety: INTERNAL — return a generic "unauthorized" to the client; never
 	// echo back why the key was rejected.
 	ErrInvalidKey = errors.New("apikey: malformed key")
+
+	// ErrNotInitialised is returned by Generate and Hash on a zero-value
+	// APIKey (a module that was never constructed by New). A zero-value
+	// module carries no HMAC pepper, so calling it would emit output
+	// derived from an empty key, a fingerprint no caller asked for.
+	//
+	// Safety: INTERNAL. The call site that owns the zero value is the one
+	// to fix.
+	ErrNotInitialised = errors.New("apikey: module not initialised")
 )
