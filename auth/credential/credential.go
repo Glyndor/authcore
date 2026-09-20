@@ -121,12 +121,14 @@ type Issued struct {
 
 // New creates a Credential module.
 //
-// cfg is optional. Omit it, or pass a zero-value Config, to apply the
-// safe default (TTL=1 hour):
+// cfg is optional. Omit it to apply the safe default (TTL=1 hour).
+// Passing Config{} explicitly is treated as a 0 TTL and rejected as
+// ErrInvalidConfig; the 1-hour default is reachable only by omitting the
+// argument, or by passing a Config with an explicit positive TTL:
 //
-//	cred, err := credential.New(auth)
-//	cred, err := credential.New(auth, credential.DefaultConfig())
+//	cred, err := credential.New(auth)                                 // 1h default
 //	cred, err := credential.New(auth, credential.Config{TTL: 15 * time.Minute})
+//	cred, err := credential.New(auth, credential.Config{})            // ErrInvalidConfig: TTL=0
 //
 // The module reads the parent AuthCore's logger, refresh secret, and
 // timezone; it generates no key material of its own.

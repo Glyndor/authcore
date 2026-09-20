@@ -98,12 +98,14 @@ func TestVerify_OneMinutePastFutureSkewExpires(t *testing.T) {
 	}
 }
 
-// TestVerify_ExpiredTokenTakesPriorityOverMatch documents that when both
-// checks would fire, the function still returns ErrInvalidCredential for
-// the wrong-hash case and ErrExpired for the right-hash-but-too-old
-// case. This is the "same generic message to the user" hook the doc
-// requires.
-func TestVerify_ExpiredTokenTakesPriorityOverMatch(t *testing.T) {
+// TestVerify_MatchCheckedBeforeExpiry documents the order Verify applies
+// the two checks: a wrong hash always reports ErrInvalidCredential, and
+// only a right hash that has aged past TTL reports ErrExpired. This is
+// the "same generic message to the user" hook the doc requires: a caller
+// who returns the same body for both errors must never reveal which one
+// fired, so the constant-time comparison must run first and the expiry
+// branch must never observe a wrong hash.
+func TestVerify_MatchCheckedBeforeExpiry(t *testing.T) {
 	c := newCred(t, Config{TTL: time.Hour})
 	issued, err := c.Issue("reset", "alice@example.com")
 	if err != nil {

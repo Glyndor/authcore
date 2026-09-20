@@ -216,9 +216,15 @@ func TestNew_gitignoreCreated(t *testing.T) {
 	if err != nil {
 		t.Fatalf(".gitignore not created: %v", err)
 	}
-	// The .gitignore must contain a catch-all pattern.
+	// The .gitignore must contain a catch-all pattern that prevents
+	// every file in the directory from being committed. A comment-only
+	// file leaves the keys exposed to git add; this test asserts the
+	// catch-all, not just the file's existence.
 	if len(data) == 0 {
 		t.Error(".gitignore is empty")
+	}
+	if !strings.Contains(string(data), "*") {
+		t.Errorf(".gitignore has no catch-all pattern, content=%q", data)
 	}
 }
 
