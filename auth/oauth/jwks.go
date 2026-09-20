@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -59,37 +60,58 @@ type jwksCache struct {
 	keys        map[string]crypto.PublicKey
 	expiresAt   time.Time
 	lastAttempt time.Time // last refresh attempt, to throttle unknown-kid-driven fetches
+
+	// now returns the current time. Overridden in tests so the TTL can be
+	// advanced without sleeping. Defaults to time.Now.
+	now func() time.Time
 }
 
 func newJWKSCache(url string, h *http.Client) *jwksCache {
-	return &jwksCache{url: url, http: h, keys: make(map[string]crypto.PublicKey)}
+	return &jwksCache{
+		url:  url,
+		http: h,
+		keys: make(map[string]crypto.PublicKey),
+		now:  time.Now,
+	}
 }
 
 // key returns the public key for kid. It refreshes the cache when the entry is
-// missing or stale — refreshing on an unknown kid is how key rotation is picked
-// up. If a refresh fails but a cached key for kid still exists, that key is used.
+// missing or stale, since refreshing on an unknown kid is how key rotation is
+// picked up. If a refresh fails but the cached key for kid is still inside its
+// TTL, that key is used; once the TTL has passed, a failed refresh fails
+// closed with ErrJWKSStale so a withdrawn key cannot outlive the outage.
 func (c *jwksCache) key(ctx context.Context, kid string) (crypto.PublicKey, error) {
 	c.mu.RLock()
 	k, ok := c.keys[kid]
-	fresh := time.Now().Before(c.expiresAt)
-	throttled := time.Since(c.lastAttempt) < minRefreshInterval
+	expires := c.expiresAt
+	lastAttempt := c.lastAttempt
 	c.mu.RUnlock()
-	if ok && fresh {
+
+	now := c.now()
+	if ok && now.Before(expires) {
 		return k, nil
 	}
-	// An unknown kid normally triggers a refresh (to pick up rotation), but only
-	// if we have not just refreshed — otherwise bogus kids would force a fetch
-	// per request. A known-but-stale key still refreshes (gated by the TTL).
-	if !ok && throttled {
+
+	// Skip an unknown kid only while a recent failed refresh is still inside
+	// the cooldown. While another caller's refresh is in flight, lastAttempt
+	// carries the previous attempt's timestamp, so concurrent callers join it
+	// rather than being refused up front.
+	if !ok && now.Sub(lastAttempt) < minRefreshInterval {
 		return nil, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
 	}
 
-	// Collapse concurrent refreshes: a burst of tokens carrying distinct unknown
-	// kids triggers a single outbound JWKS fetch, not one per request.
+	// Collapse concurrent refreshes: a burst of tokens carrying distinct
+	// unknown kids must produce a single outbound JWKS fetch, not one per
+	// request.
 	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
 	if err != nil {
 		if ok {
-			return k, nil // serve the stale key rather than fail the login on a transient JWKS outage
+			if now.Before(expires) {
+				return k, nil // known key inside its TTL: serve it on a transient JWKS outage
+			}
+			// Past expiry: fail closed. A withdrawn key must not remain usable
+			// while the provider is unreachable.
+			return nil, fmt.Errorf("%w: %w", ErrJWKSStale, err)
 		}
 		return nil, err
 	}
@@ -103,14 +125,10 @@ func (c *jwksCache) key(ctx context.Context, kid string) (crypto.PublicKey, erro
 	return k, nil
 }
 
-// refresh fetches the JWKS and replaces the cached key set.
+// refresh fetches the JWKS and replaces the cached key set. An HTTP 200 with
+// zero usable keys is treated as an authoritative empty set: the cache is
+// replaced with it, so lookups fail closed rather than matching an old key.
 func (c *jwksCache) refresh(ctx context.Context) error {
-	// Record the attempt up front (success or failure) so the unknown-kid path
-	// is throttled to at most one fetch per minRefreshInterval.
-	c.mu.Lock()
-	c.lastAttempt = time.Now()
-	c.mu.Unlock()
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
 		return fmt.Errorf("%w: build request: %w", ErrJWKS, err)
@@ -119,20 +137,31 @@ func (c *jwksCache) refresh(ctx context.Context) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		// Do not treat a cancellation of the caller's context as a refresh
+		// failure. Return the context error without recording lastAttempt, so
+		// the next caller with a live context can try again immediately
+		// instead of being blocked by a minute-long cooldown.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		c.recordAttempt()
 		return fmt.Errorf("%w: %w", ErrJWKS, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, jwksMaxBytes))
 	if err != nil {
+		c.recordAttempt()
 		return fmt.Errorf("%w: read: %w", ErrJWKS, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.recordAttempt()
 		return fmt.Errorf("%w: status %d", ErrJWKS, resp.StatusCode)
 	}
 
 	var doc jwksDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
+		c.recordAttempt()
 		return fmt.Errorf("%w: decode: %w", ErrJWKS, err)
 	}
 
@@ -151,15 +180,25 @@ func (c *jwksCache) refresh(ctx context.Context) error {
 			keys[k.Kid] = pub
 		}
 	}
-	if len(keys) == 0 {
-		return fmt.Errorf("%w: no usable keys in JWKS", ErrJWKS)
-	}
 
+	// Treat an empty key set as authoritative. The provider publishes that the
+	// keys are gone: replace the cache with the empty set rather than serving
+	// the previous entry, so lookups fail closed.
 	c.mu.Lock()
 	c.keys = keys
-	c.expiresAt = time.Now().Add(jwksTTL)
+	c.expiresAt = c.now().Add(jwksTTL)
+	c.lastAttempt = c.now()
 	c.mu.Unlock()
 	return nil
+}
+
+// recordAttempt stamps lastAttempt to the current clock so subsequent
+// unknown-kid lookups throttle themselves instead of forcing another fetch
+// during the cooldown.
+func (c *jwksCache) recordAttempt() {
+	c.mu.Lock()
+	c.lastAttempt = c.now()
+	c.mu.Unlock()
 }
 
 // parseJWK converts a JWK into an RSA or EC public key.

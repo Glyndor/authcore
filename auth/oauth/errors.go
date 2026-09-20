@@ -38,6 +38,14 @@ var (
 	// Safety: INTERNAL.
 	ErrJWKS = errors.New("oauth: cannot obtain provider signing keys")
 
+	// ErrJWKSStale is returned when a cached key set has crossed its expiry
+	// and a refresh cannot succeed. The cached entry is not served: a
+	// withdrawn or rotated signing key must not remain usable while the
+	// provider is unreachable.
+	//
+	// Safety: INTERNAL.
+	ErrJWKSStale = errors.New("oauth: cached signing keys are stale and a refresh failed")
+
 	// ErrUserInfo is returned when the userinfo request to a plain-OAuth2
 	// provider fails (network error, non-2xx, or undecodable body).
 	//
