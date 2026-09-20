@@ -92,7 +92,7 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 	_, err := gjwt.ParseWithClaims(idToken, &claims,
 		func(t *gjwt.Token) (any, error) {
 			kid, _ := t.Header["kid"].(string)
-			return c.jwks.key(ctx, kid)
+			return c.jwks.key(ctx, kid, t.Method.Alg())
 		},
 		opts...,
 	)

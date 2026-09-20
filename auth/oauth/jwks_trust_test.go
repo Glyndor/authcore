@@ -89,7 +89,7 @@ func TestJWKS_failsClosedAfterExpiry(t *testing.T) {
 	cache := newCache(srv, clock)
 
 	// Prime the cache: a normal refresh populates keys and bumps expiresAt.
-	if _, err := cache.key(context.Background(), kid); err != nil {
+	if _, err := cache.key(context.Background(), kid, "RS256"); err != nil {
 		t.Fatalf("prime: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func TestJWKS_failsClosedAfterExpiry(t *testing.T) {
 		serve500.Store(true)
 		defer serve500.Store(false)
 
-		_, err := cache.key(context.Background(), kid)
+		_, err := cache.key(context.Background(), kid, "RS256")
 		if err == nil {
 			t.Fatal("a lookup past expiry with a failing refresh must not return a key")
 		}
@@ -112,7 +112,7 @@ func TestJWKS_failsClosedAfterExpiry(t *testing.T) {
 	t.Run("accepted when refresh succeeds", func(t *testing.T) {
 		doc.Store(jwksDocFor(&newer.PublicKey, kid))
 
-		got, err := cache.key(context.Background(), kid)
+		got, err := cache.key(context.Background(), kid, "RS256")
 		if err != nil {
 			t.Fatalf("key after a successful refresh: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestJWKS_emptySetRemovesCachedKeys(t *testing.T) {
 	cache := newCache(srv, clock)
 
 	// Prime the cache with K.
-	got, err := cache.key(context.Background(), kid)
+	got, err := cache.key(context.Background(), kid, "RS256")
 	if err != nil {
 		t.Fatalf("prime: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestJWKS_emptySetRemovesCachedKeys(t *testing.T) {
 	empty.Store(true)
 	cache.now = func() time.Time { return clock.Add(jwksTTL + time.Second) }
 
-	_, err = cache.key(context.Background(), kid)
+	_, err = cache.key(context.Background(), kid, "RS256")
 	if err == nil {
 		t.Fatal("a lookup for the withdrawn kid must fail after an authoritative empty set")
 	}
@@ -208,7 +208,7 @@ func TestJWKS_concurrentColdStart(t *testing.T) {
 	}
 	results := make(chan result, 2)
 	lookup := func() {
-		k, err := cache.key(context.Background(), kid)
+		k, err := cache.key(context.Background(), kid, "RS256")
 		results <- result{k, err}
 	}
 
@@ -275,7 +275,7 @@ func TestJWKS_callerCancellationDoesNotBlockRetry(t *testing.T) {
 		cancelA()
 		close(cancelObserved)
 	}()
-	if _, err := cache.key(ctxA, kid); err == nil {
+	if _, err := cache.key(ctxA, kid, "RS256"); err == nil {
 		t.Fatal("a cancelled call must not return a key")
 	}
 	<-cancelObserved
@@ -288,7 +288,7 @@ func TestJWKS_callerCancellationDoesNotBlockRetry(t *testing.T) {
 	}
 	retryReturned := make(chan result, 1)
 	go func() {
-		k, err := cache.key(context.Background(), kid)
+		k, err := cache.key(context.Background(), kid, "RS256")
 		retryReturned <- result{k, err}
 	}()
 	waitFor(t, handlerEntered, "the retry to reach the handler")
