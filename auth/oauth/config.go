@@ -72,11 +72,15 @@ type Config struct {
 var defaultScopes = []string{"openid", "email", "profile"}
 
 // applyDefaults fills zero-value fields with safe defaults. Caller-supplied
-// scopes are used verbatim (an OIDC caller includes "openid"; an OAuth2 caller
-// sets the provider's own scopes), so the same constructor serves both flows.
+// scopes are cloned so later mutation of the caller's slice cannot change the
+// authorization URL the client produces; an OIDC caller includes "openid",
+// an OAuth2 caller sets the provider's own scopes, so the same constructor
+// serves both flows.
 func applyDefaults(cfg Config) Config {
 	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = defaultScopes
+		cfg.Scopes = append([]string(nil), defaultScopes...)
+	} else {
+		cfg.Scopes = append([]string(nil), cfg.Scopes...)
 	}
 	switch {
 	case cfg.HTTPClient == nil:
@@ -85,6 +89,18 @@ func applyDefaults(cfg Config) Config {
 		cfg.HTTPClient = guardClient(cfg.HTTPClient)
 	}
 	return cfg
+}
+
+// isOIDC reports whether the provider issues ID tokens: it must supply a JWKS
+// endpoint to verify signatures against, and an issuer check to bind tokens to
+// the provider (either a fixed Provider.Issuer or an IssuerValidator for
+// multi-tenant setups). A provider that lacks either is plain-OAuth2 and
+// identifies users via UserInfo instead.
+//
+// The single source of truth for the OIDC/OAuth2 distinction: validateConfig,
+// Exchange, and VerifyIDToken all use this predicate.
+func (c Config) isOIDC() bool {
+	return c.Provider.JWKSURL != "" && (c.Provider.Issuer != "" || c.IssuerValidator != nil)
 }
 
 // guardClient returns a shallow copy of non-nil c without mutating c. The
@@ -156,9 +172,13 @@ func isPrivateHost(host string) bool {
 // validateConfig returns an error if cfg is missing anything required.
 //
 // Every provider needs the authorization and token endpoints. Identity then
-// comes from one of two sources: an OIDC provider supplies Issuer + JWKSURL
-// (the ID token is validated against them), a plain-OAuth2 provider supplies
-// UserInfoURL. A provider with neither cannot identify the user and is rejected.
+// comes from one of two sources: an OIDC provider supplies JWKSURL + an issuer
+// check (the ID token is validated against them), a plain-OAuth2 provider
+// supplies UserInfoURL. A provider with neither cannot identify the user and
+// is rejected. A provider with a JWKS but no issuer check is half-configured
+// OIDC and is also rejected: validating a signature without checking the
+// issuer means the client would accept any token the JWKS signer mints, which
+// is not what the caller asked for.
 func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.ClientID) == "" {
 		return fmt.Errorf("client id must not be empty")
@@ -173,21 +193,16 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("provider token URL must not be empty")
 	}
 
-	// OIDC needs the JWKS to verify signatures, plus an issuer to check — either
-	// a fixed Issuer or an IssuerValidator predicate (multi-tenant).
-	oidc := cfg.Provider.JWKSURL != "" && (cfg.Provider.Issuer != "" || cfg.IssuerValidator != nil)
+	oidc := cfg.isOIDC()
 	oauth2 := cfg.Provider.UserInfoURL != ""
 	if !oidc && !oauth2 {
 		return fmt.Errorf("provider must supply either JWKS + (issuer or IssuerValidator) for OIDC, or a userinfo URL for OAuth2")
 	}
-	// A JWKS without any issuer check (no fixed Issuer and no validator), or an
-	// Issuer without a JWKS, is a half-configured OIDC provider — flag it rather
-	// than silently dropping verification.
-	if !oauth2 {
-		hasIssuerCheck := cfg.Provider.Issuer != "" || cfg.IssuerValidator != nil
-		if hasIssuerCheck != (cfg.Provider.JWKSURL != "") {
-			return fmt.Errorf("OIDC provider needs both a JWKS URL and an issuer (fixed or IssuerValidator)")
-		}
+	// A JWKS without an issuer check is half-configured OIDC. Reject regardless
+	// of whether UserInfoURL is also set, so the caller cannot silently end up
+	// verifying signatures while skipping the iss check.
+	if cfg.Provider.JWKSURL != "" && cfg.Provider.Issuer == "" && cfg.IssuerValidator == nil {
+		return fmt.Errorf("OIDC provider needs both a JWKS URL and an issuer (fixed or IssuerValidator)")
 	}
 
 	// Every endpoint and the redirect must be https (loopback excepted), so a
