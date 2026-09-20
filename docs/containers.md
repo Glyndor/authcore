@@ -130,8 +130,24 @@ with `permission denied` on `metadata.json`. Copying from a container that
 already runs with the application's uid and `--userns=keep-id` keeps the
 owner right. Use the application's real uid in both places.
 
-To back up the volume itself later:
-`podman volume export authcore-production-keys > keys-backup-$(date +%F).tar`.
+To back up the volume itself later, write the export to a temporary file
+and move it into the date-named archive only after the export succeeds. The
+shell redirection in `cmd > file` truncates the target before the command
+runs, so a one-liner that names the archive by date overwrites an existing
+backup from the same day the first time the new export fails partway
+through. Exporting to a tempfile and renaming on success keeps the previous
+backup in place until the new one is complete:
+
+```bash
+tmp=$(mktemp -t keys-backup.XXXXXX.tar)
+if podman volume export authcore-production-keys > "$tmp"; then
+    mv "$tmp" "keys-backup-$(date +%F).tar"
+else
+    rc=$?
+    rm -f "$tmp"
+    exit $rc
+fi
+```
 
 Concurrent first start is the trap this whole pattern avoids. Eight containers
 on one empty named volume, started at once against an unprepared volume, hit

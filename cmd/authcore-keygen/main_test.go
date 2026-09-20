@@ -61,7 +61,9 @@ func TestExtraArgumentIsAUsageError(t *testing.T) {
 
 // TestWritesANewKeySet covers the happy path: a fresh directory receives the key
 // set, stdout holds exactly the two lines the contract promises, and key
-// material stays off the wire.
+// material stays off the wire. Every successful run also emits one
+// fresh-generation Warn on stderr, which is the signal operators wire into
+// monitoring when a deployment has just generated new keys.
 func TestWritesANewKeySet(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "keys")
 	code, stdout, stderr := runKeygen(t, []string{"-out", dir})
@@ -69,8 +71,12 @@ func TestWritesANewKeySet(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty on success", stderr)
+	if !strings.Contains(stderr, "generating a fresh key set") {
+		t.Fatalf("stderr = %q, want the fresh-generation Warn", stderr)
+	}
+	if got := strings.Count(stderr, "generating a fresh key set"); got != 1 {
+		t.Fatalf("fresh-generation Warn appeared %d times, want exactly 1; stderr=%q",
+			got, stderr)
 	}
 
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")

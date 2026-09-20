@@ -190,6 +190,17 @@ func inspectKeySet(dir string) (setState, error) {
 // metadata atomically. The in-memory keys are returned directly so the loaders
 // are not invoked on bytes we just wrote.
 func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
+	// Warn before any fresh material is generated. The reason is the one in
+	// docs/key-management.md: an empty KeysDir on a container recreation, or
+	// on a fresh volume, means every issued token, every stored refresh-token
+	// hash, and every auth/field encrypted column is about to become
+	// unrecognised. Operators wire this Warn into monitoring so they find out
+	// before users do.
+	log.Warn("authcore/keymanager: KeysDir %q is empty; generating a fresh key "+
+		"set, which invalidates every issued token, every stored refresh-token "+
+		"and API-key hash, and every auth/field encrypted column",
+		dir)
+
 	// Sync the parent directory before the first publish. Another process
 	// may have created KeysDir without syncing its parent entry yet, and
 	// this process is about to publish keys that other processes will use.
