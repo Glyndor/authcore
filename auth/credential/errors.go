@@ -50,4 +50,13 @@ var (
 	// Safety: INTERNAL — a programming error in the calling handler. Do not
 	// echo the empty string back; log and return a generic error.
 	ErrEmptySubject = errors.New("credential: subject must not be empty")
+
+	// ErrNotInitialised is returned by Issue and Verify on a zero-value
+	// Credential (a module that was never constructed by New). Such a
+	// module has no HMAC pepper and no clock: issuing would mint a token
+	// whose hash anyone can recompute, and verifying would panic.
+	//
+	// Safety: INTERNAL. The call site that owns the zero value is the one
+	// to fix.
+	ErrNotInitialised = errors.New("credential: module not initialised")
 )

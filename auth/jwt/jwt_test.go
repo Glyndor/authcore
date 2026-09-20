@@ -338,7 +338,10 @@ func TestCreateTokens_refreshHashMatchesHashRefreshToken(t *testing.T) {
 	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	got := j.HashRefreshToken(pair.RefreshToken)
+	got, err := j.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
 	if got != pair.RefreshTokenHash {
 		t.Errorf("HashRefreshToken(RefreshToken) = %q, want %q", got, pair.RefreshTokenHash)
 	}

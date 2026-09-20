@@ -272,7 +272,11 @@ func TestNew_customKeyStoreSignsAndVerifies(t *testing.T) {
 	if got.Subject != subject {
 		t.Errorf("subject = %q, want %q", got.Subject, subject)
 	}
-	if !mod.VerifyRefreshTokenHash(pair.RefreshToken, mod.HashRefreshToken(pair.RefreshToken)) {
+	refreshHash, err := mod.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
+	if !mod.VerifyRefreshTokenHash(pair.RefreshToken, refreshHash) {
 		t.Error("refresh token hash did not round-trip")
 	}
 }

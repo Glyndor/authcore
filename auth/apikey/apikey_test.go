@@ -118,7 +118,11 @@ func TestVerify_peppered(t *testing.T) {
 func TestHash_deterministic(t *testing.T) {
 	m := newMod(t)
 	key, _ := m.Generate()
-	if m.Hash(key.Key) != key.Hash {
+	recomputed, err := m.Hash(key.Key)
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	if recomputed != key.Hash {
 		t.Error("Hash is not deterministic for the same key")
 	}
 }

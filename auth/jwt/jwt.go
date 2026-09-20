@@ -57,6 +57,11 @@ var _ authcore.Module = (*JWT[struct{}])(nil)
 //
 // Construct one instance at application startup using New and share it
 // across all goroutines. JWT is safe for concurrent use after construction.
+//
+// A zero-value JWT[T] is unusable: HashRefreshToken returns
+// ErrNotInitialised, and VerifyRefreshTokenHash returns false. New
+// sets initialised as its last act, so a successful New is the only
+// path to a working module.
 type JWT[T any] struct {
 	cfg             Config
 	log             authcore.Logger
@@ -67,6 +72,7 @@ type JWT[T any] struct {
 	clock           clock.Clock // injected; replaced by clock.Fixed in tests
 	primaryAudience string      // cfg.Audience[0] snapshotted at construction; immune to post-init mutation
 	denylist        Denylist    // optional; nil means access tokens are never checked for revocation
+	initialised     bool        // set by New; zero-value methods refuse to produce output
 
 	// verifyKeys maps each accepted "kid" to its public key. It always holds
 	// the current signing key and additionally any Config.PreviousPublicKeys,
@@ -89,7 +95,28 @@ type JWT[T any] struct {
 //
 // p provides the Ed25519 signing keys, the HMAC secret, the logger, and the
 // timezone — all sourced from the parent AuthCore instance.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is unusable
+// (a nil interface, a Logger() or Keys() that returns nil) or when
+// Keys().RefreshSecret() is not exactly 32 bytes. A module that
+// successfully returned is the only path to a working JWT; every
+// method on a zero value refuses to produce output.
 func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = cfg[0]
@@ -100,13 +127,19 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
 	j := &JWT[T]{
 		cfg:             resolved,
-		log:             p.Logger(),
-		priv:            p.Keys().PrivateKey(),
-		pub:             p.Keys().PublicKey(),
-		secret:          p.Keys().RefreshSecret(),
-		kid:             p.Keys().KeyID(),
+		log:             logger,
+		priv:            keys.PrivateKey(),
+		pub:             keys.PublicKey(),
+		secret:          secret,
+		kid:             keys.KeyID(),
 		clock:           clock.New(p.Config().Timezone),
 		primaryAudience: resolved.Audience[0], // validateConfig guarantees len >= 1
 		denylist:        resolved.Denylist,
@@ -118,6 +151,8 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	for _, prev := range resolved.PreviousPublicKeys {
 		j.verifyKeys[keymanager.KeyID(prev)] = prev
 	}
+
+	j.initialised = true
 
 	j.log.Info("jwt: module initialised (issuer=%s, access_ttl=%s, refresh_ttl=%s, verify_keys=%d)",
 		resolved.Issuer, resolved.AccessTokenTTL, resolved.RefreshTokenTTL, len(j.verifyKeys))
@@ -266,12 +301,21 @@ func (j *JWT[T]) VerifyAccessTokenContext(ctx context.Context, token string) (*C
 //
 // Use this to derive the database lookup key before calling RotateTokens:
 //
-//	hash := jwtMod.HashRefreshToken(clientToken)
+//	hash, err := jwtMod.HashRefreshToken(clientToken)
+//	if err != nil { return serverError() }
 //	row, err := db.FindByHash(hash)
 //	if err != nil { return http.StatusUnauthorized }
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
-func (j *JWT[T]) HashRefreshToken(token string) string {
-	return computeHMAC(token, j.secret)
+//
+// HashRefreshToken returns ErrNotInitialised on a zero-value JWT[T].
+// The signature changed from `string` to `(string, error)` so a module
+// that was never constructed by New cannot emit a hash under an empty
+// HMAC secret.
+func (j *JWT[T]) HashRefreshToken(token string) (string, error) {
+	if !j.initialised {
+		return "", ErrNotInitialised
+	}
+	return computeHMAC(token, j.secret), nil
 }
 
 // VerifyRefreshTokenHash reports whether token produces the same HMAC-SHA256
@@ -284,7 +328,14 @@ func (j *JWT[T]) HashRefreshToken(token string) string {
 //	    return http.StatusUnauthorized
 //	}
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
+//
+// VerifyRefreshTokenHash returns false on a zero-value JWT[T]: a module
+// with no HMAC secret cannot verify anything, and answering true would
+// let a caller mistake "no key was used" for "the key matched".
 func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
+	if !j.initialised {
+		return false
+	}
 	computed := computeHMAC(token, j.secret)
 	return subtle.ConstantTimeCompare([]byte(computed), []byte(storedHash)) == 1
 }

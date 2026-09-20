@@ -72,6 +72,6 @@ func BenchmarkHashRefreshToken(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = mod.HashRefreshToken(pair.RefreshToken)
+		_, _ = mod.HashRefreshToken(pair.RefreshToken)
 	}
 }
