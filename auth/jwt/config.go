@@ -105,8 +105,9 @@ func applyDefaults(cfg Config) Config {
 
 // maxAccessTokenTTL and maxRefreshTokenTTL cap the configurable token
 // lifetimes. They protect operators from accidentally issuing effectively
-// permanent bearer tokens (for example by typing 10*time.Hour instead of
-// 10*time.Minute). The ceilings match the longest values OWASP's JWT cheat
+// permanent bearer tokens (for example by typing 48*time.Hour instead of
+// 48*time.Minute, which the access-token ceiling of 24 hours refuses
+// outright). The ceilings match the longest values OWASP's JWT cheat
 // sheet recommends for a typical web application.
 const (
 	maxAccessTokenTTL  = 24 * time.Hour

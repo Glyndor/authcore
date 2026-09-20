@@ -31,7 +31,7 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
 > issuing effectively permanent bearer tokens by accident (e.g. typing
-> `10 * time.Hour` where `10 * time.Minute` was intended).
+> `48 * time.Hour` where `48 * time.Minute` was intended).
 
 ## Login — creating a token pair
 

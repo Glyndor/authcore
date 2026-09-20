@@ -23,7 +23,13 @@ type IDClaims struct {
 	// Subject is the "sub" claim — the stable, provider-unique user identifier.
 	// Key your account records on (Issuer, Subject), never on email alone.
 	Subject string
-	// Issuer is the "iss" claim (equals the configured Provider.Issuer).
+	// Issuer is the "iss" claim. When no IssuerValidator is configured
+	// the issuer always equals the configured Provider.Issuer, because
+	// VerifyIDToken rejects tokens whose iss does not match it. When
+	// IssuerValidator is configured (multi-tenant providers such as
+	// Azure AD "common") the issuer is whatever string the validator
+	// accepted, which need not equal Provider.Issuer. Provider.Issuer
+	// is ignored on the verification path in that case.
 	Issuer string
 	// Audience is the "aud" claim (contains the configured ClientID).
 	Audience []string
