@@ -59,6 +59,26 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 |---|---|---|
 | `apikey.ErrInvalidConfig` | ✗ No | `apikey.Config` validation failed (e.g. malformed prefix) — startup error |
 | `apikey.ErrInvalidKey` | ✗ No | Presented key is malformed (`ParseID`); return a generic unauthorized |
+| `apikey.ErrNotInitialised` | ✗ No | `Generate`/`Hash` called on a zero-value `APIKey` (a module that was never constructed by `New`) |
+
+## `auth/credential` package
+
+| Error | Client-safe? | When |
+|---|---|---|
+| `credential.ErrInvalidConfig` | ✗ No | `credential.Config` validation failed (zero/negative/oversized TTL, multiple Configs, nil provider, wrong refresh-secret length): startup error |
+| `credential.ErrInvalidCredential` | ✓ Yes | `Verify`: the presented token does not match the stored hash under the given purpose and subject: return a generic "link invalid or expired" |
+| `credential.ErrExpired` | ✓ Yes | `Verify`: the token matched the stored hash but `issuedAt` is more than `TTL` in the past, or more than one minute in the future: return the same generic message as `ErrInvalidCredential` |
+| `credential.ErrEmptyPurpose` | ✗ No | `Issue` called with an empty `purpose`; the hash would be unbound and redeemable against any flow |
+| `credential.ErrEmptySubject` | ✗ No | `Issue` called with an empty `subject`; the token would not be attributable to any user |
+| `credential.ErrNotInitialised` | ✗ No | `Issue`/`Verify` called on a zero-value `Credential` (a module that was never constructed by `New`) |
+
+## `auth/field` package
+
+| Error | Client-safe? | When |
+|---|---|---|
+| `field.ErrInvalidConfig` | ✗ No | `field.Config` validation failed (today: an empty `Context`), or `New` was given a nil provider or a `Keys().RefreshSecret()` of the wrong length: startup error |
+| `field.ErrDecrypt` | ✓ Yes | `Decrypt` failed for any reason: input shorter than the nonce plus GCM tag, input not valid base64, or GCM authentication tag mismatch. The three are not distinguished, so treat the row as corrupt or from the wrong column |
+| `field.ErrNotInitialised` | ✗ No | `Encrypt`/`Decrypt`/`BlindIndex` called on a zero-value `Field` (a module that was never constructed by `New`) |
 
 ## `auth/oauth` package
 

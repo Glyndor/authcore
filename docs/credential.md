@@ -109,9 +109,10 @@ it from the caller's arguments.
 The module does three things well: it makes the token unguessable
 (256-bit CSPRNG), it binds the token to its purpose and subject so it
 cannot be redeemed against the wrong flow or the wrong user, and it
-checks expiry in constant time against wall-clock drift. Three things
-the module deliberately does NOT do, because they belong to the
-application and forgetting any one of them ships a broken reset flow:
+rejects tokens whose issuedAt is more than one minute in the future
+(to catch a clock that has run ahead). Three things the module
+deliberately does NOT do, because they belong to the application and
+forgetting any one of them ships a broken reset flow:
 
 1. **Single-use is the caller's job.** The module does not remember
    anything; it cannot tell whether a token has been redeemed before.

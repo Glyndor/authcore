@@ -172,15 +172,18 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
 - **Safe redirects.** The default HTTP client refuses redirects that are
   cross-origin (the token POST replays the client secret on a 307/308),
   downgrade to `http`, or target a loopback, link-local or private IP
-  literal (SSRF; hostnames are not parsed as IPs, so a same-host https
-  redirect to `localhost` does not match this check; the cross-origin
-  rule still applies). The library's redirect policy always runs, on
-  the default client and on any client you pass in: `Config.HTTPClient`
-  is composed with that policy, not used in place of it. Your client's
-  Transport, Timeout and Jar are preserved, and a `CheckRedirect` you
-  provide is only invoked for redirects the library's redirect rule
-  has already accepted. A client that allows cross-origin redirects
-  still has them refused by the library before yours is consulted.
+  literal (SSRF; `isPrivateHost` only inspects IP literals, so a
+  same-host https redirect to a hostname like `localhost` passes that
+  check, and a same-host redirect is not refused by the cross-origin
+  rule either, so a request that begins on `https://localhost` may be
+  redirected to another path on `https://localhost`). The library's
+  redirect policy always runs, on the default client and on any client
+  you pass in: `Config.HTTPClient` is composed with that policy, not
+  used in place of it. Your client's Transport, Timeout and Jar are
+  preserved, and a `CheckRedirect` you provide is only invoked for
+  redirects the library's redirect rule has already accepted. A client
+  that allows cross-origin redirects still has them refused by the
+  library before yours is consulted.
 
 ## What is yours
 

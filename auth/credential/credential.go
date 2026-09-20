@@ -232,8 +232,18 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // Issue time. The token is rejected as expired when:
 //
 //   - clock.Now() is more than Config.TTL past issuedAt, or
-//   - issuedAt is more than one minute in the future (a backwards-running
-//     caller clock must not extend a token's life).
+//   - issuedAt is more than one minute in the future (a clock that has
+//     run more than a minute ahead must not mint a token that looks
+//     future-dated to a verifier on the correct time).
+//
+// Only the future side is guarded. A clock that runs backwards after
+// issuance extends a token's effective life: issuing at 12:00 with a
+// one-hour TTL, hitting Verify at 13:01 with the expired-token error,
+// and rolling the clock back to 12:59 makes the token verify again,
+// because elapsed (59 minutes) is once more inside the TTL window.
+// The full TTL is the upper bound on how much backwards drift the
+// verifier will absorb. Treat your server clock as part of the trust
+// boundary for this module.
 //
 // Errors:
 //
@@ -244,15 +254,25 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // The caller MUST return the same generic message ("link invalid or
 // expired") for both errors. Distinguishing them tells an attacker that a
 // token existed. Compare, then check expiry; both run on every call so
-// wall-clock time does not reveal whether the token was unknown.
+// the expiry check itself does not leak "token existed vs. token did
+// not exist". The constant-time comparison still does: subtle's
+// ConstantTimeCompare returns 0 immediately when its arguments differ
+// in length, so an empty (or otherwise malformed) storedHash returns
+// before any byte of the candidate is touched, while a 64-character
+// storedHash compares all 64 bytes. The wall-clock time of Verify
+// therefore reveals whether storedHash is the 64-hex-char shape
+// computeHash produces, which corresponds to "the row exists and
+// carries a real hash", not just "a token existed". The caller should
+// not rely on Verify to hide that distinction.
 func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt time.Time) error {
 	if !c.initialised {
 		return ErrNotInitialised
 	}
 	// Always recompute the hash and run the constant-time comparison,
-	// even if a later check would reject the call anyway. This is what
-	// keeps the wall-clock timing of Verify independent of whether the
-	// token existed.
+	// even if a later check would reject the call anyway. The
+	// comparison runs before the expiry check on purpose; see the
+	// function comment for the timing property this preserves (and the
+	// one it does not).
 	candidate := c.computeHash(purpose, subject, token)
 	matched := subtle.ConstantTimeCompare([]byte(candidate), []byte(storedHash)) == 1
 

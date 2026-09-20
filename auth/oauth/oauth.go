@@ -149,11 +149,16 @@ const exchangeErrorMaxLen = 512
 // Exchange swaps an authorization code for tokens at the token endpoint, sending
 // the PKCE code_verifier. ctx bounds the request.
 //
-// It returns ErrExchange on a transport error, a non-2xx response, an OAuth
-// error response ({"error":"invalid_grant", ...} with HTTP 200), or a 200
-// whose body has no access_token/token_type. For an OIDC provider it also
-// returns ErrNoIDToken when the response carried no id_token; validate that
-// token with VerifyIDToken before trusting it. For a plain-OAuth2 provider
+// It returns ErrExchange on any of: an empty code or code_verifier
+// argument, a failure to build the HTTP request, a transport error
+// from c.http.Do, a read error on the response body, a non-2xx status,
+// a 200 whose body is not a JSON object, a 200 whose JSON object
+// carries an "error" field ({"error":"invalid_grant", ...}), a 200
+// whose JSON fails to decode as Tokens, or a 200 that decodes but is
+// missing access_token or token_type. The wrap message names which
+// step failed. For an OIDC provider it also returns ErrNoIDToken when
+// the response carried no id_token; validate that token with
+// VerifyIDToken before trusting it. For a plain-OAuth2 provider
 // (no issuer/JWKS) there is no id_token, so call UserInfo.
 //
 // Client authentication at the token endpoint is chosen from the provider's
