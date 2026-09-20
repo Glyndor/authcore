@@ -50,7 +50,8 @@
 //	// Password change — verify first, then hash the new one.
 //	ok, _ = pwdMod.Verify(currentPassword, storedHash)
 //	if !ok { return http.StatusUnauthorized }
-//	newHash, _ := pwdMod.Hash(newPassword)
+//	newHash, err := pwdMod.Hash(newPassword)
+//	if err != nil { return err } // do not persist a failed result
 //	db.UpdatePasswordHash(userID, newHash)
 package password
 
@@ -59,6 +60,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -109,6 +111,15 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 		resolved = cfg[0]
 	}
 	resolved = applyDefaults(resolved) // fill any zero-value fields with safe defaults
+
+	// Snapshot each *bool policy field into storage the caller does not hold a
+	// pointer to. Without this, the module would read policy through the same
+	// memory the caller still owns, so flipping *cfg.RequireSymbol = false after
+	// New would silently change what an existing module accepts.
+	resolved.RequireUpper = ptr(*resolved.RequireUpper)
+	resolved.RequireLower = ptr(*resolved.RequireLower)
+	resolved.RequireDigit = ptr(*resolved.RequireDigit)
+	resolved.RequireSymbol = ptr(*resolved.RequireSymbol)
 
 	if err := validateConfig(resolved); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
@@ -356,52 +367,82 @@ func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
 
 // parsePHC decodes a PHC string produced by Hash and returns the embedded
 // Argon2id parameters, the decoded salt, and the decoded derived key.
+//
+// Every returned error wraps ErrInvalidHash so the caller can match a single
+// sentinel regardless of which check refused the string.
 func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 	// Expected: $argon2id$v=19$m=<mem>,t=<iter>,p=<par>$<salt>$<key>
-	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...", "<salt>", "<key>"]
+	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<key>"]
 	parts := strings.Split(phcHash, "$")
 	if len(parts) != 6 {
-		return Config{}, nil, nil, fmt.Errorf("expected 6 dollar-separated segments, got %d", len(parts))
+		return Config{}, nil, nil, fmt.Errorf("%w: expected 6 dollar-separated segments, got %d", ErrInvalidHash, len(parts))
+	}
+	// The PHC format starts with a dollar, so the first segment is empty. Any
+	// text before it passes the count check above while leaving the rest of the
+	// parser a string it cannot tell apart from a real hash, and "junk" + hash
+	// then verifies the same password the clean hash does.
+	if parts[0] != "" {
+		return Config{}, nil, nil, fmt.Errorf("%w: unexpected text before the first dollar: %q", ErrInvalidHash, parts[0])
 	}
 	if parts[1] != "argon2id" {
-		return Config{}, nil, nil, fmt.Errorf("unsupported algorithm %q, want argon2id", parts[1])
+		return Config{}, nil, nil, fmt.Errorf("%w: unsupported algorithm %q, want argon2id", ErrInvalidHash, parts[1])
 	}
 
-	var version int
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil {
-		return Config{}, nil, nil, fmt.Errorf("parse version: %w", err)
+	version, err := parseLabeledUint(parts[2], "v")
+	if err != nil {
+		return Config{}, nil, nil, fmt.Errorf("%w: parse version: %w", ErrInvalidHash, err)
 	}
-	if version != argon2.Version {
-		return Config{}, nil, nil, fmt.Errorf("unsupported Argon2 version %d, want %d", version, argon2.Version)
+	if version != uint64(argon2.Version) {
+		return Config{}, nil, nil, fmt.Errorf("%w: unsupported Argon2 version %d, want %d", ErrInvalidHash, version, argon2.Version)
+	}
+
+	// The parameter segment is three "label=N" fields separated by commas.
+	// Splitting on "," first lets parseLabeledUint reject trailing text inside
+	// a single field ("m=65536junk"), which fmt.Sscanf's %d accepts silently.
+	paramFields := strings.Split(parts[3], ",")
+	if len(paramFields) != 3 {
+		return Config{}, nil, nil, fmt.Errorf("%w: expected 3 comma-separated parameter fields, got %d", ErrInvalidHash, len(paramFields))
+	}
+	mem, err := parseLabeledUint(paramFields[0], "m")
+	if err != nil {
+		return Config{}, nil, nil, fmt.Errorf("%w: parse memory: %w", ErrInvalidHash, err)
+	}
+	iter, err := parseLabeledUint(paramFields[1], "t")
+	if err != nil {
+		return Config{}, nil, nil, fmt.Errorf("%w: parse iterations: %w", ErrInvalidHash, err)
+	}
+	par, err := parseLabeledUint(paramFields[2], "p")
+	if err != nil {
+		return Config{}, nil, nil, fmt.Errorf("%w: parse parallelism: %w", ErrInvalidHash, err)
 	}
 
 	var cfg Config
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &cfg.Memory, &cfg.Iterations, &cfg.Parallelism); err != nil {
-		return Config{}, nil, nil, fmt.Errorf("parse parameters: %w", err)
-	}
+	cfg.Memory = uint32(mem)
+	cfg.Iterations = uint32(iter)
+	cfg.Parallelism = uint8(par)
 
 	// Bound the parsed parameters before handing them to argon2.IDKey. A
 	// corrupted or attacker-supplied hash with m=4_000_000_000 would otherwise
 	// cause the verifier to attempt a multi-TiB allocation and crash the
 	// process. Reuse the same ceilings validateConfig enforces at construction.
 	if cfg.Memory < minMemory || cfg.Memory > maxMemory {
-		return Config{}, nil, nil, fmt.Errorf("memory parameter out of range: got %d, want [%d, %d]", cfg.Memory, minMemory, maxMemory)
+		return Config{}, nil, nil, fmt.Errorf("%w: memory parameter out of range: got %d, want [%d, %d]", ErrInvalidHash, cfg.Memory, minMemory, maxMemory)
 	}
 	if cfg.Iterations < 1 || cfg.Iterations > maxIterations {
-		return Config{}, nil, nil, fmt.Errorf("iterations parameter out of range: got %d, want [1, %d]", cfg.Iterations, maxIterations)
+		return Config{}, nil, nil, fmt.Errorf("%w: iterations parameter out of range: got %d, want [1, %d]", ErrInvalidHash, cfg.Iterations, maxIterations)
 	}
 	if cfg.Parallelism < 1 {
-		return Config{}, nil, nil, fmt.Errorf("parallelism parameter out of range: got %d, want >= 1", cfg.Parallelism)
+		return Config{}, nil, nil, fmt.Errorf("%w: parallelism parameter out of range: got %d, want >= 1", ErrInvalidHash, cfg.Parallelism)
 	}
 
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("decode salt: %w", err)
+		return Config{}, nil, nil, fmt.Errorf("%w: decode salt: %w", ErrInvalidHash, err)
 	}
 
 	key, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("decode key: %w", err)
+		return Config{}, nil, nil, fmt.Errorf("%w: decode key: %w", ErrInvalidHash, err)
 	}
 
 	// Reject hashes whose salt or key are not the fixed sizes Hash produces.
@@ -410,11 +451,32 @@ func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 	// the process. Enforcing the exact lengths fails closed on any corrupted
 	// or attacker-supplied PHC string before it can reach the KDF.
 	if len(salt) != saltLen {
-		return Config{}, nil, nil, fmt.Errorf("salt has wrong length: got %d bytes, want %d", len(salt), saltLen)
+		return Config{}, nil, nil, fmt.Errorf("%w: salt has wrong length: got %d bytes, want %d", ErrInvalidHash, len(salt), saltLen)
 	}
 	if len(key) != keyLen {
-		return Config{}, nil, nil, fmt.Errorf("derived key has wrong length: got %d bytes, want %d", len(key), keyLen)
+		return Config{}, nil, nil, fmt.Errorf("%w: derived key has wrong length: got %d bytes, want %d", ErrInvalidHash, len(key), keyLen)
 	}
 
 	return cfg, salt, key, nil
+}
+
+// parseLabeledUint reads a field of the form "label=N" and returns N. The
+// whole field must be consumed: "v=19junk" is rejected because strconv rejects
+// it, and "v=19,extra=1" never reaches here because the caller splits on the
+// separator first. Measured before this existed: fmt.Sscanf("v=19junk", ...)
+// silently bound v to 19 and let the suffix through.
+func parseLabeledUint(field, label string) (uint64, error) {
+	prefix := label + "="
+	if !strings.HasPrefix(field, prefix) {
+		return 0, fmt.Errorf("missing %s= prefix in %q", label, field)
+	}
+	rest := field[len(prefix):]
+	if rest == "" {
+		return 0, fmt.Errorf("empty %s value in %q", label, field)
+	}
+	n, err := strconv.ParseUint(rest, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", label, err)
+	}
+	return n, nil
 }

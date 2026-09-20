@@ -2,6 +2,7 @@ package password
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -219,6 +220,59 @@ func TestVerify_malformedHashReturnsErrInvalidHash(t *testing.T) {
 		t.Errorf("expected ErrInvalidHash, got %v", err)
 	}
 }
+
+func TestVerify_rejectsLeadingGarbage(t *testing.T) {
+	mod := newMod(t)
+
+	const pw = "Correct-Horse-9!"
+	clean, err := mod.Hash(pw)
+	if err != nil {
+		t.Fatalf("Hash() error = %v", err)
+	}
+
+	// Acceptance pair: the clean hash must still verify, so this is a test of
+	// the prefix check rather than a regression that turned the whole parser
+	// against every hash.
+	ok, err := mod.Verify(pw, clean)
+	if err != nil || !ok {
+		t.Fatalf("clean hash must still verify: ok=%v err=%v", ok, err)
+	}
+
+	ok, err = mod.Verify(pw, "junk"+clean)
+	if ok {
+		t.Errorf("Verify with junk-prefixed PHC must not succeed, got ok=true")
+	}
+	if !errors.Is(err, ErrInvalidHash) {
+		t.Errorf("Verify with junk-prefixed PHC: expected ErrInvalidHash, got %v", err)
+	}
+}
+
+func TestParsePHC_rejectsTrailingTextInFields(t *testing.T) {
+	clean := phc(t, "argon2id", argon2.Version, minMemory, 3, 1)
+
+	if _, _, _, err := parsePHC(clean); err != nil {
+		t.Fatalf("clean fixture must parse, otherwise the rejections below prove nothing: %v", err)
+	}
+
+	// Swap "v=19" for "v=19junk" and verify the parser refuses it. fmt.Sscanf
+	// used to bind v to 19 and ignore the suffix, so the rest of the parser
+	// proceeded with a value that the surrounding string did not actually
+	// contain.
+	badVersion := strings.Replace(clean, "v="+itoa(argon2.Version), "v="+itoa(argon2.Version)+"junk", 1)
+	if _, _, _, err := parsePHC(badVersion); !errors.Is(err, ErrInvalidHash) {
+		t.Errorf("v=19junk: expected ErrInvalidHash, got %v", err)
+	}
+
+	// Same shape, this time in the m= field of the parameter segment.
+	badMemory := strings.Replace(clean, "m="+itoa(minMemory), "m="+itoa(minMemory)+"junk", 1)
+	if _, _, _, err := parsePHC(badMemory); !errors.Is(err, ErrInvalidHash) {
+		t.Errorf("m=%djunk: expected ErrInvalidHash, got %v", minMemory, err)
+	}
+}
+
+// itoa formats n in base 10. strconv.Itoa would do, but keeping the helper
+// local makes the test self-contained.
+func itoa(n int) string { return strconv.Itoa(n) }
 
 func TestVerify_wrongAlgorithmReturnsErrInvalidHash(t *testing.T) {
 	mod := newMod(t)

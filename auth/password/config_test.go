@@ -301,3 +301,46 @@ func TestBool_expressesBothStatesDistinctlyFromUnset(t *testing.T) {
 		t.Error("RequireUpper must still apply when only RequireSymbol was turned off")
 	}
 }
+
+// TestNew_snapshotsPolicyPointers proves the policy the module was built with
+// is owned by the module and not aliased through the caller's Config. Without
+// the snapshot, mutating the caller's pointer after New would silently change
+// what the built module accepts: flip cfg.RequireSymbol to false on the
+// caller's struct, and ValidatePolicy("Abcdefghijk1") returns nil instead of
+// the symbol-rule error it returned at construction.
+func TestNew_snapshotsPolicyPointers(t *testing.T) {
+	cfg := DefaultConfig()
+
+	mod, err := New(fakeProvider{}, cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	const noSymbol = "Abcdefghijk1"
+
+	before := mod.ValidatePolicy(noSymbol)
+	if before == nil {
+		t.Fatal("baseline: Abcdefghijk1 must be rejected under the default policy")
+	}
+	if !errors.Is(before, ErrWeakPassword) {
+		t.Fatalf("baseline error must wrap ErrWeakPassword, got %v", before)
+	}
+	if !strings.Contains(before.Error(), "special") {
+		t.Fatalf("baseline must reject for the symbol rule, got %v", before)
+	}
+
+	// Flip the caller's pointer. With aliased storage the module would now
+	// accept the password; with the snapshot it must still reject it.
+	*cfg.RequireSymbol = false
+
+	after := mod.ValidatePolicy(noSymbol)
+	if after == nil {
+		t.Fatal("after flipping the caller's *bool, the built module must keep the original policy")
+	}
+	if !errors.Is(after, ErrWeakPassword) {
+		t.Fatalf("after error must wrap ErrWeakPassword, got %v", after)
+	}
+	if !strings.Contains(after.Error(), "special") {
+		t.Fatalf("after must still reject for the same symbol rule, got %v", after)
+	}
+}
