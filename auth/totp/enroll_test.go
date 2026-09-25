@@ -98,8 +98,14 @@ func TestEnroll_URI_RoundTrips(t *testing.T) {
 	if u.Host != "totp" {
 		t.Errorf("host = %q, want totp", u.Host)
 	}
-	if u.Path != "/Acme%20Corp:alice@example.com" {
-		t.Errorf("path = %q, want /Acme%%20Corp:alice@example.com", u.Path)
+	// The label is escaped once: the raw URI carries %20, and a parser (or
+	// an authenticator) decodes it back to the issuer as typed. Before
+	// 2026-09-25 this test pinned the double-escaped "%2520".
+	if !strings.HasPrefix(enr.URI, "otpauth://totp/Acme%20Corp:alice@example.com?") {
+		t.Errorf("URI = %q, want the label escaped once", enr.URI)
+	}
+	if u.Path != "/Acme Corp:alice@example.com" {
+		t.Errorf("path = %q, want /Acme Corp:alice@example.com", u.Path)
 	}
 	q := u.Query()
 	if q.Get("secret") != enr.Secret {
@@ -134,21 +140,19 @@ func TestEnroll_URI_AwkwardAccountName(t *testing.T) {
 	if u.Scheme != "otpauth" || u.Host != "totp" {
 		t.Errorf("unexpected host part: scheme=%q host=%q", u.Scheme, u.Host)
 	}
-	// Path must preserve the structural colon between issuer and
-	// account, and percent-encode the awkward characters inside each
-	// segment.
-	wantPath := "/Acme:" + url.PathEscape("Señor López:work@acme.com")
-	if u.Path != wantPath {
-		t.Errorf("path = %q, want %q", u.Path, wantPath)
+	// The escaped path keeps exactly one literal colon, the separator, and
+	// percent-encodes everything awkward inside each part once, the colon
+	// in the account included. Before 2026-09-25 the test compared against
+	// a double-escaped path.
+	wantEscaped := "/Acme:Se%C3%B1or%20L%C3%B3pez%3Awork@acme.com"
+	if u.EscapedPath() != wantEscaped {
+		t.Errorf("escaped path = %q, want %q", u.EscapedPath(), wantEscaped)
 	}
-	// Round-trip the issuer-segment alone: it must be recoverable.
-	issuerSeg := strings.SplitN(strings.TrimPrefix(u.Path, "/"), ":", 2)[0]
-	got, err := url.PathUnescape(issuerSeg)
-	if err != nil {
-		t.Fatalf("PathUnescape(%q): %v", issuerSeg, err)
-	}
-	if got != "Acme" {
-		t.Errorf("issuer segment = %q, want %q", got, "Acme")
+	parts := strings.SplitN(strings.TrimPrefix(u.EscapedPath(), "/"), ":", 2)
+	issuer, errI := url.PathUnescape(parts[0])
+	account, errA := url.PathUnescape(parts[1])
+	if errI != nil || errA != nil || issuer != "Acme" || account != "Señor López:work@acme.com" {
+		t.Errorf("label splits into %q / %q (%v, %v), want Acme / the account as typed", issuer, account, errI, errA)
 	}
 }
 
