@@ -388,38 +388,35 @@ func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 		return Config{}, nil, nil, fmt.Errorf("%w: unsupported algorithm %q, want argon2id", ErrInvalidHash, parts[1])
 	}
 
-	version, err := parseLabeledUint(parts[2], "v")
+	version, err := parseLabeledUint32(parts[2], "v")
 	if err != nil {
 		return Config{}, nil, nil, fmt.Errorf("%w: parse version: %w", ErrInvalidHash, err)
 	}
-	if version != uint64(argon2.Version) {
+	if version != argon2.Version {
 		return Config{}, nil, nil, fmt.Errorf("%w: unsupported Argon2 version %d, want %d", ErrInvalidHash, version, argon2.Version)
 	}
 
 	// The parameter segment is three "label=N" fields separated by commas.
-	// Splitting on "," first lets parseLabeledUint reject trailing text inside
+	// Splitting on "," first lets the labeled parsers reject trailing text inside
 	// a single field ("m=65536junk"), which fmt.Sscanf's %d accepts silently.
 	paramFields := strings.Split(parts[3], ",")
 	if len(paramFields) != 3 {
 		return Config{}, nil, nil, fmt.Errorf("%w: expected 3 comma-separated parameter fields, got %d", ErrInvalidHash, len(paramFields))
 	}
-	mem, err := parseLabeledUint(paramFields[0], "m")
+	mem, err := parseLabeledUint32(paramFields[0], "m")
 	if err != nil {
 		return Config{}, nil, nil, fmt.Errorf("%w: parse memory: %w", ErrInvalidHash, err)
 	}
-	iter, err := parseLabeledUint(paramFields[1], "t")
+	iter, err := parseLabeledUint32(paramFields[1], "t")
 	if err != nil {
 		return Config{}, nil, nil, fmt.Errorf("%w: parse iterations: %w", ErrInvalidHash, err)
 	}
-	par, err := parseLabeledUint(paramFields[2], "p")
+	par, err := parseLabeledUint8(paramFields[2], "p")
 	if err != nil {
 		return Config{}, nil, nil, fmt.Errorf("%w: parse parallelism: %w", ErrInvalidHash, err)
 	}
 
-	var cfg Config
-	cfg.Memory = uint32(mem)
-	cfg.Iterations = uint32(iter)
-	cfg.Parallelism = uint8(par)
+	cfg := Config{Memory: mem, Iterations: iter, Parallelism: par}
 
 	// Bound the parsed parameters before handing them to argon2.IDKey. A
 	// corrupted or attacker-supplied hash with m=4_000_000_000 would otherwise
@@ -460,23 +457,52 @@ func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 	return cfg, salt, key, nil
 }
 
-// parseLabeledUint reads a field of the form "label=N" and returns N. The
-// whole field must be consumed: "v=19junk" is rejected because strconv rejects
-// it, and "v=19,extra=1" never reaches here because the caller splits on the
-// separator first. Measured before this existed: fmt.Sscanf("v=19junk", ...)
-// silently bound v to 19 and let the suffix through.
-func parseLabeledUint(field, label string) (uint64, error) {
+// labeledValue returns the N of a field of the form "label=N", unparsed. It
+// refuses a missing label and an empty value; the typed parsers below refuse
+// everything else.
+func labeledValue(field, label string) (string, error) {
 	prefix := label + "="
 	if !strings.HasPrefix(field, prefix) {
-		return 0, fmt.Errorf("missing %s= prefix in %q", label, field)
+		return "", fmt.Errorf("missing %s= prefix in %q", label, field)
 	}
 	rest := field[len(prefix):]
 	if rest == "" {
-		return 0, fmt.Errorf("empty %s value in %q", label, field)
+		return "", fmt.Errorf("empty %s value in %q", label, field)
 	}
-	n, err := strconv.ParseUint(rest, 10, 64)
+	return rest, nil
+}
+
+// parseLabeledUint32 reads a field of the form "label=N" and returns N, which
+// must be a decimal that fits in 32 bits. The whole field must be consumed:
+// "v=19junk" is rejected because strconv rejects it, and "v=19,extra=1" never
+// reaches here because the caller splits on the separator first.
+//
+// Parse at the target width, never wider and then narrow. Measured before this
+// existed: fmt.Sscanf("v=19junk", ...) silently bound v to 19, and the
+// replacement that parsed at 64 bits and converted afterwards let
+// m=4294975488 verify as m=8192 (#451).
+func parseLabeledUint32(field, label string) (uint32, error) {
+	rest, err := labeledValue(field, label)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseUint(rest, 10, 32)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", label, err)
 	}
-	return n, nil
+	return uint32(n), nil
+}
+
+// parseLabeledUint8 is parseLabeledUint32 for a value that must fit in 8 bits.
+// Before #451, p=257 verified as p=1.
+func parseLabeledUint8(field, label string) (uint8, error) {
+	rest, err := labeledValue(field, label)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseUint(rest, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", label, err)
+	}
+	return uint8(n), nil
 }
