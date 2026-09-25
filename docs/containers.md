@@ -61,10 +61,18 @@ Every line of that file matters:
   container, and `user:` runs the application as that uid. Use your real uid,
   and the same value when the keys are created and when they are read,
   otherwise authcore fails to read `metadata.json` with `permission denied`.
-  Write plain `keep-id`: podup did not accept `keep-id:uid=...,gid=...` when
-  this was measured (Glyndor/podup#1798). Do not rely on `userns_mode: auto`
-  to give each container its own range under podup either; it did not when
-  measured (Glyndor/podup#1797).
+  Plain `keep-id` is enough when the application runs as your own uid. Since
+  podup 5.9.4, `keep-id:uid=...,gid=...` is accepted as well; before that it
+  failed to start (Glyndor/podup#1798).
+- Do not use `userns_mode: auto` for a service that shares a key volume.
+  Since podup 5.9.4 it does give each container its own range
+  (Glyndor/podup#1797), and that is exactly the problem: a key file written
+  as uid 1000 under `keep-id` showed up as owned by `65534` in an `auto`
+  container, which then failed with `Permission denied`. `auto` ranges also
+  come out of your subordinate uid range (65536 ids by default) and stay held
+  while a container exists, stopped ones included. When the range ran out,
+  `podup up` failed with `not enough unused IDs in user namespace`. Measured
+  on 2026-09-25 with podup 5.10.0 and Podman 5.7.0.
 - `read_only: true` makes the container filesystem immutable. The keys volume
   is mounted read-only at `/run/authcore`.
 - `AUTHCORE_KEYS_DIR` is just an environment variable. authcore does **not**
@@ -217,11 +225,17 @@ secrets:
 The default secret mount is a regular file with mode `0444` owned by root. That
 mode is too loose for a private key, and a uid 1000 process cannot replace it
 on a `read_only: true` container. **Set `mode: 0400` and the application's
-`uid`/`gid`.** A secret is mounted into the container when it is created. After
-changing a secret's file, `podup up -d` left the running container on the old
-contents when measured (Glyndor/podup#1799), so recreate every replica
-explicitly, and together, or some will keep the old keys while new ones load
-the new.
+`uid`/`gid`.** A secret is mounted into the container when it is created.
+Since podup 5.9.4, changing a secret's file makes the next `podup up -d`
+recreate every container that mounts it (Glyndor/podup#1799): with podup
+5.10.0, three replicas were recreated and all three read the new contents.
+Older versions left the running containers on the old contents, so there,
+recreate every replica explicitly and together.
+
+Either way, check that every replica is running before you rely on the new
+keys. When another service in the same `podup up` failed to start, the run
+stopped partway: two replicas had loaded the new secret and the third was left
+in `Stopping`, serving nothing.
 
 ### Using `Config.KeyStore` instead
 
