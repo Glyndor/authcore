@@ -66,11 +66,24 @@ type logger interface {
 // KeyManager holds cryptographic material loaded at startup.
 // All fields are immutable after New returns; no mutex is required.
 type KeyManager struct {
-	dir           string
+	dir   string
+	keyID string
+	// material is a pointer on purpose. fmt prints a pointer it meets inside a
+	// struct as an address, except on a verb pointers do not support (%s, %q,
+	// %t, ...), where it dereferences one level. A *KeyManager held in an
+	// unexported field of AuthCore or of an in-memory KeyStore bypasses its
+	// Format method, so until 2026-09-25 log.Printf("%s", auth) printed the
+	// private key and refresh secret. One more level of indirection stops fmt
+	// at an address.
+	material *secretMaterial
+}
+
+// secretMaterial is the key set a KeyManager holds. The public key lives here
+// too so the three values are replaced together.
+type secretMaterial struct {
 	privateKey    ed25519.PrivateKey
 	publicKey     ed25519.PublicKey
 	refreshSecret []byte
-	keyID         string
 }
 
 // New initialises the KeyManager for the given directory.
@@ -230,11 +243,9 @@ func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
 	}
 	reportLeftovers(dir, log)
 	return &KeyManager{
-		dir:           dir,
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         keyID,
+		dir:      dir,
+		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
+		keyID:    keyID,
 	}, nil
 }
 
@@ -278,11 +289,9 @@ func loadFromKeysDir(dir string, meta *metadata, log logger) (*KeyManager, error
 	}
 	reportLeftovers(dir, log)
 	return &KeyManager{
-		dir:           dir,
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         keyID,
+		dir:      dir,
+		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
+		keyID:    keyID,
 	}, nil
 }
 
@@ -304,13 +313,13 @@ func computeKeyID(pub ed25519.PublicKey) string {
 // PrivateKey returns the Ed25519 private key used for signing operations.
 // The returned slice must not be modified by the caller.
 func (km *KeyManager) PrivateKey() ed25519.PrivateKey {
-	return km.privateKey
+	return km.material.privateKey
 }
 
 // PublicKey returns the Ed25519 public key used for signature verification.
 // The returned slice must not be modified by the caller.
 func (km *KeyManager) PublicKey() ed25519.PublicKey {
-	return km.publicKey
+	return km.material.publicKey
 }
 
 // RefreshSecret returns the 32-byte secret used as the HMAC-SHA256 key when
@@ -325,7 +334,7 @@ func (km *KeyManager) PublicKey() ed25519.PublicKey {
 // stored refresh-token and API-key hash on upgrade, forcing all users to
 // re-authenticate — a breaking change the library avoids by design.
 func (km *KeyManager) RefreshSecret() []byte {
-	return km.refreshSecret
+	return km.material.refreshSecret
 }
 
 // KeyID returns the stable identifier for the current signing key.
