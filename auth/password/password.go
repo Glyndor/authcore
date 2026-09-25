@@ -305,16 +305,21 @@ func (p *Password) Hash(plaintext string) (string, error) {
 	// Embedding the parameters in the hash string means Verify can always
 	// reconstruct the exact same hash without consulting the module config.
 	// Salt and key are base64-encoded without padding (RFC 4648 §5).
-	encoded := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+	return encodePHC(p.cfg, salt, key), nil
+}
+
+// encodePHC writes the PHC string for an Argon2id hash: the version, the
+// memory, iteration and parallelism parameters of cfg, and salt and key in
+// unpadded standard base64. It is the only form parsePHC accepts.
+func encodePHC(cfg Config, salt, key []byte) string {
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version,
-		p.cfg.Memory,
-		p.cfg.Iterations,
-		p.cfg.Parallelism,
+		cfg.Memory,
+		cfg.Iterations,
+		cfg.Parallelism,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(key),
 	)
-
-	return encoded, nil
 }
 
 // Verify reports whether plaintext matches the Argon2id hash in phcHash.
@@ -452,6 +457,16 @@ func parsePHC(phcHash string) (Config, []byte, []byte, error) {
 	}
 	if len(key) != keyLen {
 		return Config{}, nil, nil, fmt.Errorf("%w: derived key has wrong length: got %d bytes, want %d", ErrInvalidHash, len(key), keyLen)
+	}
+
+	// Accept only the exact string Hash writes for these values. The checks
+	// above read each field leniently in ways no encoder produces: strconv
+	// takes "m=08192", and the base64 decoder skips "\n" and "\r" and ignores
+	// the unused bits of the last character. Each of those let a second
+	// spelling of one hash verify; a fuzzer comparing against the re-encoded
+	// form found the last two within a second (#456).
+	if phcHash != encodePHC(cfg, salt, key) {
+		return Config{}, nil, nil, fmt.Errorf("%w: hash is not in canonical form", ErrInvalidHash)
 	}
 
 	return cfg, salt, key, nil
