@@ -24,11 +24,9 @@ func sentinelKeys() *KeyManager {
 		secret[i] = 0xC5
 	}
 	return &KeyManager{
-		dir:           "/tmp/keys",
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         "sentinel",
+		dir:      "/tmp/keys",
+		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
+		keyID:    "sentinel",
 	}
 }
 

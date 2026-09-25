@@ -106,11 +106,9 @@ func Load(dir string, log logger) (*KeyManager, error) {
 	reportLeftovers(dir, log)
 
 	return &KeyManager{
-		dir:           dir,
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         keyID,
+		dir:      dir,
+		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
+		keyID:    keyID,
 	}, nil
 }
 

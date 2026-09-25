@@ -69,10 +69,8 @@ func FromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) (*K
 	copy(secretCopy, secret)
 
 	return &KeyManager{
-		privateKey:    privCopy,
-		publicKey:     pubCopy,
-		refreshSecret: secretCopy,
-		keyID:         computeKeyID(pubCopy),
+		material: &secretMaterial{privateKey: privCopy, publicKey: pubCopy, refreshSecret: secretCopy},
+		keyID:    computeKeyID(pubCopy),
 	}, nil
 }
 
