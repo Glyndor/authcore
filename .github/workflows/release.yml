@@ -16,10 +16,37 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # required by `gh release create` to publish the release
+      pull-requests: read # scripts/release-notes.sh reads the release pull request
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history and every branch, so origin/main is there for the
+          # ancestry check below.
           fetch-depth: 0
+          # This job publishes through gh with GH_TOKEN and never pushes with
+          # git, so the token has no reason to sit in .git/config.
+          persist-credentials: false
+
+      - name: Check the tag is on main
+        run: |
+          # Only code promoted to main through a release pull request is ever
+          # published. Before #460 nothing here checked it.
+          commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${commit}, which is not on main"
+            exit 1
+          fi
+
+      - name: Compose release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The notes are the body of the release pull request; gh appends
+          # the generated list of pull requests below them. v1.15.0 and
+          # v1.16.0 went out with the list alone, so their breaking changes
+          # were not on the release page (#460).
+          bash scripts/release-notes.sh "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" >"${RUNNER_TEMP}/release-notes.md"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -35,16 +62,16 @@ jobs:
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          # Idempotent: if the maintainer already published the release
-          # manually (with curated notes from CHANGELOG.md), skip the
-          # auto-generated fallback. Otherwise create it so tags pushed
-          # directly never lack a published release.
+          # Idempotent: a release created by hand before the tag arrived keeps
+          # its notes, and a re-run does not fail on the one this job made.
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists — leaving the maintainer-curated notes in place."
+            echo "Release ${GITHUB_REF_NAME} already exists; leaving its notes in place."
             exit 0
           fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
+            --notes "$(cat "${RUNNER_TEMP}/release-notes.md")" \
             --generate-notes \
             --verify-tag

@@ -27,3 +27,19 @@ jobs:
     uses: Glyndor/.github/.github/workflows/dependabot-freshness.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
       max-age-days: 15
+
+  # scripts/release-notes.sh only runs when a tag is pushed, so a defect in it
+  # would first show up in a release. Its test runs here instead.
+  release-notes:
+    name: Release notes script
+    runs-on: ubuntu-latest
+    # The suite took 0.24 s locally on 2026-09-25; the bound is for a hung
+    # runner, not for the test.
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/release-notes.test.sh

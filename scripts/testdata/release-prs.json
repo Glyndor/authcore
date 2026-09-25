@@ -1,0 +1,137 @@
+[
+  {
+    "body": "Release `v1.16.1`. No API changes: `apidiff` against `v1.16.0` reports nothing. One behaviour change in `auth/password` and a corrected container guide.\n\n## `auth/password`: a stored hash verifies only in the form `Hash` writes\n\n`Verify` used to accept several spellings of one stored hash: a line feed or carriage return inside the base64 salt or key, nonzero unused bits in the last base64 character, and leading zeros in `v`, `m`, `t` or `p`. Each decoded to the same values and verified the same password. `parsePHC` now refuses anything that is not byte-identical to what `Hash` writes, with `ErrInvalidHash` and \"not in canonical form\" (#457, #456).\n\n**Who could notice.** Only a caller whose stored hashes did not come from `Hash`: for example strings that were wrapped at a line length, or produced by another Argon2 library that writes leading zeros. Hashes written by authcore are canonical and keep verifying. If you import hashes from elsewhere, re-encode them into this form once, or rehash on the next successful login with the other library.\n\nThe fuzz target `FuzzParsePHC` now checks every accepted string against its re-encoded form, which is how this was found, and `FuzzParseID` in `auth/apikey` checks the documented key shape in both directions.\n\n## Documentation\n\n`docs/containers.md` described three podup defects that podup fixed in 5.9.4 (#455, #454). Measured with podup 5.10.0 and Podman 5.7.0: `keep-id:uid=...,gid=...` is accepted, and a changed secret file makes `podup up -d` recreate every replica. `userns_mode: auto` does now give each container its own range, and the guide says not to use it with a shared key volume, because a key file written under `keep-id` reads as owned by `65534` and fails with `Permission denied`.\n\n## Checked before opening this\n\nOn `develop` at `a62ff0c`: `gofmt`, `go vet ./...` and `go test -race -count=1 ./...` are clean, and all nine example modules build and vet.\n\nSigned-off-by: Jaro-c <75870284+Jaro-c@users.noreply.github.com>\n",
+    "labels": [
+      {
+        "id": "LA_kwDORlsaM88AAAACor-qwQ",
+        "name": "type:security",
+        "description": "Security-relevant change",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-rAg",
+        "name": "type:chore",
+        "description": "Maintenance with no product impact",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-sPA",
+        "name": "prio:P2",
+        "description": "Medium priority",
+        "color": "fbca04"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-teg",
+        "name": "status:review",
+        "description": "In review",
+        "color": "5319e7"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-uDQ",
+        "name": "effort:S",
+        "description": "Small",
+        "color": "c5def5"
+      }
+    ],
+    "mergeCommit": {
+      "oid": "2f5868b8966c595729b34a3e165d94f6e06b3a66"
+    },
+    "number": 458
+  },
+  {
+    "body": "Release `v1.16.0`. **Breaking:** four signatures change, three in `apikey`, `jwt` and `field` and one in the `oauth` Microsoft preset. Nearly everything else is a security fix that makes the library refuse something it used to accept, so read the first two sections before upgrading.\n\n## Breaking: hashing methods report a module that was never initialised\n\n| Before | After |\n|---|---|\n| `func (a *APIKey) Hash(key string) string` | `(string, error)` |\n| `func (j *JWT[T]) HashRefreshToken(token string) string` | `(string, error)` |\n| `func (f *Field) BlindIndex(value string) string` | `(string, error)` |\n\n**Why it broke.** A zero-value `APIKey`, `JWT` or `Field` derived its output from an empty key and reported success: `Generate` and `Verify` on a zero `APIKey` accepted a hash anyone can compute, and `BlindIndex` on a zero `Field` returned an index. These methods had no way to say no. They now return `ErrNotInitialised`, and `New` in `apikey`, `field`, `credential` and `jwt` validates the provider, its logger, its keys and the 32-byte refresh secret before deriving anything (#425).\n\n**What to do.** Take the second return value and handle it. On a module built by `New` it is always nil.\n\n`New` in the same four packages also refuses more than one `Config`. It used to keep the first and drop the rest, so `jwt.New(p, jwt.Config{}, jwt.Config{Denylist: d})` built a module with no denylist.\n\n## Breaking: `oauth.Microsoft` returns an error\n\n`func Microsoft(tenant string) Provider` is now `func Microsoft(tenant string) (Provider, error)`. A domain tenant such as `contoso.onmicrosoft.com` was allowed by the comment, but it produced an expected issuer built from the domain while real tokens carry the tenant GUID, so every login failed. The preset now refuses anything that is not a GUID and says so in the error (#444).\n\n`oauth.Provider` gained `IssuerValidator func(string) bool` and `AuthMethods []string`. The function field means a `Provider` is no longer comparable with `==`.\n\n## Behaviour you may notice\n\nThese are fixes, and each one turns something that used to succeed into an error:\n\n- **OAuth / OIDC.** A cached JWKS past its expiry is no longer used when the refresh fails (`ErrJWKSStale`), and a refresh that returns an empty key set withdraws the old keys (#424). A config with a JWKS and no issuer is rejected, because golang-jwt treats an empty expected issuer as \"do not check\". ID tokens must name exactly our client id as audience and carry a numeric `iat`. `Exchange` reports a provider error returned with status 200 instead of returning an empty token (#426). A JWK's `alg` and `key_ops` now restrict what it verifies, two keys may share a `kid`, and a single key with no `kid` verifies a token with none (#441). `AuthCodeURL` no longer duplicates parameters already present in the configured URL, a fragment in it is refused, and discovery binds the issuer exactly (#444).\n- **OAuth, in the other direction.** The Google preset accepts both issuer spellings Google signs with, and `Exchange` selects `client_secret_basic` when the provider advertises only that method. When a provider advertises nothing, `Exchange` still sends `client_secret_post` as before (#444).\n- **JWT.** Issuance refuses a token larger than verification accepts, and verification rejects a correctly signed token with a missing or malformed `sub` or `jti`. A sub-second access TTL and an issuer that is not valid UTF-8 are refused by `New` (#443).\n- **Password.** `Verify` refuses PHC strings with bytes before the first `$` or trailing bytes after a number (`v=19junk`). They wrap `ErrInvalidHash`, and so do parameters wider than their field, which a first version of that change let wrap around (#452). A built module no longer changes policy when the caller mutates the `Config` it passed (#437).\n- **API keys.** `ParseID` requires the documented key shape: 32 hex characters of id and 64 of secret (#440).\n- **Email.** A domain IDNA refuses is invalid instead of passing through raw. A null MX (`MX 0 .`) and an authoritative \"no MX\" answer are both `ErrDomainNoMX`, and only a real lookup failure is `ErrDomainUnresolvable`. A caller's context deadline holds even when another caller's lookup for the same domain is in flight (#439).\n- **Keys.** `NewKeyStoreFromKeys` and `NewKeyStoreFromPEM` copy the caller's buffers, so wiping yours no longer zeroes the live refresh secret. `New` logs a warning before it generates a fresh key set, naming what new material invalidates (#438).\n\n## Documentation\n\nThe recipes people copy were fixed where following them lost something (#427, #438): the non-rotating refresh example accepted expired refresh tokens; rotation and password reset both let two concurrent requests succeed; denylist entries expired before the token when leeway was set; the `field` and `credential` setups generated fresh keys on a redeploy without the key directory; key rotation re-encrypted without moving the blind index; and the container backup truncated the existing archive before exporting. Sixteen further comments and guide statements that the code did not implement are corrected (#442, #446).\n\n## Tests\n\nTen tests that named a control and stayed green with it removed now fail without it (#445), and the `auth/oauth` error paths added in this cycle have tests of their own (#436).\n\n## Checked before opening this\n\nOn `develop` at `807cd77`: `gofmt`, `go vet ./...` and `go test -race -count=1 ./...` are clean, and all nine example modules build and vet. `apidiff` against `v1.15.0` reports exactly the incompatible changes listed above: the four signatures, and `oauth.Provider` no longer being comparable.\n\nSigned-off-by: Jaro-c <75870284+Jaro-c@users.noreply.github.com>\n",
+    "labels": [
+      {
+        "id": "LA_kwDORlsaM88AAAACor-qwQ",
+        "name": "type:security",
+        "description": "Security-relevant change",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-rAg",
+        "name": "type:chore",
+        "description": "Maintenance with no product impact",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-sAA",
+        "name": "prio:P1",
+        "description": "High priority",
+        "color": "d93f0b"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-teg",
+        "name": "status:review",
+        "description": "In review",
+        "color": "5319e7"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-uZg",
+        "name": "effort:M",
+        "description": "Medium",
+        "color": "c5def5"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-vFA",
+        "name": "breaking",
+        "description": "Backwards-incompatible change",
+        "color": "b60205"
+      }
+    ],
+    "mergeCommit": {
+      "oid": "9b65f6eb5a4d8434f4ff912d26682b055f3666a6"
+    },
+    "number": 450
+  },
+  {
+    "body": "Release `v1.15.0`. **Breaking:** `auth/totp`'s `Verify` has a new signature. Everything else is additive. Read the first two sections before upgrading.\n\n## Breaking: TOTP replay protection is no longer optional\n\n`Verify(secret, code string, lastUsedStep uint64) (uint64, error)` is now `VerifyStep`, with identical behaviour. The name `Verify` belongs to a new method:\n\n```go\nfunc (t *TOTP) Verify(ctx context.Context, secret, code string, rec StepRecorder) error\n```\n\n**Why it broke.** `lastUsedStep` was a plain `uint64`, so a caller who had not wired step storage passed its zero value and got no replay refusal at all, silently. And even a caller who stored the step correctly, with the read, verify, write flow the guide used to show, let two concurrent submissions of one code both succeed: both read the same stored step.\n\n**What to do.** Rename the call to `VerifyStep` and nothing changes. To get the guarantee, implement the one-method `StepRecorder` over the column you already keep the step in, and call `Verify`:\n\n```go\nfunc (r pgRecorder) RecordIfNewer(ctx context.Context, step uint64) error {\n    // UPDATE totp_enrollments SET last_step = $2\n    //  WHERE id = $1 AND active AND last_step < $2   -- one row: accepted\n}\n```\n\n`docs/totp.md` has the full recorder, the upgrade notes, and the reason the guide no longer tells you to revoke the second factor when a code is reused: a user who double-clicks produces the same error.\n\n## Keys: a deployment can now refuse to invent them\n\n- **`Config.RequireExistingKeys`** makes the disk store load-only. `New` loads the three key files and never creates, generates, chmods or writes anything in `KeysDir`. A missing or incomplete set stops startup with advice to restore from a backup. The zero value keeps the old behaviour, and a `KeyStore` takes precedence. It exists because a container recreated without a volume, or a volume that failed to mount, silently started with new keys: every token invalid, every stored hash unmatched, every `auth/field` column unreadable.\n- **`authcore-keygen`**, a new command (`go install github.com/Glyndor/authcore/cmd/authcore-keygen@latest`), writes a key set once into a directory that must not exist, prints the path and the key id and nothing else, and never writes into or removes an existing directory.\n- **A warning when a secret file is readable by group or others.** A Podman secret mounted without a `mode` is `0444`; a Kubernetes Secret volume defaults to `0644`. authcore now says so once per file at startup. It never refuses and never changes a mode, and it is skipped on Windows.\n\n## Fixes\n\n- The live-staging concurrency test could hang the `internal/keymanager` package until the test timeout. It is bounded now.\n- `Verify` accepted a typed nil `StepRecorder` and could panic instead of returning `ErrStepRecorderRequired`.\n- The pair-mismatch error told the operator to delete both key files and regenerate. It says to restore the matching pair from a backup.\n\n## Documentation\n\n`docs/containers.md` provisions the keys volume with `authcore-keygen` and a copy from a container running under the application's uid and `--userns=keep-id`. I measured the alternative and it does not work: under rootless Podman, `podman volume import` shifted the owner from uid 1000 to 999 and authcore failed with `permission denied`. The volume creation and the copy are chained, so the recipe cannot overwrite the keys of an existing deployment.\n\n`docs/key-management.md` gains \"Load-only in production\", `docs/errors.md` lists `ErrStepRecorderRequired` and has its OAuth table repaired, and the README points at the new command.\n\nSigned-off-by: Jaro-c <75870284+Jaro-c@users.noreply.github.com>\n",
+    "labels": [
+      {
+        "id": "LA_kwDORlsaM88AAAACor-o9A",
+        "name": "type:feature",
+        "description": "New feature or capability",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-qwQ",
+        "name": "type:security",
+        "description": "Security-relevant change",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-rAg",
+        "name": "type:chore",
+        "description": "Maintenance with no product impact",
+        "color": "1d76db"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-sAA",
+        "name": "prio:P1",
+        "description": "High priority",
+        "color": "d93f0b"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-teg",
+        "name": "status:review",
+        "description": "In review",
+        "color": "5319e7"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-uZg",
+        "name": "effort:M",
+        "description": "Medium",
+        "color": "c5def5"
+      },
+      {
+        "id": "LA_kwDORlsaM88AAAACor-vFA",
+        "name": "breaking",
+        "description": "Backwards-incompatible change",
+        "color": "b60205"
+      }
+    ],
+    "mergeCommit": {
+      "oid": "3b517d47d2d407f1c9f3e69d95697eeb26335e97"
+    },
+    "number": 397
+  }
+]
