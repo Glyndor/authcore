@@ -201,7 +201,7 @@ func (j *JWT[T]) Name() string { return "jwt" }
 //	pair.AccessToken           — include in Authorization: Bearer on API requests
 //	pair.AccessTokenExpiresAt  — send to the client to schedule proactive renewal
 //	pair.RefreshToken          — store in a secure, httpOnly client-side location
-//	pair.RefreshTokenExpiresAt — when the user must log in again
+//	pair.RefreshTokenExpiresAt: when this refresh token expires; each rotation issues a new one, so a session has no absolute end unless you store its start
 //	pair.RefreshTokenHash      — store in your database; never store the raw token
 //	pair.SessionID             — UUID v7 jti shared by both tokens; primary key for session store
 //
@@ -212,6 +212,9 @@ func (j *JWT[T]) Name() string { return "jwt" }
 //
 // The library does not persist any of these values.
 func (j *JWT[T]) CreateTokens(subject string, extra T) (*TokenPair, error) {
+	if j == nil || !j.initialised {
+		return nil, ErrNotInitialised
+	}
 	subject = strings.ToLower(subject)
 	if !isUUIDv7(subject) {
 		return nil, ErrInvalidSubject
@@ -318,6 +321,9 @@ func sumLen(entries []string) int {
 // VerifyAccessTokenContext to pass your own context (recommended for a
 // network-backed denylist, e.g. to inherit the request deadline).
 func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {
+	if j == nil || !j.initialised {
+		return nil, ErrNotInitialised
+	}
 	if j.denylist == nil {
 		return j.VerifyAccessTokenContext(context.Background(), token)
 	}
@@ -330,6 +336,9 @@ func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {
 // is passed to the configured Denylist (if any). The context bounds only the
 // revocation lookup; signature and expiry checks are local and never block.
 func (j *JWT[T]) VerifyAccessTokenContext(ctx context.Context, token string) (*Claims[T], error) {
+	if j == nil || !j.initialised {
+		return nil, ErrNotInitialised
+	}
 	c, err := verifyAccessToken[T](token, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {
 		return nil, err
@@ -419,19 +428,49 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 // and must happen before calling RotateTokens.
 //
 // Returns the same verification errors as VerifyAccessToken (a refresh token
-// goes through the same signature / expiry / iss / aud pipeline). It does
-// NOT consult the Denylist: refresh tokens are not checked for revocation.
-// It can also fail during signing, for example if the JSON encoder refuses
+// goes through the same signature / expiry / iss / aud pipeline), including
+// ErrTokenRevoked: when a Denylist is configured, a revoked session cannot be
+// rotated. Before 2026-09-25 it could, and the rotated access token verified
+// again as soon as the denylist entry lapsed. The lookup runs under the same
+// default 5-second timeout as VerifyAccessToken; use RotateTokensContext to
+// pass your own context. It can also fail during signing, for example if the JSON encoder refuses
 // a NaN or Inf in extra (rotating JWT[float64] with math.NaN() returns
 // "sign access token: json: unsupported value: NaN"); verifyAccessToken
 // cannot fail this way because it never serialises extra.
 func (j *JWT[T]) RotateTokens(refreshToken string, extra T) (*TokenPair, error) {
+	if j == nil || !j.initialised {
+		return nil, ErrNotInitialised
+	}
+	if j.denylist == nil {
+		return j.RotateTokensContext(context.Background(), refreshToken, extra)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultDenylistTimeout)
+	defer cancel()
+	return j.RotateTokensContext(ctx, refreshToken, extra)
+}
+
+// RotateTokensContext is RotateTokens with an explicit context that is passed
+// to the configured Denylist (if any). The context bounds only the revocation
+// lookup.
+func (j *JWT[T]) RotateTokensContext(ctx context.Context, refreshToken string, extra T) (*TokenPair, error) {
+	if j == nil || !j.initialised {
+		return nil, ErrNotInitialised
+	}
 	c, err := verifyRefreshToken(refreshToken, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {
 		return nil, err
 	}
 	if c.Type != tokenTypeRefresh {
 		return nil, ErrWrongTokenType
+	}
+	if j.denylist != nil {
+		revoked, err := j.denylist.IsRevoked(ctx, c.ID)
+		if err != nil {
+			return nil, fmt.Errorf("jwt: denylist lookup: %w", err)
+		}
+		if revoked {
+			return nil, ErrTokenRevoked
+		}
 	}
 
 	j.log.Debug("jwt: rotating token (sub=%s, jti=%s)", c.Subject, c.ID)
