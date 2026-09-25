@@ -142,11 +142,24 @@ func (c *jwksCache) candidateFor(ctx context.Context, kid, alg string) (candidat
 	if !ok && now.Sub(lastAttempt) < minRefreshInterval {
 		return candidate{}, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
 	}
+	// A known kid whose set has expired gets the same cooldown. A successful
+	// refresh moves the expiry an hour ahead, so an attempt inside the window
+	// here was a failed one. Before 2026-09-25 every verification during an
+	// outage made its own fetch toward the failing provider.
+	if ok && now.Sub(lastAttempt) < minRefreshInterval {
+		return candidate{}, fmt.Errorf("%w: %w: the last refresh failed less than %s ago", ErrJWKSStale, ErrJWKS, minRefreshInterval)
+	}
 
 	// Collapse concurrent refreshes: a burst of tokens carrying distinct
 	// unknown kids must produce a single outbound JWKS fetch, not one per
 	// request.
 	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	if err != nil && errors.Is(err, context.Canceled) && ctx.Err() == nil {
+		// The shared fetch runs under the context of the caller that started
+		// it. When that caller went away, every caller that joined got its
+		// cancellation. This caller's context is live, so fetch again.
+		_, err, _ = c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	}
 	if err != nil {
 		if ok {
 			if now.Before(expires) {
