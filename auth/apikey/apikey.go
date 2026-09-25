@@ -215,8 +215,13 @@ func (a *APIKey) Verify(key, storedHash string) bool {
 //
 // It returns ErrInvalidKey if key is not a well-formed key for this module
 // (wrong prefix, wrong structure, malformed id, malformed secret, or any
-// extra trailing field).
+// extra trailing field), and ErrNotInitialised on a zero-value APIKey.
 func (a *APIKey) ParseID(key string) (string, error) {
+	// A zero-value APIKey has an empty prefix, and without this it accepted
+	// "_<id>_<secret>" and returned an id for it.
+	if a == nil || !a.initialised {
+		return "", ErrNotInitialised
+	}
 	prefix := a.cfg.Prefix + "_"
 	rest, ok := strings.CutPrefix(key, prefix)
 	if !ok {

@@ -116,19 +116,14 @@ func signToken(claims gjwt.Claims, key ed25519.PrivateKey, kid string) (string, 
 // accepted here.
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*accessClaims[T], error) {
-	if len(tokenStr) > maxTokenLen {
-		return nil, fmt.Errorf("%w: length %d exceeds %d", ErrTokenOversized, len(tokenStr), maxTokenLen)
+	if err := checkTokenString(tokenStr); err != nil {
+		return nil, err
 	}
 	var c accessClaims[T]
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
 		eddsaKeyFunc(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
-		gjwt.WithTimeFunc(func() time.Time { return now }), // inject clock so tests can freeze time
-		gjwt.WithExpirationRequired(),                      // reject tokens without an exp claim
-		gjwt.WithIssuedAt(),                                // reject tokens with iat in the future
-		gjwt.WithIssuer(issuer),                            // token must be issued by this service
-		gjwt.WithAudience(audience),                        // token must contain this audience value
-		gjwt.WithLeeway(leeway),                            // tolerate small clock drift between servers
+		parserOptions(now, issuer, audience, leeway)...,
 	)
 	if err != nil {
 		return nil, mapJWTError(err)
@@ -149,19 +144,14 @@ func verifyAccessToken[T any](tokenStr string, keys map[string]ed25519.PublicKey
 // accepted here.
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func verifyRefreshToken(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*refreshClaims, error) {
-	if len(tokenStr) > maxTokenLen {
-		return nil, fmt.Errorf("%w: length %d exceeds %d", ErrTokenOversized, len(tokenStr), maxTokenLen)
+	if err := checkTokenString(tokenStr); err != nil {
+		return nil, err
 	}
 	var c refreshClaims
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
 		eddsaKeyFunc(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
-		gjwt.WithTimeFunc(func() time.Time { return now }), // inject clock so tests can freeze time
-		gjwt.WithExpirationRequired(),                      // reject tokens without an exp claim
-		gjwt.WithIssuedAt(),                                // reject tokens with iat in the future
-		gjwt.WithIssuer(issuer),                            // token must be issued by this service
-		gjwt.WithAudience(audience),                        // token must contain this audience value
-		gjwt.WithLeeway(leeway),                            // tolerate small clock drift between servers
+		parserOptions(now, issuer, audience, leeway)...,
 	)
 	if err != nil {
 		return nil, mapJWTError(err)
@@ -173,6 +163,41 @@ func verifyRefreshToken(tokenStr string, keys map[string]ed25519.PublicKey, now 
 		return nil, fmt.Errorf("%w: jti claim is not a UUID v7", ErrTokenInvalid)
 	}
 	return &c, nil
+}
+
+// parserOptions is the one list of claim checks both verifiers apply, so the
+// access and refresh paths cannot drift apart: the refresh-path audience check
+// could be deleted with the suite green before the two shared it (2026-09-25).
+func parserOptions(now time.Time, issuer, audience string, leeway time.Duration) []gjwt.ParserOption {
+	return []gjwt.ParserOption{
+		gjwt.WithTimeFunc(func() time.Time { return now }), // inject clock so tests can freeze time
+		gjwt.WithExpirationRequired(),                      // reject tokens without an exp claim
+		gjwt.WithIssuedAt(),                                // reject tokens with iat in the future
+		gjwt.WithIssuer(issuer),                            // token must be issued by this service
+		gjwt.WithAudience(audience),                        // token must contain this audience value
+		gjwt.WithLeeway(leeway),                            // tolerate small clock drift between servers
+		gjwt.WithStrictDecoding(),                          // one spelling per token: no stray padding bits
+	}
+}
+
+// checkTokenString bounds a token before it is parsed and keeps it to the
+// compact JWS alphabet. The base64url decoder skips "\r" and "\n" and, unless
+// strict, ignores the unused bits of a segment's last character, so a second
+// spelling of an issued token verified; a caller that blocklists or
+// deduplicates tokens by string must not see two.
+func checkTokenString(tokenStr string) error {
+	if len(tokenStr) > maxTokenLen {
+		return fmt.Errorf("%w: length %d exceeds %d", ErrTokenOversized, len(tokenStr), maxTokenLen)
+	}
+	for i := 0; i < len(tokenStr); i++ {
+		c := tokenStr[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return fmt.Errorf("%w: byte %d is outside the base64url alphabet", ErrTokenMalformed, i)
+		}
+	}
+	return nil
 }
 
 // eddsaKeyFunc returns a gjwt.Keyfunc that enforces EdDSA and selects the

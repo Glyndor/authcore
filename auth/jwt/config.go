@@ -3,6 +3,7 @@ package jwt
 import (
 	"crypto/ed25519"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -47,7 +48,8 @@ type Config struct {
 	// ClockSkewLeeway is the tolerance applied when validating the "exp" and "iat" claims.
 	// It compensates for small clock differences between distributed servers.
 	// Defaults to 0 (no leeway). A value of 30 seconds is typical for production deployments.
-	// Must not be negative.
+	// Must not be negative or exceed 5 minutes: it extends exp, so a unit mistake here
+	// would outlast the token TTL ceilings.
 	ClockSkewLeeway time.Duration
 
 	// Denylist optionally makes access tokens revocable before they expire.
@@ -165,6 +167,16 @@ func validateConfig(cfg Config) error {
 	if cfg.ClockSkewLeeway < 0 {
 		return fmt.Errorf("clock skew leeway must not be negative, got %s", cfg.ClockSkewLeeway)
 	}
+	// The leeway extends exp on both token kinds, so without a ceiling the
+	// 24 h access-TTL cap above was undone by the typo it exists for:
+	// 30*time.Hour meant as seconds let a 15-minute token verify 29 hours
+	// after issue (measured 2026-09-25).
+	if cfg.ClockSkewLeeway > maxClockSkewLeeway {
+		return fmt.Errorf("clock skew leeway must be at most %s, got %s", maxClockSkewLeeway, cfg.ClockSkewLeeway)
+	}
+	if cfg.Denylist != nil && isNilValue(cfg.Denylist) {
+		return fmt.Errorf("denylist holds a nil %T; leave Config.Denylist nil to disable revocation", cfg.Denylist)
+	}
 	for i, pk := range cfg.PreviousPublicKeys {
 		if len(pk) != ed25519.PublicKeySize {
 			return fmt.Errorf("previous public key %d has wrong length: got %d, want %d", i, len(pk), ed25519.PublicKeySize)
@@ -174,4 +186,22 @@ func validateConfig(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+// maxClockSkewLeeway bounds Config.ClockSkewLeeway. Clock skew between
+// servers is seconds; five minutes is the tolerance Kerberos and most token
+// issuers settle on, and anything larger is a unit mistake.
+const maxClockSkewLeeway = 5 * time.Minute
+
+// isNilValue reports whether v is an interface holding a nil pointer, map,
+// slice, func or channel. A Denylist held that way passed the != nil check
+// and panicked on the first verification.
+func isNilValue(v any) bool {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
