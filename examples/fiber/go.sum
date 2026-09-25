@@ -1,5 +1,5 @@
-github.com/Glyndor/authcore v1.15.0 h1:do72MbffhrB40ce9m+wY7hA6DQNRyWNts156vC2jZnQ=
-github.com/Glyndor/authcore v1.15.0/go.mod h1:Jy6nlijXt8Cim/VTllEI3xu3v+Qgq409k3duKAfj4F8=
+github.com/Glyndor/authcore v1.16.0 h1:ACpRePL9CDQEKHmNF2qwMgh/3II6Uy0E3zqLECaJxug=
+github.com/Glyndor/authcore v1.16.0/go.mod h1:Jy6nlijXt8Cim/VTllEI3xu3v+Qgq409k3duKAfj4F8=
 github.com/andybalholm/brotli v1.2.2 h1:HzTuoo2ErYQqf5qvcJInB8uvqSVxRttzkFexPWtnceM=
 github.com/andybalholm/brotli v1.2.2/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
