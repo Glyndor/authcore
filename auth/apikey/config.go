@@ -35,6 +35,10 @@ func applyDefaults(cfg Config) Config {
 
 // validateConfig returns an error if cfg contains invalid values.
 func validateConfig(cfg Config) error {
+	// New calls applyDefaults first, so an empty Prefix never reaches this
+	// through New. The check stays so validateConfig is right about any
+	// Config it is handed: without it an empty prefix passes every rule below
+	// and keys would start with a bare "_".
 	if cfg.Prefix == "" {
 		return fmt.Errorf("prefix must not be empty")
 	}
