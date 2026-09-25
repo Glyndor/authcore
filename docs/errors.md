@@ -87,7 +87,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrInvalidConfig` | ✗ No | `oauth.Config` validation failed (missing/non-https endpoints, no identity source) |
 | `oauth.ErrExchange` | ✗ No | Authorization-code exchange failed (transport, non-2xx, or OAuth error) |
 | `oauth.ErrNoIDToken` | ✗ No | OIDC provider returned no `id_token` |
-| `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`) — return generic unauthorized |
+| `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`, or an `iss` outside the signing key's `issuer`); return generic unauthorized |
 | `oauth.ErrJWKS` | ✗ No | Provider signing keys could not be fetched or parsed |
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
