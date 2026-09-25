@@ -102,7 +102,7 @@ func TestVerifyDomain_acceptsSingleRealMX(t *testing.T) {
 // TestVerifyDomain_notFoundIsNoMX: when the resolver answers authoritatively
 // that no MX records exist for the domain (NXDOMAIN or NODATA, surfaced by
 // Go's resolver as *net.DNSError with IsNotFound set), the module must
-// classify this as ErrDomainNoMX — the domain does not accept mail — and
+// classify this as ErrDomainNoMX (the domain does not accept mail) and
 // cache it so the second call returns the same error without re-querying
 // DNS.
 func TestVerifyDomain_notFoundIsNoMX(t *testing.T) {
@@ -126,7 +126,7 @@ func TestVerifyDomain_notFoundIsNoMX(t *testing.T) {
 }
 
 // TestVerifyDomain_timeoutStaysSoft: a lookup failure with no NXDOMAIN/NODATA
-// signal — a timeout, SERVFAIL, transport error — is not authoritative "no
+// signal (a timeout, SERVFAIL, a transport error) is not authoritative "no
 // mail". It stays in the soft-failure bucket (ErrDomainUnresolvable) so the
 // caller does not block the user. The not-found classification above must
 // not bleed into this case.

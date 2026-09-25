@@ -9,8 +9,8 @@ import (
 // TestGuardClient_appliesDefaultTimeoutToZeroTimeoutCaller pins the rule that
 // guardClient restores the 10-second bound the default client carries when a
 // caller-supplied client arrives with Timeout zero. Without the bound,
-// http.Client.Do blocks indefinitely on a hung provider — the regression that
-// motivated the guard.
+// http.Client.Do blocks indefinitely on a hung provider, which is the
+// regression that motivated the guard.
 func TestGuardClient_appliesDefaultTimeoutToZeroTimeoutCaller(t *testing.T) {
 	caller := &http.Client{} // Timeout deliberately zero
 	guarded := guardClient(caller)

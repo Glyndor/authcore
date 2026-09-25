@@ -84,9 +84,9 @@ func TestGooglePreset_acceptsTheBareHostIDToken(t *testing.T) {
 // ---- Microsoft preset rejects a non-GUID tenant with a GUID-named error ----
 
 // TestMicrosoftPreset_rejectsDomainWithGUIDMessage pins the preset's GUID
-// requirement and the error message that names it. The brief said "say so in
-// the comment and in the error a domain produces", so the message is part of
-// the contract — a regression that removes the word "GUID" fails the test.
+// requirement and the error message that names it. A caller who passes a
+// domain has to learn from the error what the preset wants, so the message is
+// part of the contract: a regression that removes the word "GUID" fails.
 func TestMicrosoftPreset_rejectsDomainWithGUIDMessage(t *testing.T) {
 	for _, tenant := range []string{
 		"contoso.onmicrosoft.com",
@@ -295,9 +295,8 @@ func TestExchange_refusesUnsupplicableAuthMethod(t *testing.T) {
 // ---- URL validation: opaque, empty host, fragment ---------------------------
 
 // TestNew_rejectsOpaqueHTTPSEndpoint requires the validation to refuse
-// https:opaque and https:///path. The brief lists these as inputs that
-// previously slipped through validation and only failed later, when the fetch
-// ran.
+// https:opaque and https:///path. Both passed validation before #444 and only
+// failed later, when the fetch ran.
 func TestNew_rejectsOpaqueHTTPSEndpoint(t *testing.T) {
 	for name, raw := range map[string]string{
 		"opaque":       "https:opaque",
@@ -455,8 +454,8 @@ func TestSuppliedClient_zeroTimeoutGetsTheLibraryDefault(t *testing.T) {
 
 // TestDiscover_rejectsTrailingSlashIssuer pins the exact-match rule: the
 // trimmed form used to be accepted because it was used to build the well-known
-// URL. A document that returns the trimmed form is rejected — it does not
-// match the issuer the caller asked for byte-for-byte.
+// URL. A document that returns the trimmed form is rejected, because it does
+// not match the issuer the caller asked for byte-for-byte.
 func TestDiscover_rejectsTrailingSlashIssuer(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
