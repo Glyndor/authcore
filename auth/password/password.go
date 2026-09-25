@@ -106,6 +106,19 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 	// Accept an optional Config via variadic to allow zero-config usage:
 	//   password.New(auth)             — OWASP defaults, no boilerplate
 	//   password.New(auth, customCfg)  — custom work factors
+	//
+	// A nil provider or logger used to panic, and a second Config was dropped
+	// without a word; #406 and #413 fixed that in four other modules and not
+	// here (2026-09-25).
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = cfg[0]
