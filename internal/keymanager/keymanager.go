@@ -149,6 +149,13 @@ func New(dir string, log logger) (*KeyManager, error) {
 	}
 
 	if state == setEmpty {
+		// metadata.json is written only after a key set is published, so its
+		// presence with no key files left means a set existed and is gone.
+		// Until 2026-09-25 New generated a fresh set here and then rewrote
+		// the recorded key id, erasing the one sign of what was lost.
+		if meta != nil {
+			return nil, refuseRegeneration(dir, meta)
+		}
 		if err := symlinkPreflight(dir); err != nil {
 			return nil, err
 		}

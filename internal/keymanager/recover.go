@@ -84,6 +84,19 @@ func refuseInconsistent(dir string) error {
 		dir, strings.Join(present, ", "), strings.Join(missing, ", "))
 }
 
+// refuseRegeneration is the message returned when metadata.json records a key
+// set and none of its files remain. Like refuseInconsistent it must not advise
+// deleting key files; deleting metadata.json is named as the deliberate way to
+// start over, since that is the only file whose loss costs nothing.
+func refuseRegeneration(dir string, meta *metadata) error {
+	return fmt.Errorf(
+		"key directory %q held a key set (metadata.json records key id %q) and none of its files remain; "+
+			"restore them from a backup. Generating a new set would invalidate every issued token, "+
+			"every stored refresh-token and API-key hash and every auth/field encrypted column; "+
+			"to start over with new keys on purpose, delete metadata.json",
+		dir, meta.KeyID)
+}
+
 // findMatchingStaging locates a .staging-* directory in KeysDir whose three
 // files are regular files and whose staged private key, if the published
 // private key exists, is byte-identical to it.
