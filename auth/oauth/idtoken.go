@@ -78,8 +78,16 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 	if len(idToken) > maxIDTokenLen {
 		return nil, fmt.Errorf("%w: token too large", ErrIDTokenInvalid)
 	}
+	// One token, one spelling. The base64url decoder skips "\n" and "\r" and,
+	// unless strict, ignores the unused bits of a segment's last character,
+	// so a second spelling of the same signed token verified. A caller that
+	// deduplicates or blocklists tokens by string must not see two.
+	if i := strings.IndexFunc(idToken, notCompactJWS); i >= 0 {
+		return nil, fmt.Errorf("%w: byte %d is outside the base64url alphabet", ErrIDTokenInvalid, i)
+	}
 
 	opts := []gjwt.ParserOption{
+		gjwt.WithStrictDecoding(),
 		gjwt.WithValidMethods(idTokenAlgs),
 		gjwt.WithAudience(c.cfg.ClientID),
 		gjwt.WithExpirationRequired(),
@@ -265,4 +273,16 @@ func checkKeyIssuer(keyIssuer string, claims gjwt.MapClaims) error {
 		return fmt.Errorf("%w: issuer %q is not the %q the signing key is restricted to", ErrIDTokenInvalid, iss, want)
 	}
 	return nil
+}
+
+// notCompactJWS reports whether r can appear in a compact JWS: the base64url
+// alphabet and the "." separating its three segments.
+func notCompactJWS(r rune) bool {
+	switch {
+	case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		return false
+	case r == '-', r == '_', r == '.':
+		return false
+	}
+	return true
 }

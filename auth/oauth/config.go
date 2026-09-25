@@ -34,9 +34,9 @@ type Provider struct {
 	// advertises for its token endpoint, drawn from the discovery document's
 	// token_endpoint_auth_methods_supported. Exchange uses it to pick the
 	// method it sends: Basic when advertised, Post when only Post is
-	// advertised, and none when the field is absent (see clientAuthMethod, the
-	// OIDC default). Leave empty for a hand-built Provider, which behaves
-	// like an absent discovery document.
+	// advertised, and Post when the field is absent (see clientAuthMethod).
+	// Leave empty for a hand-built Provider, which behaves like an absent
+	// discovery document.
 	AuthMethods []string
 
 	// IssuerValidator, when set, is used by VerifyIDToken to approve an
@@ -99,6 +99,10 @@ func applyDefaults(cfg Config) Config {
 	} else {
 		cfg.Scopes = append([]string(nil), cfg.Scopes...)
 	}
+	// Same for the advertised auth methods: Exchange reads them on every
+	// call, so a caller mutating its slice after New would change how an
+	// existing client authenticates, and race with a concurrent Exchange.
+	cfg.Provider.AuthMethods = append([]string(nil), cfg.Provider.AuthMethods...)
 	switch {
 	case cfg.HTTPClient == nil:
 		cfg.HTTPClient = newSafeHTTPClient()
