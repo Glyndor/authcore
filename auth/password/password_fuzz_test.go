@@ -1,12 +1,15 @@
 package password
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/Glyndor/authcore"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -53,7 +56,12 @@ func FuzzValidatePolicy(f *testing.F) {
 	})
 }
 
-// FuzzParsePHC ensures the PHC parser never panics on arbitrary stored hashes.
+// FuzzParsePHC drives the PHC parser with arbitrary stored hashes. It must
+// never panic, and anything it accepts must be the exact string Hash would
+// write for the parameters, salt and key it returned. A non-canonical string
+// that parses verifies the same password its canonical form does; that is how
+// "junk" + hash (#437) and m=4294975488 read as m=8192 (#451) got through,
+// and a no-panic oracle saw neither.
 func FuzzParsePHC(f *testing.F) {
 	seeds := []string{
 		"", "$", "$$$$$$",
@@ -63,11 +71,27 @@ func FuzzParsePHC(f *testing.F) {
 		"$argon2id$v=19$m=x,t=y,p=z$AAAA$AAAA",
 		"$argon2id$v=19$m=65536,t=3,p=2$!!!!$AAAA",
 	}
+	// The seeds above all fail on salt or key length, so without one valid
+	// hash the fuzzer rarely reaches the end of the parser and the oracle
+	// below never runs. This one parses.
+	seeds = append(seeds, fmt.Sprintf("$argon2id$v=%d$m=%d,t=3,p=2$%s$%s", argon2.Version, minMemory,
+		base64.RawStdEncoding.EncodeToString([]byte(strings.Repeat("s", saltLen))),
+		base64.RawStdEncoding.EncodeToString([]byte(strings.Repeat("k", keyLen)))))
 	for _, s := range seeds {
 		f.Add(s)
 	}
 
 	f.Fuzz(func(t *testing.T, in string) {
-		_, _, _, _ = parsePHC(in)
+		cfg, salt, key, err := parsePHC(in)
+		if err != nil {
+			return
+		}
+		canonical := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+			argon2.Version, cfg.Memory, cfg.Iterations, cfg.Parallelism,
+			base64.RawStdEncoding.EncodeToString(salt),
+			base64.RawStdEncoding.EncodeToString(key))
+		if in != canonical {
+			t.Fatalf("parsePHC accepted a non-canonical hash:\n got  %q\n want %q", in, canonical)
+		}
 	})
 }
