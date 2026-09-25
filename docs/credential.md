@@ -13,10 +13,22 @@ The library never stores anything; you own the database. See the
 ## Setup
 
 ```go
-auth, err := authcore.New(authcore.DefaultConfig())
+cfg := authcore.DefaultConfig()
+cfg.RequireExistingKeys = true // refuse to run if KeysDir is missing or
+                              // empty: a fresh refresh secret would
+                              // silently invalidate every stored hash
+                              // and every outstanding reset / activation
+                              // link in the database.
+auth, err := authcore.New(cfg)
 cred, err := credential.New(auth)                            // defaults (TTL=1h)
 cred, err := credential.New(auth, credential.Config{TTL: 15 * time.Minute})
 ```
+
+`RequireExistingKeys` is the load-only flag on `authcore.Config` (see
+[Key management](key-management.md)). Leaving it at its zero value lets the
+library generate a fresh refresh secret on first start, which silently
+invalidates every existing credential-token hash and every outstanding
+reset or activation link on the next start.
 
 ## Password reset flow
 
@@ -52,9 +64,23 @@ case err != nil:
     return http.StatusInternalServerError
 }
 
-// Single-use: delete the row in the same transaction that updates
-// the password. A second click on the same link must now fail.
-db.DeleteResetToken(user.ID)
+// Single-use: delete the row by the exact hash, in the same transaction
+// that updates the password. The conditional delete is the control that
+// makes the token single-use under concurrency: two requests both verify
+// the same valid token, both call DELETE, the first affects one row,
+// the second affects zero. Require exactly one affected row before
+// applying the effect, otherwise a racing second click changes the
+// password it never spent a token on.
+res, err := db.Exec(
+    `DELETE FROM reset_tokens WHERE user_id = $1 AND hash = $2`,
+    user.ID, stored.Hash)
+if err != nil {
+    return http.StatusInternalServerError
+}
+n, _ := res.RowsAffected()
+if n != 1 {
+    return http.StatusOK // someone else redeemed first; same generic message
+}
 db.UpdatePassword(user.ID, newHash)
 ```
 
@@ -83,9 +109,10 @@ it from the caller's arguments.
 The module does three things well: it makes the token unguessable
 (256-bit CSPRNG), it binds the token to its purpose and subject so it
 cannot be redeemed against the wrong flow or the wrong user, and it
-checks expiry in constant time against wall-clock drift. Three things
-the module deliberately does NOT do, because they belong to the
-application and forgetting any one of them ships a broken reset flow:
+rejects tokens whose issuedAt is more than one minute in the future
+(to catch a clock that has run ahead). Three things the module
+deliberately does NOT do, because they belong to the application and
+forgetting any one of them ships a broken reset flow:
 
 1. **Single-use is the caller's job.** The module does not remember
    anything; it cannot tell whether a token has been redeemed before.

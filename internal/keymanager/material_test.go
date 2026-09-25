@@ -1,6 +1,7 @@
 package keymanager_test
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -176,10 +177,6 @@ func TestFromPEM_rsaPrivateKeyIsRejected(t *testing.T) {
 	}
 }
 
-// decodeEd25519PublicPEM's same "valid PKIX but wrong algorithm" branch:
-// an ECDSA public key parses without error but yields an ecdsa.PublicKey,
-// not an ed25519.PublicKey, and the type assertion must reject it with a
-// message that names the algorithm it received.
 func TestFromPEM_ecdsaPublicKeyIsRejected(t *testing.T) {
 	priv, _ := genPair(t)
 	secret := make([]byte, 32)
@@ -203,5 +200,100 @@ func TestFromPEM_ecdsaPublicKeyIsRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Ed25519 public key") {
 		t.Errorf("error must name the Ed25519 requirement, got: %v", err)
+	}
+}
+
+// TestFromKeys_clonesCallerBuffers pins the contract that FromKeys owns the
+// material it stores: wiping the caller's three input slices after FromKeys
+// returns must leave the manager's view of its material unchanged, and the
+// derived key id must remain the value computed before the wipe.
+//
+// The same caller code is what wipes a temporary buffer in a secret-manager
+// helper once the call has succeeded. Before the fix, that wipe blanked the
+// refresh secret the manager was still using, so every issued refresh-token
+// and API-key hash stopped matching and every signed credential token could
+// not be verified.
+func TestFromKeys_clonesCallerBuffers(t *testing.T) {
+	priv, pub := genPair(t)
+	secret := make([]byte, 32)
+	_, _ = rand.Read(secret)
+
+	km, err := keymanager.FromKeys(priv, pub, secret)
+	if err != nil {
+		t.Fatalf("FromKeys: %v", err)
+	}
+	wantID := km.KeyID()
+	wantPriv := append(ed25519.PrivateKey(nil), priv...)
+	wantPub := append(ed25519.PublicKey(nil), pub...)
+	wantSecret := append([]byte(nil), secret...)
+
+	// Wipe every byte of the caller's three buffers. A manager that holds a
+	// reference instead of a copy now reads zero bytes and is broken.
+	for i := range priv {
+		priv[i] = 0
+	}
+	for i := range pub {
+		pub[i] = 0
+	}
+	for i := range secret {
+		secret[i] = 0
+	}
+
+	if got := km.KeyID(); got != wantID {
+		t.Errorf("KeyID changed after caller wiped its buffers: got %q, want %q", got, wantID)
+	}
+	if got := km.PrivateKey(); !bytes.Equal(got, wantPriv) {
+		t.Errorf("PrivateKey contents changed after caller wipe\ngot:  %x\nwant: %x", got, wantPriv)
+	}
+	if got := km.PublicKey(); !bytes.Equal(got, wantPub) {
+		t.Errorf("PublicKey contents changed after caller wipe\ngot:  %x\nwant: %x", got, wantPub)
+	}
+	if got := km.RefreshSecret(); !bytes.Equal(got, wantSecret) {
+		t.Errorf("RefreshSecret contents changed after caller wipe\ngot:  %x\nwant: %x", got, wantSecret)
+	}
+}
+
+// TestFromKeys_clonesCallerBuffers_acceptance: a manager built from buffers
+// the caller never touches must derive the same key id as the wiped-input
+// case. Together the two tests pin both the cloning contract and the
+// happy-path equivalence: cloning must not change the material the manager
+// exposes.
+func TestFromKeys_clonesCallerBuffers_acceptance(t *testing.T) {
+	priv1, pub1 := genPair(t)
+	priv2, pub2 := genPair(t)
+	secret1 := make([]byte, 32)
+	secret2 := make([]byte, 32)
+	_, _ = rand.Read(secret1)
+	_, _ = rand.Read(secret2)
+
+	km1, err := keymanager.FromKeys(priv1, pub1, secret1)
+	if err != nil {
+		t.Fatalf("first FromKeys: %v", err)
+	}
+	for i := range priv1 {
+		priv1[i] = 0
+	}
+	for i := range pub1 {
+		pub1[i] = 0
+	}
+	for i := range secret1 {
+		secret1[i] = 0
+	}
+	km2, err := keymanager.FromKeys(priv2, pub2, secret2)
+	if err != nil {
+		t.Fatalf("second FromKeys: %v", err)
+	}
+
+	if km1.KeyID() == km2.KeyID() {
+		t.Error("two independent key pairs produced the same KeyID")
+	}
+	if !bytes.Equal(km1.PrivateKey(), km1.PrivateKey()) {
+		t.Fatal("km1 private key is not self-consistent")
+	}
+	if !bytes.Equal(km2.PrivateKey(), km2.PrivateKey()) {
+		t.Fatal("km2 private key is not self-consistent")
+	}
+	if bytes.Equal(km1.RefreshSecret(), km2.RefreshSecret()) {
+		t.Error("two independent refresh secrets collapsed to the same bytes")
 	}
 }

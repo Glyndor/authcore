@@ -46,6 +46,16 @@ var (
 	// Safety: INTERNAL — return a generic "unauthorized" to the client.
 	ErrTokenMalformed = errors.New("jwt: token is malformed")
 
+	// ErrTokenOversized is returned when a token string exceeds the library's
+	// length cap. The cap stops a caller from forcing base64+JSON work on a
+	// multi-megabyte string before the signature is even checked, and stops
+	// the same input at issuance so the issuer does not produce a token the
+	// verifier will refuse.
+	//
+	// Safety: INTERNAL. The wrapped message names the limit and the actual
+	// size for the operator; return a generic "unauthorized" to the client.
+	ErrTokenOversized = errors.New("jwt: token exceeds maximum size")
+
 	// ErrWrongTokenType is returned when an access token is passed to a
 	// function that expects a refresh token, or vice-versa.
 	//
@@ -65,5 +75,22 @@ var (
 	//
 	// Safety: INTERNAL — return a generic "unauthorized" to the client, which
 	// should re-authenticate.
+	//
+	// A Denylist store that returns its own error (transport, timeout, parse)
+	// is wrapped with the store's error verbatim and surfaced through the
+	// same Verify call. There is no sentinel for store failures; check for
+	// ErrTokenRevoked to handle a clean revocation, and treat any other
+	// error as an internal problem with the denylist itself.
 	ErrTokenRevoked = errors.New("jwt: token has been revoked")
+
+	// ErrNotInitialised is returned by HashRefreshToken on a zero-value
+	// JWT[T] (a module that was never constructed by New). A zero-value
+	// module carries no HMAC secret, so calling it would emit a hash
+	// under an empty key, a fingerprint no caller asked for.
+	// VerifyRefreshTokenHash returns false instead, since its result
+	// type is bool.
+	//
+	// Safety: INTERNAL. The call site that owns the zero value is the one
+	// to fix.
+	ErrNotInitialised = errors.New("jwt: module not initialised")
 )

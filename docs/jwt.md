@@ -31,7 +31,7 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
 > issuing effectively permanent bearer tokens by accident (e.g. typing
-> `10 * time.Hour` where `10 * time.Minute` was intended).
+> `48 * time.Hour` where `48 * time.Minute` was intended).
 
 ## Login — creating a token pair
 
@@ -89,7 +89,8 @@ prevent token-reuse attacks even if your database is compromised:
 
 ```go
 // 1. Compute the hash of the token the client presented.
-incoming := jwtMod.HashRefreshToken(clientToken)
+incoming, err := jwtMod.HashRefreshToken(clientToken)
+if err != nil { return http.StatusInternalServerError }
 
 // 2. Look it up in your database.
 session, err := db.FindSessionByHash(incoming)
@@ -110,8 +111,28 @@ if err != nil {
     return http.StatusUnauthorized
 }
 
-// 5. Atomically replace the old hash in your database.
-db.ReplaceRefreshHash(session.ID, newPair.RefreshTokenHash)
+// 5. Atomically replace the old hash in your database. The WHERE clause
+//    pins the row to BOTH the session id and the hash you verified, so two
+//    concurrent refreshes cannot both rotate: only the update that still
+//    sees the old hash succeeds. Without that hash check, both requests
+//    read the same hash, both pass `VerifyRefreshTokenHash`, and the last
+//    write replaces the hash the other response already handed the client.
+//    The row count is the control: a returned pair with rowsAffected == 0
+//    means another request rotated first, and the new pair must not be
+//    sent to the client.
+res, err := db.Exec(`
+    UPDATE sessions
+       SET refresh_hash = $1
+     WHERE id = $2
+       AND refresh_hash = $3`,
+    newPair.RefreshTokenHash, session.ID, incoming)
+if err != nil {
+    return http.StatusUnauthorized
+}
+rows, err := res.RowsAffected()
+if err != nil || rows != 1 {
+    return http.StatusUnauthorized // someone else rotated; discard newPair
+}
 
 // 6. Send the new tokens to the client.
 ```
@@ -133,6 +154,14 @@ and verify with `VerifyRefreshTokenHash` on each refresh without ever calling
 ```go
 // Refresh, without rotating: the client keeps the same refresh token.
 if !jwtMod.VerifyRefreshTokenHash(clientToken, session.RefreshTokenHash) {
+    return http.StatusUnauthorized
+}
+// VerifyRefreshTokenHash compares HMACs only. It does NOT check the
+// token's signature, the token type, or the refresh expiry, so a
+// refresh token that expired months ago still passes the comparison
+// and lets you mint a fresh pair. Store the expiry alongside the hash
+// at CreateTokens time and reject it here, before issuing anything.
+if time.Now().After(session.RefreshTokenExpiresAt) {
     return http.StatusUnauthorized
 }
 // Mint a fresh pair, hand back only the access token, and keep the stored
@@ -200,7 +229,9 @@ the client already holds — that token keeps working until it expires.
 
 ```go
 // Logout: delete the refresh hash so the session cannot be renewed.
-db.DeleteSessionByHash(jwtMod.HashRefreshToken(clientToken))
+hash, err := jwtMod.HashRefreshToken(clientToken)
+if err != nil { return http.StatusInternalServerError }
+db.DeleteSessionByHash(hash)
 // The current access token still works for up to AccessTokenTTL. Plan for it.
 ```
 
@@ -237,7 +268,9 @@ stateless (no per-request lookup). The lookup runs only for tokens that already
 passed signature and expiry, so a garbage token never touches your store. Use
 `VerifyAccessTokenContext` to pass a request context to the lookup; a store
 error fails closed (the token is rejected). Size the store entries to expire at
-the access token's `exp` — past that the token is dead anyway.
+the access token's `exp` **plus** `ClockSkewLeeway`: verification accepts a
+token up to `exp + leeway`, so an entry that disappears at `exp` leaves a
+window of `leeway` in which a revoked token still validates.
 
 ## Clock skew tolerance
 

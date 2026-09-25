@@ -88,7 +88,15 @@ type Credential struct {
 	log    authcore.Logger
 	secret []byte      // HMAC-SHA256 pepper, sourced from the parent AuthCore
 	clock  clock.Clock // injected; replaced by clock.Fixed in tests
+
+	initialised bool // set by New; zero-value methods refuse to run
 }
+
+// refreshSecretLen is the byte length New demands from
+// Keys().RefreshSecret(). The HMAC-SHA256 pepper must match across
+// every server that shares an installation; a short or absent secret
+// would silently weaken every token's stored hash.
+const refreshSecretLen = 32
 
 // The module holds no per-issue state on purpose. An earlier draft kept the
 // most recent Token and Hash on this struct, which made two concurrent Issue
@@ -113,16 +121,37 @@ type Issued struct {
 
 // New creates a Credential module.
 //
-// cfg is optional. Omit it, or pass a zero-value Config, to apply the
-// safe default (TTL=1 hour):
+// cfg is optional. Omit it to apply the safe default (TTL=1 hour).
+// Passing Config{} explicitly is treated as a 0 TTL and rejected as
+// ErrInvalidConfig; the 1-hour default is reachable only by omitting the
+// argument, or by passing a Config with an explicit positive TTL:
 //
-//	cred, err := credential.New(auth)
-//	cred, err := credential.New(auth, credential.DefaultConfig())
+//	cred, err := credential.New(auth)                                 // 1h default
 //	cred, err := credential.New(auth, credential.Config{TTL: 15 * time.Minute})
+//	cred, err := credential.New(auth, credential.Config{})            // ErrInvalidConfig: TTL=0
 //
 // The module reads the parent AuthCore's logger, refresh secret, and
 // timezone; it generates no key material of its own.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is
+// unusable (a nil interface, a Logger() or Keys() that returns nil)
+// or when Keys().RefreshSecret() is not exactly 32 bytes.
 func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = applyDefaults(cfg[0])
@@ -133,11 +162,18 @@ func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
 	c := &Credential{
-		cfg:    resolved,
-		log:    p.Logger(),
-		secret: p.Keys().RefreshSecret(),
-		clock:  clock.New(p.Config().Timezone),
+		cfg:         resolved,
+		log:         logger,
+		secret:      secret,
+		clock:       clock.New(p.Config().Timezone),
+		initialised: true,
 	}
 	c.log.Info("credential: module initialised (ttl=%s)", resolved.TTL)
 	return c, nil
@@ -160,7 +196,11 @@ func (c *Credential) Name() string { return "credential" }
 //
 //	credential.ErrEmptyPurpose - purpose is ""
 //	credential.ErrEmptySubject - subject is ""
+//	credential.ErrNotInitialised - the receiver is a zero value
 func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
+	if !c.initialised {
+		return nil, ErrNotInitialised
+	}
 	if purpose == "" {
 		return nil, ErrEmptyPurpose
 	}
@@ -192,8 +232,18 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // Issue time. The token is rejected as expired when:
 //
 //   - clock.Now() is more than Config.TTL past issuedAt, or
-//   - issuedAt is more than one minute in the future (a backwards-running
-//     caller clock must not extend a token's life).
+//   - issuedAt is more than one minute in the future (a clock that has
+//     run more than a minute ahead must not mint a token that looks
+//     future-dated to a verifier on the correct time).
+//
+// Only the future side is guarded. A clock that runs backwards after
+// issuance extends a token's effective life: issuing at 12:00 with a
+// one-hour TTL, hitting Verify at 13:01 with the expired-token error,
+// and rolling the clock back to 12:59 makes the token verify again,
+// because elapsed (59 minutes) is once more inside the TTL window.
+// The full TTL is the upper bound on how much backwards drift the
+// verifier will absorb. Treat your server clock as part of the trust
+// boundary for this module.
 //
 // Errors:
 //
@@ -204,12 +254,25 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // The caller MUST return the same generic message ("link invalid or
 // expired") for both errors. Distinguishing them tells an attacker that a
 // token existed. Compare, then check expiry; both run on every call so
-// wall-clock time does not reveal whether the token was unknown.
+// the expiry check itself does not leak "token existed vs. token did
+// not exist". The constant-time comparison still does: subtle's
+// ConstantTimeCompare returns 0 immediately when its arguments differ
+// in length, so an empty (or otherwise malformed) storedHash returns
+// before any byte of the candidate is touched, while a 64-character
+// storedHash compares all 64 bytes. The wall-clock time of Verify
+// therefore reveals whether storedHash is the 64-hex-char shape
+// computeHash produces, which corresponds to "the row exists and
+// carries a real hash", not just "a token existed". The caller should
+// not rely on Verify to hide that distinction.
 func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt time.Time) error {
+	if !c.initialised {
+		return ErrNotInitialised
+	}
 	// Always recompute the hash and run the constant-time comparison,
-	// even if a later check would reject the call anyway. This is what
-	// keeps the wall-clock timing of Verify independent of whether the
-	// token existed.
+	// even if a later check would reject the call anyway. The
+	// comparison runs before the expiry check on purpose; see the
+	// function comment for the timing property this preserves (and the
+	// one it does not).
 	candidate := c.computeHash(purpose, subject, token)
 	matched := subtle.ConstantTimeCompare([]byte(candidate), []byte(storedHash)) == 1
 

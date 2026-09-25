@@ -130,8 +130,24 @@ with `permission denied` on `metadata.json`. Copying from a container that
 already runs with the application's uid and `--userns=keep-id` keeps the
 owner right. Use the application's real uid in both places.
 
-To back up the volume itself later:
-`podman volume export authcore-production-keys > keys-backup-$(date +%F).tar`.
+To back up the volume itself later, write the export to a temporary file
+and move it into the date-named archive only after the export succeeds. The
+shell redirection in `cmd > file` truncates the target before the command
+runs, so a one-liner that names the archive by date overwrites an existing
+backup from the same day the first time the new export fails partway
+through. Exporting to a tempfile and renaming on success keeps the previous
+backup in place until the new one is complete:
+
+```bash
+tmp=$(mktemp -t keys-backup.XXXXXX.tar)
+if podman volume export authcore-production-keys > "$tmp"; then
+    mv "$tmp" "keys-backup-$(date +%F).tar"
+else
+    rc=$?
+    rm -f "$tmp"
+    exit $rc
+fi
+```
 
 Concurrent first start is the trap this whole pattern avoids. Eight containers
 on one empty named volume, started at once against an unprepared volume, hit
@@ -149,10 +165,12 @@ keys, and tokens then verify on some replicas and not others. Behind a load
 balancer, login appears to fail at random and never for the same user twice.
 
 The named volume in the recommended setup is read-only and shared, which is
-exactly what the constraint requires. With `:ro` and a complete set already
-present, authcore loads the files and validates them; the only writes it tries
-are the directory mode, `.gitignore`, and `metadata.json`, all of which fail
-harmlessly on a read-only mount and are logged as warnings.
+exactly what the constraint requires. With `:ro`, a complete set already
+present, and `Config.RequireExistingKeys` set to `true`, authcore reads the
+three files and validates them without performing any filesystem writes: no
+`MkdirAll`, no directory chmod, no `.gitignore`, no `metadata.json` refresh.
+The default disk store (no `RequireExistingKeys`) does attempt those writes,
+and on a read-only mount they fail harmlessly and are logged as warnings.
 
 ## Podman secrets instead of a volume
 

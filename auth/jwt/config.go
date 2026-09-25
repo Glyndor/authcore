@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Config holds the JWT module configuration.
@@ -104,8 +105,9 @@ func applyDefaults(cfg Config) Config {
 
 // maxAccessTokenTTL and maxRefreshTokenTTL cap the configurable token
 // lifetimes. They protect operators from accidentally issuing effectively
-// permanent bearer tokens (for example by typing 10*time.Hour instead of
-// 10*time.Minute). The ceilings match the longest values OWASP's JWT cheat
+// permanent bearer tokens (for example by typing 48*time.Hour instead of
+// 48*time.Minute, which the access-token ceiling of 24 hours refuses
+// outright). The ceilings match the longest values OWASP's JWT cheat
 // sheet recommends for a typical web application.
 const (
 	maxAccessTokenTTL  = 24 * time.Hour
@@ -116,6 +118,12 @@ const (
 func validateConfig(cfg Config) error {
 	if cfg.AccessTokenTTL <= 0 {
 		return fmt.Errorf("access token TTL must be positive, got %s", cfg.AccessTokenTTL)
+	}
+	if cfg.AccessTokenTTL < time.Second {
+		// golang-jwt's NumericDate truncates exp to whole seconds. Anything
+		// below one second would round to now or before now, producing a
+		// token that is already expired on the way out.
+		return fmt.Errorf("access token TTL must be at least 1 second, got %s", cfg.AccessTokenTTL)
 	}
 	if cfg.AccessTokenTTL > maxAccessTokenTTL {
 		return fmt.Errorf("access token TTL must be at most %s, got %s", maxAccessTokenTTL, cfg.AccessTokenTTL)
@@ -129,16 +137,26 @@ func validateConfig(cfg Config) error {
 	if cfg.RefreshTokenTTL > maxRefreshTokenTTL {
 		return fmt.Errorf("refresh token TTL must be at most %s, got %s", maxRefreshTokenTTL, cfg.RefreshTokenTTL)
 	}
+	if !utf8.ValidString(cfg.Issuer) {
+		// Reject invalid UTF-8 in the issuer. The JSON encoder would replace
+		// every offending byte with U+FFFD on the way to the claim, so the
+		// verifier would never match the original string the operator set.
+		return fmt.Errorf("issuer must be valid UTF-8")
+	}
 	if len(cfg.Audience) == 0 {
 		return fmt.Errorf("audience must contain at least one value")
 	}
-	// Reject empty or whitespace-only audience entries. A []string{""} passes
-	// the length check above but would issue tokens with an empty "aud" and
-	// verify against "", silently removing the cross-service-reuse protection
-	// the audience claim exists to provide.
 	for i, aud := range cfg.Audience {
 		if strings.TrimSpace(aud) == "" {
+			// Reject empty or whitespace-only audience entries. A []string{""}
+			// passes the length check above but would issue tokens with an
+			// empty "aud" and verify against "", silently removing the
+			// cross-service-reuse protection the audience claim exists to
+			// provide.
 			return fmt.Errorf("audience entry %d must not be empty or whitespace", i)
+		}
+		if !utf8.ValidString(aud) {
+			return fmt.Errorf("audience entry %d must be valid UTF-8", i)
 		}
 	}
 	if cfg.ClockSkewLeeway < 0 {

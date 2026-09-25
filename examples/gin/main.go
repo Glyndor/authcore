@@ -242,7 +242,11 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 
 		// 1. Look the session up by the hash of the presented token, then
 		//    confirm the match in constant time.
-		presented := jwtMod.HashRefreshToken(req.RefreshToken)
+		presented, hashErr := jwtMod.HashRefreshToken(req.RefreshToken)
+		if hashErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			return
+		}
 		found, ok := db.findByRefreshHash(presented)
 		if !ok || !jwtMod.VerifyRefreshTokenHash(req.RefreshToken, found.refreshHash) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})

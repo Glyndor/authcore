@@ -41,8 +41,11 @@
 // # Domain MX verification
 //
 // VerifyDomain performs an optional DNS MX lookup to confirm the domain can
-// receive email. Results are cached per domain using the DNS TTL (capped at
-// [DefaultCacheTTL]) to avoid repeated lookups for the same domain.
+// receive email. Results are cached per domain for [DefaultCacheTTL]
+// (5 minutes by default) to avoid repeated lookups for the same domain.
+// The Go stdlib LookupMX API does not surface DNS TTLs, so entries are
+// held for the fixed [DefaultCacheTTL] regardless of the authority
+// section of the response.
 // This check is network I/O — always call it after ValidateAndNormalize and
 // handle [ErrDomainUnresolvable] as a soft failure:
 //
@@ -58,6 +61,7 @@ package email
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/mail"
@@ -94,13 +98,21 @@ type cacheEntry struct {
 	expiresAt  time.Time
 }
 
+// mxResolver is the slice of net.Resolver that VerifyDomain depends on. A
+// narrow interface keeps the production code against the stdlib type and
+// lets tests swap in a deterministic stub without spinning up a fake DNS
+// server.
+type mxResolver interface {
+	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
+}
+
 // Email is the email validation and normalization module.
 // Create one instance at startup via New and reuse it — it is safe for
 // concurrent use after construction. It owns no background goroutine and
 // needs no cleanup; like the other modules, you construct it and use it.
 type Email struct {
 	log                  authcore.Logger
-	resolver             *net.Resolver
+	resolver             mxResolver
 	cacheTTL             time.Duration
 	mu                   sync.RWMutex
 	cache                map[string]cacheEntry
@@ -197,7 +209,10 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 	// Normalize first so validation sees the canonical form.
 	// Storing the normalized form ensures consistent lookups:
 	// "USER@EXAMPLE.COM" and "user@example.com" resolve to the same record.
-	normalized := normalize(address)
+	normalized, err := normalize(address)
+	if err != nil {
+		return "", err
+	}
 	if err := validate(normalized); err != nil {
 		return "", err
 	}
@@ -219,24 +234,26 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 // converts a Unicode (IDN) domain to its ASCII (punycode) form. Internal
 // only — callers outside this package must use ValidateAndNormalize.
 //
-// If the domain cannot be converted (for example it contains a disallowed
-// codepoint), the original lowercased + trimmed string is returned. The
-// downstream validator will then reject it with a clear "invalid format"
-// error.
-func normalize(address string) string {
+// Returns an error wrapping ErrInvalidEmail when the domain cannot be
+// converted (a leading or trailing hyphen in a label, an underscore, a
+// colon, or any other codepoint that IDNA forbids). The conversion failure
+// must not fall through to the raw input: the downstream structural checks
+// do not catch a leading-hyphen label, and a malformed name has no
+// canonical form to store or query.
+func normalize(address string) (string, error) {
 	lower := strings.ToLower(strings.TrimSpace(address))
 	atIdx := strings.LastIndexByte(lower, '@')
 	if atIdx < 0 {
 		// Addresses without an "@" fail validation regardless of IDN, so
 		// leaving the input untouched here produces a clearer error path.
-		return lower
+		return lower, nil
 	}
 	local, domain := lower[:atIdx], lower[atIdx+1:]
 	ascii, err := idnaProfile.ToASCII(domain)
 	if err != nil {
-		return lower
+		return "", &emailViolation{reason: fmt.Errorf("domain %q is not a valid internationalised name: %w", domain, err)}
 	}
-	return local + "@" + ascii
+	return local + "@" + ascii, nil
 }
 
 // validate checks address against RFC 5321 / RFC 5322 rules.
@@ -311,8 +328,9 @@ func validate(address string) error {
 // can receive messages. It is an optional, network-bound complement to
 // ValidateAndNormalize — call it only after format validation succeeds.
 //
-// Results are cached per domain for the duration of the DNS TTL, capped at
-// [DefaultCacheTTL], to avoid repeated lookups for the same domain.
+// Results are cached per domain for [DefaultCacheTTL] (5 minutes by default).
+// Go's net.Resolver.LookupMX does not expose the DNS TTL, so entries are
+// held for the fixed duration regardless of the authority section.
 //
 // The cache and the single-flight de-duplication bound repeated and concurrent
 // lookups for the SAME domain, but each uncached distinct domain still costs one
@@ -327,7 +345,10 @@ func validate(address string) error {
 //	[ErrDomainUnresolvable] — DNS lookup failed; treat as a soft failure and do not block the user
 //
 // ctx controls the deadline of the DNS query. Use a short timeout (1–3 s) to
-// avoid slowing down your registration endpoint:
+// avoid slowing down your registration endpoint. Concurrent callers for the
+// same domain share a single DNS query through singleflight, and each
+// caller's context still bounds its own wait, so a caller arriving with a
+// shorter deadline than the in-flight lookup is not blocked past it:
 //
 //	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 //	defer cancel()
@@ -351,23 +372,58 @@ func (e *Email) VerifyDomain(ctx context.Context, address string) error {
 	// fire exactly one DNS query; all share the result. This prevents thundering
 	// herd when a cache entry expires under high concurrency.
 	//
-	// Note: the ctx used is the one from the call that triggers the lookup.
-	// Other callers sharing the result are not affected by their own contexts
-	// while waiting — this is a known singleflight trade-off.
-	v, dnsErr, _ := e.group.Do(domain, func() (any, error) {
+	// Each caller selects on its own ctx.Done() so a short deadline on a
+	// late-arriving caller does not block on the first caller's lookup.
+	// DoChan returns a channel that closes exactly once with the shared
+	// result; an early return on ctx.Done() abandons the channel for this
+	// caller only, and the in-flight lookup completes for the others. The cache is populated inside the function
+	// so a deadline-limited caller benefits from another caller's answer.
+	ch := e.group.DoChan(domain, func() (any, error) {
 		mxs, err := e.resolver.LookupMX(ctx, domain)
 		if err != nil {
+			var dnsErr *net.DNSError
+			if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+				// Authoritative "no such host" or "no records of this type"
+				// (NXDOMAIN or NODATA for MX): the resolver answered with a
+				// final answer, not a transport error. Classify this as a
+				// definitive no-MX result and cache it with the normal TTL
+				// so subsequent calls do not retry the lookup.
+				entry := cacheEntry{hasMX: false, expiresAt: time.Now().Add(e.cacheTTL)}
+				e.store(domain, entry)
+				return nil, &noMXFromDNS{cause: err}
+			}
 			e.store(domain, cacheEntry{dnsFailure: true, expiresAt: time.Now().Add(30 * time.Second)})
 			return nil, &domainUnresolvable{cause: err}
 		}
-		entry := cacheEntry{hasMX: len(mxs) > 0, expiresAt: time.Now().Add(e.cacheTTL)}
+		entry := cacheEntry{hasMX: hasRealMX(mxs), expiresAt: time.Now().Add(e.cacheTTL)}
 		e.store(domain, entry)
 		return entry, nil
 	})
-	if dnsErr != nil {
-		return dnsErr
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case r := <-ch:
+		if r.Err != nil {
+			return r.Err
+		}
+		return entryErr(r.Val.(cacheEntry))
 	}
-	return entryErr(v.(cacheEntry))
+}
+
+// hasRealMX reports whether the slice from LookupMX represents a domain
+// that accepts mail. A single record whose host is "." or "" is a "null MX"
+// (RFC 7505 section 3): the domain explicitly states it does not accept
+// mail, regardless of any other records a misconfigured resolver might
+// also return. A non-null single record, or any slice with at least one
+// non-null record, is a real MX.
+func hasRealMX(mxs []*net.MX) bool {
+	if len(mxs) == 0 {
+		return false
+	}
+	if len(mxs) == 1 && (mxs[0].Host == "." || mxs[0].Host == "") {
+		return false
+	}
+	return true
 }
 
 // cached returns the cache entry for domain if it exists and has not expired.

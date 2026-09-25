@@ -13,8 +13,14 @@ func TestHashRefreshToken_isDeterministic(t *testing.T) {
 	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	h1 := j.HashRefreshToken(pair.RefreshToken)
-	h2 := j.HashRefreshToken(pair.RefreshToken)
+	h1, err := j.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
+	h2, err := j.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
 	if h1 != h2 {
 		t.Errorf("HashRefreshToken is not deterministic: %q != %q", h1, h2)
 	}
@@ -25,7 +31,15 @@ func TestHashRefreshToken_differentTokensDifferentHashes(t *testing.T) {
 	p1, _ := j.CreateTokens(testSubject, struct{}{})
 	p2, _ := j.CreateTokens(testSubject, struct{}{})
 
-	if j.HashRefreshToken(p1.RefreshToken) == j.HashRefreshToken(p2.RefreshToken) {
+	h1, err := j.HashRefreshToken(p1.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
+	h2, err := j.HashRefreshToken(p2.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
+	if h1 == h2 {
 		t.Error("different refresh tokens must produce different HMAC digests")
 	}
 }
@@ -37,8 +51,14 @@ func TestHashRefreshToken_differentSecretsDifferentHashes(t *testing.T) {
 	// Sign a token with j1's key, hash it with both modules' secrets.
 	pair, _ := j1.CreateTokens(testSubject, struct{}{})
 
-	h1 := j1.HashRefreshToken(pair.RefreshToken)
-	h2 := j2.HashRefreshToken(pair.RefreshToken)
+	h1, err := j1.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
+	h2, err := j2.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
 
 	// Different HMAC secrets must produce different digests.
 	if h1 == h2 {
@@ -133,7 +153,10 @@ func TestRotateTokens_newHashMatchesHashRefreshToken(t *testing.T) {
 	j.clock = clock.Fixed(epoch.Add(time.Second))
 	newPair, _ := j.RotateTokens(pair.RefreshToken, struct{}{})
 
-	got := j.HashRefreshToken(newPair.RefreshToken)
+	got, err := j.HashRefreshToken(newPair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
 	if got != newPair.RefreshTokenHash {
 		t.Errorf("HashRefreshToken(new token) = %q, want %q", got, newPair.RefreshTokenHash)
 	}
@@ -205,7 +228,10 @@ func TestVerifyRefreshTokenHash_consistentWithHashRefreshToken(t *testing.T) {
 	j := newTestJWT[struct{}](t, newFakeProvider(t), DefaultConfig())
 	pair, _ := j.CreateTokens(testSubject, struct{}{})
 
-	hash := j.HashRefreshToken(pair.RefreshToken)
+	hash, err := j.HashRefreshToken(pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("HashRefreshToken: %v", err)
+	}
 	if !j.VerifyRefreshTokenHash(pair.RefreshToken, hash) {
 		t.Error("VerifyRefreshTokenHash disagrees with HashRefreshToken for the same input")
 	}

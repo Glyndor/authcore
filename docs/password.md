@@ -29,6 +29,9 @@ case errors.Is(err, password.ErrWeakPassword):
 case err != nil:
     // 500 — unexpected error
 }
+if err != nil {
+    return err // never store a failed hash
+}
 // Store hash in your database. Never store the plaintext.
 db.StorePasswordHash(userID, hash)
 ```

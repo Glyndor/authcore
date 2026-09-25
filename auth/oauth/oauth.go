@@ -105,7 +105,16 @@ func (c *Client) AuthCodeURL() (*AuthRequest, error) {
 		return nil, err
 	}
 
-	q := url.Values{}
+	// Parse the configured AuthURL and merge our parameters onto its existing
+	// query string with Set, so a config that already carries state or
+	// code_challenge does not produce duplicates. Most OIDC servers read the
+	// first value of a repeated key, which was the caller's pre-existing one
+	// and not the one we just generated.
+	u, err := url.Parse(c.cfg.Provider.AuthURL)
+	if err != nil {
+		return nil, fmt.Errorf("oauth: provider auth URL is not parseable: %w", err)
+	}
+	q := u.Query()
 	q.Set("response_type", "code")
 	q.Set("client_id", c.cfg.ClientID)
 	q.Set("redirect_uri", c.cfg.RedirectURL)
@@ -114,13 +123,9 @@ func (c *Client) AuthCodeURL() (*AuthRequest, error) {
 	q.Set("nonce", nonce)
 	q.Set("code_challenge", pkceChallenge(verifier))
 	q.Set("code_challenge_method", "S256")
-
-	sep := "?"
-	if strings.Contains(c.cfg.Provider.AuthURL, "?") {
-		sep = "&"
-	}
+	u.RawQuery = q.Encode()
 	return &AuthRequest{
-		URL:      c.cfg.Provider.AuthURL + sep + q.Encode(),
+		URL:      u.String(),
 		State:    state,
 		Nonce:    nonce,
 		Verifier: verifier,
@@ -136,22 +141,54 @@ type Tokens struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
+// exchangeErrorMaxLen caps the description we surface from a provider error
+// response. Real error_description values are a short sentence; anything beyond
+// a few hundred bytes is the provider echoing form fields or log noise.
+const exchangeErrorMaxLen = 512
+
 // Exchange swaps an authorization code for tokens at the token endpoint, sending
 // the PKCE code_verifier. ctx bounds the request.
 //
-// It returns ErrExchange on a transport error or a non-2xx response. For an
-// OIDC provider it also returns ErrNoIDToken when the response carried no
-// id_token; validate that token with VerifyIDToken before trusting it. For a
-// plain-OAuth2 provider (no issuer/JWKS) there is no id_token — call UserInfo.
+// It returns ErrExchange on any of: an empty code or code_verifier
+// argument, a failure to build the HTTP request, a transport error
+// from c.http.Do, a read error on the response body, a non-2xx status,
+// a 200 whose body is not a JSON object, a 200 whose JSON object
+// carries an "error" field ({"error":"invalid_grant", ...}), a 200
+// whose JSON fails to decode as Tokens, or a 200 that decodes but is
+// missing access_token or token_type. The wrap message names which
+// step failed. For an OIDC provider it also returns ErrNoIDToken when
+// the response carried no id_token; validate that token with
+// VerifyIDToken before trusting it. For a plain-OAuth2 provider
+// (no issuer/JWKS) there is no id_token, so call UserInfo.
+//
+// Client authentication at the token endpoint is chosen from the provider's
+// advertised methods: when the discovery document listed "client_secret_basic"
+// (or "basic"), the secret is sent in the HTTP Basic header; when only
+// "client_secret_post" (or "post") is advertised, it is sent in the form
+// body; when the field is absent the OIDC default (Basic) applies. A
+// provider that advertises a method this library does not know is refused
+// before the round trip.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
+	// Reject empty inputs before talking to the provider. An empty code or
+	// verifier would round-trip useless bytes and could mask a wiring bug in
+	// the caller (forgot to read the cookie, swapped two variables).
+	if code == "" {
+		return nil, fmt.Errorf("%w: code must not be empty", ErrExchange)
+	}
+	if verifier == "" {
+		return nil, fmt.Errorf("%w: code_verifier must not be empty", ErrExchange)
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
 	form.Set("redirect_uri", c.cfg.RedirectURL)
 	form.Set("client_id", c.cfg.ClientID)
 	form.Set("code_verifier", verifier)
-	if c.cfg.ClientSecret != "" {
-		form.Set("client_secret", c.cfg.ClientSecret)
+
+	method := clientAuthMethod(c.cfg.Provider.AuthMethods, c.cfg.ClientSecret != "")
+	if method == authMethodNone && c.cfg.ClientSecret != "" {
+		return nil, fmt.Errorf("%w: provider advertises no supported client auth method (advertised %v)", ErrExchange, c.cfg.Provider.AuthMethods)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Provider.TokenURL, strings.NewReader(form.Encode()))
@@ -160,6 +197,19 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	switch method {
+	case authMethodBasic:
+		// The secret goes in the Authorization header, never in the body.
+		req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
+	case authMethodPost:
+		form.Set("client_id", c.cfg.ClientID)
+		form.Set("client_secret", c.cfg.ClientSecret)
+		// Reissue the request body after we mutate the form.
+		req.Body, req.ContentLength, err = formBody(form)
+		if err != nil {
+			return nil, fmt.Errorf("%w: build request body: %w", ErrExchange, err)
+		}
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -176,22 +226,55 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 		return nil, fmt.Errorf("%w: status %d", ErrExchange, resp.StatusCode)
 	}
 
+	// OAuth2 §5.2: an error response uses {"error":"...","error_description":"..."}.
+	// Many providers (and the spec) allow it with HTTP 200, so the status check
+	// above is not enough. Decode the error fields first and refuse the body
+	// if "error" is present. Treat a non-object body (e.g. "null", "[]", a
+	// bare string) as an error too: the spec requires an object.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
+	}
+	if probe == nil {
+		return nil, fmt.Errorf("%w: empty response", ErrExchange)
+	}
+	if rawErr, ok := probe["error"]; ok {
+		var code, desc string
+		_ = json.Unmarshal(rawErr, &code)
+		if rawDesc, ok := probe["error_description"]; ok {
+			_ = json.Unmarshal(rawDesc, &desc)
+		}
+		if len(desc) > exchangeErrorMaxLen {
+			desc = desc[:exchangeErrorMaxLen] + "…"
+		}
+		switch {
+		case desc != "":
+			return nil, fmt.Errorf("%w: provider returned %s: %s", ErrExchange, code, desc)
+		default:
+			return nil, fmt.Errorf("%w: provider returned %s", ErrExchange, code)
+		}
+	}
+
 	var tok Tokens
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
 	}
-	// An ID token is required only for an OIDC provider (one that has an issuer
-	// and JWKS to validate it against). A plain-OAuth2 provider (GitHub,
-	// Discord) returns no id_token — identity comes from UserInfo — so requiring
-	// one here would make every such login fail.
+	if tok.AccessToken == "" || tok.TokenType == "" {
+		return nil, fmt.Errorf("%w: response missing access_token or token_type", ErrExchange)
+	}
+	// An ID token is required only for an OIDC provider (one that has a JWKS
+	// and an issuer check to validate it against). A plain-OAuth2 provider
+	// (GitHub, Discord) returns no id_token, since identity comes from UserInfo,
+	// so requiring one here would make every such login fail.
 	if c.isOIDC() && tok.IDToken == "" {
 		return nil, ErrNoIDToken
 	}
 	return &tok, nil
 }
 
-// isOIDC reports whether the provider issues an ID token (issuer + JWKS set),
-// as opposed to a plain-OAuth2 provider identified via UserInfo.
+// isOIDC reports whether the provider issues an ID token (JWKS + issuer
+// check), as opposed to a plain-OAuth2 provider identified via UserInfo. The
+// single source of truth lives on Config; this just threads it through.
 func (c *Client) isOIDC() bool {
-	return c.cfg.Provider.Issuer != "" && c.cfg.Provider.JWKSURL != ""
+	return c.cfg.isOIDC()
 }

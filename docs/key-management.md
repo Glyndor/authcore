@@ -11,8 +11,13 @@ On first run authcore creates `KeysDir` (default `.authcore`) and generates:
 | `.gitignore` | `*` | `0600` | Prevents accidental commits |
 
 On subsequent starts the files are loaded and the key pair is validated for
-consistency. If only one PEM file is present, `New()` returns `ErrKeyManager` —
-delete both to regenerate.
+consistency. If only the public PEM is missing with the private key and
+refresh secret intact, reconstruct the public half from the private key (the
+second 32 bytes of an Ed25519 private key as `crypto/ed25519` produces it, or
+the 32 bytes `priv[32:]` returned by `priv.Public()`); do not delete the
+private key to "regenerate" it, and do not delete `refresh_secret.key` to
+make the directory appear empty. That destroys secrets the rest of the
+deployment still depends on.
 
 authcore warns (and never refuses or chmods) when `ed25519_private.pem` or
 `refresh_secret.key` is readable by group or others on the load paths. The
@@ -275,10 +280,21 @@ Rotating the Ed25519 key without logging everyone out is a two-phase move that
 relies on `kid`: tokens already in the wild were signed by the old key, so the
 verifier must keep accepting it until they expire.
 
-1. **Overlap.** Make the new key the active one (new `KeysDir` / `KeyStore`
-   material) and list the **old public key** in `jwt.Config.PreviousPublicKeys`.
-   New tokens are signed only with the new key; tokens still bearing the old
-   `kid` keep verifying.
+1. **Overlap.** Generate a fresh signing pair and list the **old public key**
+   in `jwt.Config.PreviousPublicKeys`. New tokens are signed only with the
+   new key; tokens still bearing the old `kid` keep verifying.
+
+   When you do this on disk, point the new instance at a fresh `KeysDir`
+   *carrying the old `refresh_secret.key` across byte for byte*, either by
+   copying it into the new directory before starting, or by sourcing the
+   new signing pair through `NewKeyStoreFromKeys` /
+   `NewKeyStoreFromPEM` with the existing secret. Initialisation also
+   generates a new refresh secret; if that one replaces the old one, every
+   stored refresh-token hash, API-key hash, TOTP recovery-code hash and
+   outstanding credential link stops matching, and every `auth/field`
+   encrypted column becomes unreadable. `New` will not detect this; it
+   happens at request time, across the whole deployment. Keep the secret
+   stable for the entire rotation, then change it deliberately.
 
    ```go
    cfg := jwt.DefaultConfig()
@@ -287,7 +303,8 @@ verifier must keep accepting it until they expire.
    ```
 
 2. **Retire.** Once every token signed by the old key has expired (at most one
-   `RefreshTokenTTL`), deploy again without it. The old key is gone.
+   `RefreshTokenTTL`), deploy again without it. The old key is gone. The
+   refresh secret stays.
 
 Each listed key is indexed by its derived `kid`, so a token picks the right key
 automatically. A `kid` that is neither the current key nor a listed previous key
@@ -301,20 +318,26 @@ is rejected as `ErrTokenInvalid`.
 
 ## What happens if initialisation is interrupted
 
-`New` writes the three key files as one transaction. The complete set is
-generated into a private staging directory `.staging-<random hex>` and then
-hard-linked into the final names in the fixed order `ed25519_private.pem`,
-`ed25519_public.pem`, `refresh_secret.key`. The atomicity property is "the
-three files appear together or not at all":
+`New` writes the three key files as a staged publication: the complete set
+is generated into a private staging directory `.staging-<random hex>` and
+then hard-linked into the final names in the fixed order
+`ed25519_private.pem`, `ed25519_public.pem`, `refresh_secret.key`. The
+files appear one at a time, in that order; an interruption between links
+leaves the directory with whichever subset was already published, and the
+next `New` completes the publication from the staging directory rather than
+generating a fresh set:
 
-- a crash before the first link leaves an empty directory and a single staging
-  directory. The next `New` sees an empty KeysDir and generates a fresh set.
-- a crash after one or two links leaves a partially-populated KeysDir and a
-  staging directory with the matching bytes. The next `New` finds the staging
-  directory, links the missing files from it, and loads. The crashed
-  publisher's staging directory is left behind as recoverable material.
-- a crash after all three links leaves the directory complete. The next `New`
-  loads and reports the leftover staging directory in a Warn log.
+- a crash before the first link leaves an empty directory and a single
+  staging directory. The next `New` sees an empty KeysDir and generates a
+  fresh set.
+- a crash after the private key link, or after the private and public
+  links, leaves KeysDir with only the published files and the staging
+  directory with the matching bytes. The next `New` recognises the
+  partial set, compares every published file byte-for-byte with the staged
+  counterpart, links the missing files from the staging directory, and
+  loads. The staged publication is recoverable, not orphaned.
+- a crash after all three links leaves the directory complete. The next
+  `New` loads and reports the leftover staging directory in a Warn log.
 
 Replicas sharing a mounted volume converge on one set: the first process to
 hard-link the private key wins; any later initialiser sees the link already

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,11 @@ func TestUserInfo_noURLConfigured(t *testing.T) {
 
 func TestUserInfo_non2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Return a valid JSON object so the rejection must come from the
+		// status check, not from decoding an empty body.
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
 	}))
 	defer srv.Close()
 	if _, err := oauth2Client(t, srv.URL).UserInfo(context.Background(), "x"); err == nil {
@@ -89,13 +94,21 @@ func TestNew_oauth2ProviderValid(t *testing.T) {
 }
 
 func TestNew_providerWithNoIdentitySourceRejected(t *testing.T) {
-	// Auth + token endpoints but neither issuer/JWKS nor userinfo.
+	// Well-formed https endpoints but neither issuer/JWKS nor userinfo: the
+	// rejection must come from the identity-source check, not from URL
+	// validation. Using invalid URLs would fail on URL parsing and pass the
+	// test for the wrong reason.
 	_, err := oauth.New(fakeProvider{}, oauth.Config{
 		ClientID: "x", RedirectURL: "https://app.example/cb",
-		Provider: oauth.Provider{AuthURL: "a", TokenURL: "t"},
+		Provider: oauth.Provider{
+			AuthURL:  "https://provider.example/auth",
+			TokenURL: "https://provider.example/token",
+		},
 	})
 	if err == nil {
 		t.Error("expected rejection of a provider with no identity source")
+	} else if !strings.Contains(err.Error(), "JWKS") || !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("rejection must name the missing identity source (JWKS or userinfo), got %v", err)
 	}
 }
 
@@ -152,22 +165,33 @@ func TestVerifyIDToken_audArrayAndStringEmailVerified(t *testing.T) {
 	defer srv.Close()
 	c := newClient(t, srv)
 
-	cl := validClaims(srv.URL, "n")
-	cl["aud"] = []string{testClientID, "another"}
-	cl["azp"] = testClientID      // OIDC: multi-aud token must name us as authorized party
-	cl["email_verified"] = "true" // some providers send a string
-	tok := signIDToken(t, key, testKID, cl)
-
-	claims, err := c.VerifyIDToken(context.Background(), tok, "n")
-	if err != nil {
-		t.Fatalf("VerifyIDToken: %v", err)
-	}
-	if len(claims.Audience) != 2 {
-		t.Errorf("Audience = %v, want 2 entries", claims.Audience)
-	}
-	if !claims.EmailVerified {
-		t.Error("string email_verified \"true\" not parsed as true")
-	}
+	// Multi-aud tokens (aud names this client plus another) are refused even
+	// when azp matches: the verifier accepts only the configured client id as
+	// the sole audience.
+	t.Run("multi-aud rejected", func(t *testing.T) {
+		cl := validClaims(srv.URL, "n")
+		cl["aud"] = []string{testClientID, "another"}
+		cl["azp"] = testClientID
+		cl["email_verified"] = "true"
+		tok := signIDToken(t, key, testKID, cl)
+		if _, err := c.VerifyIDToken(context.Background(), tok, "n"); err == nil {
+			t.Error("expected rejection of a multi-audience token")
+		}
+	})
+	// The string form of email_verified still parses when the audience is the
+	// single configured client id.
+	t.Run("string email_verified parses", func(t *testing.T) {
+		cl := validClaims(srv.URL, "n")
+		cl["email_verified"] = "true"
+		tok := signIDToken(t, key, testKID, cl)
+		claims, err := c.VerifyIDToken(context.Background(), tok, "n")
+		if err != nil {
+			t.Fatalf("VerifyIDToken: %v", err)
+		}
+		if !claims.EmailVerified {
+			t.Error("string email_verified \"true\" not parsed as true")
+		}
+	})
 }
 
 func TestVerifyIDToken_multiAudWrongAZPRejected(t *testing.T) {
@@ -191,8 +215,12 @@ func TestVerifyIDToken_multiAudWrongAZPRejected(t *testing.T) {
 
 func TestVerifyIDToken_jwksNon200(t *testing.T) {
 	key := mustRSA(t)
+	// Return valid JWKS JSON at the failing status so the rejection must come
+	// from the status check, not from decoding an empty body.
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"keys":[]}`))
 	}))
 	defer bad.Close()
 	c := newClient(t, bad)
@@ -218,13 +246,17 @@ func TestVerifyIDToken_jwksEmpty(t *testing.T) {
 // ---- config / presets -------------------------------------------------------
 
 func TestAuthCodeURL_defaultScopesIncludeOpenID(t *testing.T) {
-	// No scopes set -> the OIDC default set (with openid) is used.
+	// No scopes set -> the OIDC default set is used. The test pins the exact
+	// decoded value so a regression that drops a scope or reorders them
+	// (e.g. building a different "openid email profile" sequence) does not
+	// pass on the "contains openid" check alone.
 	c, _ := oauth.New(fakeProvider{}, oauth.Config{
 		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google(),
 	})
 	req, _ := c.AuthCodeURL()
-	if !strings.Contains(req.URL, "openid") {
-		t.Error("default scopes must include openid")
+	u, _ := url.Parse(req.URL)
+	if got, want := u.Query().Get("scope"), "openid email profile"; got != want {
+		t.Errorf("scope = %q, want %q", got, want)
 	}
 }
 
@@ -242,9 +274,20 @@ func TestAuthCodeURL_callerScopesVerbatim(t *testing.T) {
 }
 
 func TestMicrosoftPreset(t *testing.T) {
-	p := oauth.Microsoft("common")
-	if !strings.Contains(p.Issuer, "common") || !strings.Contains(p.AuthURL, "authorize") || p.JWKSURL == "" {
+	const tenant = "9188040d-6c67-4c5b-b112-36a304b66dad"
+	p, err := oauth.Microsoft(tenant)
+	if err != nil {
+		t.Fatalf("Microsoft(%q): %v", tenant, err)
+	}
+	if !strings.Contains(p.Issuer, tenant) || !strings.Contains(p.AuthURL, "authorize") || p.JWKSURL == "" {
 		t.Errorf("unexpected Microsoft preset: %+v", p)
+	}
+	// A non-GUID tenant (the previously accepted verified-domain form) is
+	// refused with a message that names the requirement.
+	if _, err := oauth.Microsoft("contoso.onmicrosoft.com"); err == nil {
+		t.Error("Microsoft must refuse a non-GUID tenant id")
+	} else if !strings.Contains(err.Error(), "GUID") {
+		t.Errorf("refusal must name the GUID requirement, got %v", err)
 	}
 }
 

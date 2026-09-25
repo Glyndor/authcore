@@ -27,4 +27,15 @@ var (
 	// ("could not read this row") to the user. Do not echo the input
 	// back, and do not log enough to recreate the ciphertext.
 	ErrDecrypt = errors.New("field: decryption failed")
+
+	// ErrNotInitialised is returned by Encrypt, Decrypt and BlindIndex on
+	// a zero-value Field (a module that was never constructed by New). A
+	// zero-value module has no derived AES or index key, so calling it
+	// would either panic on the missing AEAD or emit output derived from
+	// an empty key, the exact failure mode this module exists to
+	// prevent.
+	//
+	// Safety: INTERNAL. The call site that owns the zero value is the one
+	// to fix.
+	ErrNotInitialised = errors.New("field: module not initialised")
 )

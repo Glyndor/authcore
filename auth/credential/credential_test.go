@@ -111,13 +111,21 @@ func TestIssue_ReturnsIssuedWithTokenAndHash(t *testing.T) {
 	}
 }
 
-// TestIssue_HoldsNoPerIssueState pins the absence of a side effect that an
-// earlier draft had: Issue also wrote the token and hash onto the module
-// receiver. That made two concurrent Issue calls a data race, and it kept
-// the raw token, the one value the caller must show exactly once, alive in
-// memory for the lifetime of the module. Run under -race, fifty concurrent
-// issues must be clean and every token distinct.
-func TestIssue_HoldsNoPerIssueState(t *testing.T) {
+// TestIssue_FiftyConcurrentCallsProduceDistinctTokens is the
+// concurrency-safety check the Issue path must pass. An earlier draft
+// stored the most recent token and hash on the receiver under a mutex,
+// which both kept the raw token (the value the caller must show exactly
+// once) alive in memory for the module's lifetime and made a single
+// shared-mutex around a per-call counter the obvious target of a
+// contention regression. The test pins the externally observable
+// property: fifty concurrent Issue calls must produce fifty distinct
+// tokens with no race detected under -race.
+//
+// Note: the test does NOT directly inspect the receiver for "per-issue
+// state": Go has no portable way to do that without extending the
+// module's surface. The intended property is enforced by the absence of
+// any per-call write to the module under -race.
+func TestIssue_FiftyConcurrentCallsProduceDistinctTokens(t *testing.T) {
 	c := newCred(t)
 
 	const n = 50

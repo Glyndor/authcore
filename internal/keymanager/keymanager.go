@@ -91,9 +91,10 @@ type KeyManager struct {
 // matching staging directory is refused with advice that never asks the
 // operator to delete refresh_secret.key.
 //
-// dir must be a writable path. Use "." to place the ".authcore" folder
-// in the current working directory, or provide an absolute path for
-// containerised / restricted environments.
+// dir is used verbatim: New does not append ".authcore" or any other
+// subdirectory, and Dir returns the value as passed in (no resolution to
+// an absolute path). Callers who want the keys inside a ".authcore"
+// subdirectory must pass ".authcore" explicitly.
 func New(dir string, log logger) (*KeyManager, error) {
 	if _, err := os.Stat(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("inspect key directory %q: %w", dir, err)
@@ -190,6 +191,17 @@ func inspectKeySet(dir string) (setState, error) {
 // metadata atomically. The in-memory keys are returned directly so the loaders
 // are not invoked on bytes we just wrote.
 func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
+	// Warn before any fresh material is generated. The reason is the one in
+	// docs/key-management.md: an empty KeysDir on a container recreation, or
+	// on a fresh volume, means every issued token, every stored refresh-token
+	// hash, and every auth/field encrypted column is about to become
+	// unrecognised. Operators wire this Warn into monitoring so they find out
+	// before users do.
+	log.Warn("authcore/keymanager: KeysDir %q is empty; generating a fresh key "+
+		"set, which invalidates every issued token, every stored refresh-token "+
+		"and API-key hash, and every auth/field encrypted column",
+		dir)
+
 	// Sync the parent directory before the first publish. Another process
 	// may have created KeysDir without syncing its parent entry yet, and
 	// this process is about to publish keys that other processes will use.
@@ -322,7 +334,8 @@ func (km *KeyManager) KeyID() string {
 	return km.keyID
 }
 
-// Dir returns the absolute path of the key directory.
+// Dir returns the value passed to New, verbatim. No resolution to an
+// absolute path is performed; a relative argument is returned as given.
 func (km *KeyManager) Dir() string {
 	return km.dir
 }

@@ -11,6 +11,12 @@ import (
 // VerifyAccessTokenContext to supply your own deadline instead.
 const defaultDenylistTimeout = 5 * time.Second
 
+// refreshSecretLen is the byte length New demands from
+// Keys().RefreshSecret(). The HMAC-SHA256 pepper must match across
+// every server that shares an installation; a short or absent secret
+// would silently weaken every refresh-token hash.
+const refreshSecretLen = 32
+
 // Denylist is the optional, opt-in hook that makes a stateless access token
 // revocable before it expires.
 //

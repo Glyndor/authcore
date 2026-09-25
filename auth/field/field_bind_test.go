@@ -7,8 +7,14 @@ package field
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -112,11 +118,18 @@ func TestCrossContext_DifferentCiphertextsForSamePlaintext(t *testing.T) {
 
 // TestBlindIndex_DeterministicAcrossCalls: BlindIndex of the same
 // value under the same module must be stable. BlindIndex returns a
-// string and no error, since HMAC-SHA256 over a fixed key cannot fail.
+// string and an error; the happy path has no error and the digest is
+// 32 bytes hex-encoded.
 func TestBlindIndex_DeterministicAcrossCalls(t *testing.T) {
 	f := newFld(t, "email")
-	a := f.BlindIndex("alice@example.com")
-	b := f.BlindIndex("alice@example.com")
+	a, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	b, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
 	if a != b {
 		t.Errorf("BlindIndex not deterministic: %s vs %s", a, b)
 	}
@@ -134,8 +147,14 @@ func TestBlindIndex_DeterministicAcrossModules(t *testing.T) {
 	a, _ := New(p, Config{Context: "email"})
 	b, _ := New(p, Config{Context: "email"})
 
-	idxA := a.BlindIndex("alice@example.com")
-	idxB := b.BlindIndex("alice@example.com")
+	idxA, err := a.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxB, err := b.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
 	if idxA != idxB {
 		t.Errorf("BlindIndex across same-config modules differs: %s vs %s", idxA, idxB)
 	}
@@ -151,7 +170,15 @@ func TestBlindIndex_DiffersAcrossContexts(t *testing.T) {
 	phone, _ := New(p, Config{Context: "phone"})
 
 	const value = "alice@example.com"
-	if email.BlindIndex(value) == phone.BlindIndex(value) {
+	idxEmail, err := email.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("email.BlindIndex: %v", err)
+	}
+	idxPhone, err := phone.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("phone.BlindIndex: %v", err)
+	}
+	if idxEmail == idxPhone {
 		t.Errorf("BlindIndex of %q under different contexts matched", value)
 	}
 }
@@ -174,7 +201,15 @@ func TestLengthPrefix_NoCollisionBetweenAdjacentFields(t *testing.T) {
 	// a + "bc" vs "ab" + "c": the bytes inside the HMAC are the same,
 	// but the framing differs. A separator would collapse them; a
 	// length prefix does not.
-	if a.BlindIndex("bc") == ab.BlindIndex(value) {
+	idxA, err := a.BlindIndex("bc")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxAB, err := ab.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxA == idxAB {
 		t.Error("length prefix collision: BlindIndex(\"bc\") under context \"a\" matched BlindIndex(\"c\") under context \"ab\"")
 	}
 }
@@ -191,7 +226,15 @@ func TestLengthPrefix_NoCollisionBetweenContextAndValue(t *testing.T) {
 	// context "ab", value "c" -> bytes a, b, c
 	ab, _ := New(p, Config{Context: "ab"})
 
-	if a.BlindIndex("bc") == ab.BlindIndex("c") {
+	idxA, err := a.BlindIndex("bc")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxAB, err := ab.BlindIndex("c")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxA == idxAB {
 		t.Error("length prefix collision: (\"a\",\"bc\") matched (\"ab\",\"c\")")
 	}
 }
@@ -202,7 +245,15 @@ func TestLengthPrefix_NoCollisionBetweenContextAndValue(t *testing.T) {
 // "all four quadrants of the collision matrix" symmetry).
 func TestLengthPrefix_NoCollisionSameContextSameValue(t *testing.T) {
 	f := newFld(t, "email")
-	if f.BlindIndex("alice@example.com") != f.BlindIndex("alice@example.com") {
+	a, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	b, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if a != b {
 		t.Error("same context, same value produced different indexes")
 	}
 }
@@ -214,7 +265,15 @@ func TestLengthPrefix_NoCollisionSameContextSameValue(t *testing.T) {
 // not reachable by a test seed.
 func TestBlindIndex_DifferentValuesDifferentIndexes(t *testing.T) {
 	f := newFld(t, "email")
-	if f.BlindIndex("alice@example.com") == f.BlindIndex("bob@example.com") {
+	idxAlice, err := f.BlindIndex("alice@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	idxBob, err := f.BlindIndex("bob@example.com")
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idxAlice == idxBob {
 		t.Error("different values produced the same blind index")
 	}
 }
@@ -262,5 +321,103 @@ func TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster(t *testing.T
 	}
 	if !bytes.Equal(encKey, again) {
 		t.Error("deriveKey is not deterministic: existing ciphertexts would not decrypt after a restart")
+	}
+}
+
+// TestDeriveKey_NewActuallyStoresTheDerivedKeys is the integration pin
+// for deriveKey. The unit test above verifies that deriveKey produces
+// three distinct values from the master secret; this test verifies that
+// New stores the derived keys on the Field, not the master secret. A
+// sabotage that "leaves deriveKey in place" but uses the master secret for
+// the actual AES key and HMAC key would still pass the unit test, because
+// deriveKey's output is unused. This test catches that.
+func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
+	t.Parallel()
+	p := sharedProvider(t)
+	master := p.Keys().RefreshSecret()
+	f, err := New(p, Config{Context: "email"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	encKey, err := deriveKey(master, encKeyInfo)
+	if err != nil {
+		t.Fatalf("deriveKey(encKeyInfo): %v", err)
+	}
+	idxKey, err := deriveKey(master, idxKeyInfo)
+	if err != nil {
+		t.Fatalf("deriveKey(idxKeyInfo): %v", err)
+	}
+
+	const value = "alice@example.com"
+	ctxBytes := []byte("email")
+	indexMAC := func(key []byte) string {
+		m := hmac.New(sha256.New, key)
+		writeLengthPrefixed(m, ctxBytes)
+		writeLengthPrefixed(m, []byte(value))
+		return hex.EncodeToString(m.Sum(nil))
+	}
+
+	idx, err := f.BlindIndex(value)
+	if err != nil {
+		t.Fatalf("BlindIndex: %v", err)
+	}
+	if idx == indexMAC(master) {
+		t.Error("Field.BlindIndex = HMAC(master, value): the index key on the Field is the master secret")
+	}
+	if idx != indexMAC(idxKey) {
+		t.Error("Field.BlindIndex != HMAC(deriveKey(master, idxKeyInfo), value): New stored a different index key")
+	}
+
+	ct, err := f.Encrypt(value)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(ct)
+	if err != nil {
+		t.Fatalf("decode ciphertext: %v", err)
+	}
+	nonce, sealed, aad := raw[:nonceLen], raw[nonceLen:], buildAAD(ctxBytes)
+	if openGCM(t, master, nonce, sealed, aad) {
+		t.Error("Field.Encrypt ciphertext decrypts under AES-GCM keyed by the master secret")
+	}
+	if !openGCM(t, encKey, nonce, sealed, aad) {
+		t.Error("Field.Encrypt ciphertext does not decrypt under AES-GCM keyed by deriveKey(master, encKeyInfo)")
+	}
+}
+
+// openGCM probes which key New stored on a Field: returns true iff
+// nonce/sealed/aad open to "alice@example.com" under AES-GCM keyed by key.
+func openGCM(t *testing.T, key, nonce, sealed, aad []byte) bool {
+	t.Helper()
+	block, _ := aes.NewCipher(key)
+	aead, _ := cipher.NewGCM(block)
+	plain, err := aead.Open(nil, nonce, sealed, aad)
+	return err == nil && string(plain) == "alice@example.com"
+}
+
+// TestLengthPrefix_NoCollisionWithEmbeddedNULBytes pins the only failure
+// mode a length prefix survives that a separator byte does not: a NUL byte
+// inside a field. Under a separator-byte implementation the pairing
+// ("a\x00b", "c") and ("a", "b\x00c") collapses into the same byte stream.
+func TestLengthPrefix_NoCollisionWithEmbeddedNULBytes(t *testing.T) {
+	p := sharedProvider(t)
+	left, err := New(p, Config{Context: "a\x00b"})
+	if err != nil {
+		t.Fatalf("New(a\\x00b): %v", err)
+	}
+	right, err := New(p, Config{Context: "a"})
+	if err != nil {
+		t.Fatalf("New(a): %v", err)
+	}
+	idxLeft, err := left.BlindIndex("c")
+	if err != nil {
+		t.Fatalf("left.BlindIndex: %v", err)
+	}
+	idxRight, err := right.BlindIndex("b\x00c")
+	if err != nil {
+		t.Fatalf("right.BlindIndex: %v", err)
+	}
+	if idxLeft == idxRight {
+		t.Error("NUL-byte collision: (\"a\\x00b\",\"c\") and (\"a\",\"b\\x00c\") produced the same index")
 	}
 }

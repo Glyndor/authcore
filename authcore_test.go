@@ -2,6 +2,7 @@ package authcore_test
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -127,10 +128,33 @@ func TestLogger_stdLoggerUsedWhenEnableLogsTrue(t *testing.T) {
 	cfg := authcore.DefaultConfig() // EnableLogs = true, no custom Logger
 	cfg.KeysDir = t.TempDir()
 
-	// New() must not panic or error when the stdlib logger is active.
-	_, err := authcore.New(cfg)
+	// Capture stdout so the test does not pollute the test runner's
+	// output, and so we can assert New actually emitted the
+	// "authcore initialised" line. The previous version of this test
+	// only checked "did not panic", so a sabotage that returned a
+	// stdLogger with EnableLogs=false would still pass that check.
+	r, w, err := os.Pipe()
 	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStdout := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		_ = r.Close()
+	})
+
+	if _, err := authcore.New(cfg); err != nil {
 		t.Fatalf("New() error = %v", err)
+	}
+	_ = w.Close()
+
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	if len(got) == 0 {
+		t.Error("EnableLogs=true with no custom Logger must write to stdout; captured output is empty")
 	}
 }
 
@@ -139,10 +163,33 @@ func TestLogger_noopLoggerUsedWhenEnableLogsFalse(t *testing.T) {
 	cfg.KeysDir = t.TempDir()
 	cfg.EnableLogs = false
 
-	// New() must not panic or error when the noop logger is active.
-	_, err := authcore.New(cfg)
+	// Pin EnableLogs=false and capture stdout. The test must assert
+	// that no bytes were written: a sabotage that returns a stdLogger
+	// (which writes to os.Stdout) instead of a noopLogger would fail
+	// this assertion. The previous version only checked "did not panic",
+	// which left the noopLogger branch unprotected.
+	r, w, err := os.Pipe()
 	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStdout := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		_ = r.Close()
+	})
+
+	if _, err := authcore.New(cfg); err != nil {
 		t.Fatalf("New() error = %v", err)
+	}
+	_ = w.Close()
+
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("EnableLogs=false must produce no stdout output; captured %q", got)
 	}
 }
 

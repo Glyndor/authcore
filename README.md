@@ -48,7 +48,7 @@ pwd, _    := password.New(auth)                          // Argon2id, OWASP defa
 tokens, _ := jwt.New[UserClaims](auth, jwt.DefaultConfig())
 
 // Register: store only the hash, never the plaintext.
-hash, err := pwd.Hash("Str0ng-P@ssword!")                // err == password.ErrWeakPassword tells the user why
+hash, err := pwd.Hash("Str0ng-P@ssword!")                // errors.Is(err, password.ErrWeakPassword) tells the user why
 
 // Log in: verify, then mint an access + refresh pair.
 if ok, _ := pwd.Verify("Str0ng-P@ssword!", hash); ok {

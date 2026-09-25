@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/internal/clock"
@@ -57,6 +58,11 @@ var _ authcore.Module = (*JWT[struct{}])(nil)
 //
 // Construct one instance at application startup using New and share it
 // across all goroutines. JWT is safe for concurrent use after construction.
+//
+// A zero-value JWT[T] is unusable: HashRefreshToken returns
+// ErrNotInitialised, and VerifyRefreshTokenHash returns false. New
+// sets initialised as its last act, so a successful New is the only
+// path to a working module.
 type JWT[T any] struct {
 	cfg             Config
 	log             authcore.Logger
@@ -67,6 +73,7 @@ type JWT[T any] struct {
 	clock           clock.Clock // injected; replaced by clock.Fixed in tests
 	primaryAudience string      // cfg.Audience[0] snapshotted at construction; immune to post-init mutation
 	denylist        Denylist    // optional; nil means access tokens are never checked for revocation
+	initialised     bool        // set by New; zero-value methods refuse to produce output
 
 	// verifyKeys maps each accepted "kid" to its public key. It always holds
 	// the current signing key and additionally any Config.PreviousPublicKeys,
@@ -89,24 +96,72 @@ type JWT[T any] struct {
 //
 // p provides the Ed25519 signing keys, the HMAC secret, the logger, and the
 // timezone — all sourced from the parent AuthCore instance.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is unusable
+// (a nil interface, a Logger() or Keys() that returns nil) or when
+// Keys().RefreshSecret() is not exactly 32 bytes. A module that
+// successfully returned is the only path to a working JWT; every
+// method on a zero value refuses to produce output.
 func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	logger := p.Logger()
+	if logger == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = cfg[0]
 	}
 	resolved = applyDefaults(resolved)
 
+	// Defensive copy: the caller's slice can still be mutated after New
+	// returns, and the verification path reads cfg.Audience on every token.
+	// A caller who reassigns an entry later would otherwise change the
+	// audience of tokens the module still accepts.
+	audCopy := make([]string, len(resolved.Audience))
+	copy(audCopy, resolved.Audience)
+	resolved.Audience = audCopy
+
+	// Defensive copy of each previous public key: ed25519.PublicKey is a
+	// []byte, so a caller wiping the slice would silently break verification
+	// for tokens already signed under that key. Each entry is copied into a
+	// fresh slice of the same length.
+	if len(resolved.PreviousPublicKeys) > 0 {
+		prevCopy := make([]ed25519.PublicKey, len(resolved.PreviousPublicKeys))
+		for i, pk := range resolved.PreviousPublicKeys {
+			prevCopy[i] = make(ed25519.PublicKey, len(pk))
+			copy(prevCopy[i], pk)
+		}
+		resolved.PreviousPublicKeys = prevCopy
+	}
+
 	if err := validateConfig(resolved); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
+			ErrInvalidConfig, l, refreshSecretLen)
+	}
+
 	j := &JWT[T]{
 		cfg:             resolved,
-		log:             p.Logger(),
-		priv:            p.Keys().PrivateKey(),
-		pub:             p.Keys().PublicKey(),
-		secret:          p.Keys().RefreshSecret(),
-		kid:             p.Keys().KeyID(),
+		log:             logger,
+		priv:            keys.PrivateKey(),
+		pub:             keys.PublicKey(),
+		secret:          secret,
+		kid:             keys.KeyID(),
 		clock:           clock.New(p.Config().Timezone),
 		primaryAudience: resolved.Audience[0], // validateConfig guarantees len >= 1
 		denylist:        resolved.Denylist,
@@ -118,6 +173,8 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	for _, prev := range resolved.PreviousPublicKeys {
 		j.verifyKeys[keymanager.KeyID(prev)] = prev
 	}
+
+	j.initialised = true
 
 	j.log.Info("jwt: module initialised (issuer=%s, access_ttl=%s, refresh_ttl=%s, verify_keys=%d)",
 		resolved.Issuer, resolved.AccessTokenTTL, resolved.RefreshTokenTTL, len(j.verifyKeys))
@@ -174,10 +231,24 @@ func (j *JWT[T]) CreateTokens(subject string, extra T) (*TokenPair, error) {
 func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 	now := j.clock.Now()
 
+	// golang-jwt truncates the exp claim to whole seconds. Apply the same
+	// truncation here so AccessTokenExpiresAt reports exactly what the signed
+	// claim says; a sub-second TTL must not round in the operator's view.
+	accessExpiresAt := now.Add(j.cfg.AccessTokenTTL).Truncate(time.Second)
+	refreshExpiresAt := now.Add(j.cfg.RefreshTokenTTL).Truncate(time.Second)
+
 	// ----- Access token -----
 	accessToken, err := signToken(newAccessClaims(j.cfg.Issuer, subject, jti, j.cfg.Audience, extra, now, j.cfg.AccessTokenTTL), j.priv, j.kid)
 	if err != nil {
 		return nil, fmt.Errorf("sign access token: %w", err)
+	}
+	if n := len(accessToken); n > maxTokenLen {
+		// Enforce the same cap the verifier applies. A token that exceeds the
+		// limit would verify as ErrTokenOversized, so refuse at issuance with
+		// a message that names the limit and the actual length instead of
+		// letting the operator discover it on the next request.
+		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
+			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
 	}
 
 	// ----- Refresh token (no extra) -----
@@ -191,17 +262,31 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sign refresh token: %w", err)
 	}
+	if n := len(refreshToken); n > maxTokenLen {
+		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
+			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
+	}
 
 	j.log.Debug("jwt: token pair issued (sub=%s, jti=%s)", subject, jti)
 
 	return &TokenPair{
 		AccessToken:           accessToken,
-		AccessTokenExpiresAt:  now.Add(j.cfg.AccessTokenTTL),
+		AccessTokenExpiresAt:  accessExpiresAt,
 		RefreshToken:          refreshToken,
-		RefreshTokenExpiresAt: now.Add(j.cfg.RefreshTokenTTL),
+		RefreshTokenExpiresAt: refreshExpiresAt,
 		RefreshTokenHash:      computeHMAC(refreshToken, j.secret),
 		SessionID:             jti,
 	}, nil
+}
+
+// sumLen returns the sum of len(entry) across entries. Used to surface the
+// total audience bytes in an ErrTokenOversized message.
+func sumLen(entries []string) int {
+	n := 0
+	for _, e := range entries {
+		n += len(e)
+	}
+	return n
 }
 
 // VerifyAccessToken parses and validates an access token string.
@@ -216,6 +301,11 @@ func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
 //	jwt.ErrTokenMalformed — not a valid three-part JWT string
 //	jwt.ErrWrongTokenType — token is a refresh token, not an access token
 //	jwt.ErrTokenRevoked   — a configured Denylist reports the token's session revoked
+//
+// If a configured Denylist returns its own error (transport, timeout, parse),
+// the error is wrapped with the store's error verbatim and returned through
+// this call. There is no sentinel for store failures; treat any error that
+// is not ErrTokenRevoked as an internal problem with the denylist itself.
 //
 // Use errors.Is for error inspection:
 //
@@ -266,12 +356,21 @@ func (j *JWT[T]) VerifyAccessTokenContext(ctx context.Context, token string) (*C
 //
 // Use this to derive the database lookup key before calling RotateTokens:
 //
-//	hash := jwtMod.HashRefreshToken(clientToken)
+//	hash, err := jwtMod.HashRefreshToken(clientToken)
+//	if err != nil { return serverError() }
 //	row, err := db.FindByHash(hash)
 //	if err != nil { return http.StatusUnauthorized }
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
-func (j *JWT[T]) HashRefreshToken(token string) string {
-	return computeHMAC(token, j.secret)
+//
+// HashRefreshToken returns ErrNotInitialised on a zero-value JWT[T].
+// The signature changed from `string` to `(string, error)` so a module
+// that was never constructed by New cannot emit a hash under an empty
+// HMAC secret.
+func (j *JWT[T]) HashRefreshToken(token string) (string, error) {
+	if !j.initialised {
+		return "", ErrNotInitialised
+	}
+	return computeHMAC(token, j.secret), nil
 }
 
 // VerifyRefreshTokenHash reports whether token produces the same HMAC-SHA256
@@ -284,7 +383,14 @@ func (j *JWT[T]) HashRefreshToken(token string) string {
 //	    return http.StatusUnauthorized
 //	}
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
+//
+// VerifyRefreshTokenHash returns false on a zero-value JWT[T]: a module
+// with no HMAC secret cannot verify anything, and answering true would
+// let a caller mistake "no key was used" for "the key matched".
 func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
+	if !j.initialised {
+		return false
+	}
 	computed := computeHMAC(token, j.secret)
 	return subtle.ConstantTimeCompare([]byte(computed), []byte(storedHash)) == 1
 }
@@ -312,7 +418,13 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 // whether the hash exists in a database — that is the application's responsibility
 // and must happen before calling RotateTokens.
 //
-// Returns the same errors as VerifyAccessToken.
+// Returns the same verification errors as VerifyAccessToken (a refresh token
+// goes through the same signature / expiry / iss / aud pipeline). It does
+// NOT consult the Denylist: refresh tokens are not checked for revocation.
+// It can also fail during signing, for example if the JSON encoder refuses
+// a NaN or Inf in extra (rotating JWT[float64] with math.NaN() returns
+// "sign access token: json: unsupported value: NaN"); verifyAccessToken
+// cannot fail this way because it never serialises extra.
 func (j *JWT[T]) RotateTokens(refreshToken string, extra T) (*TokenPair, error) {
 	c, err := verifyRefreshToken(refreshToken, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
 	if err != nil {

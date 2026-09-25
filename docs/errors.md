@@ -14,7 +14,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | Error | When |
 |---|---|
 | `authcore.ErrInvalidConfig` | `Config` validation failed |
-| `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil |
+| `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil. Unreachable from `authcore.New`: `New` replaces a nil `Timezone` with `time.UTC` before validation. Reserved for direct calls to the unexported validator. |
 | `authcore.ErrKeyManager` | key generation or loading failed, or a `Config.KeyStore` returned no material or material of the wrong shape (see [Key management](key-management.md#what-a-custom-load-must-return)) |
 
 ## `auth/jwt` package
@@ -42,7 +42,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation; `errors.Unwrap` gives the specific rule |
+| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
 | `email.ErrDomainNoMX` | ✓ Yes | Domain exists but has no MX records (cannot receive email) |
 | `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
 
@@ -51,6 +51,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | Error | Client-safe? | When |
 |---|---|---|
 | `username.ErrInvalidUsername` | ✓ Yes | Username fails a validation rule; `errors.Unwrap` gives the specific rule |
+| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
 
 ## `auth/apikey` package
 
@@ -58,6 +59,26 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 |---|---|---|
 | `apikey.ErrInvalidConfig` | ✗ No | `apikey.Config` validation failed (e.g. malformed prefix) — startup error |
 | `apikey.ErrInvalidKey` | ✗ No | Presented key is malformed (`ParseID`); return a generic unauthorized |
+| `apikey.ErrNotInitialised` | ✗ No | `Generate`/`Hash` called on a zero-value `APIKey` (a module that was never constructed by `New`) |
+
+## `auth/credential` package
+
+| Error | Client-safe? | When |
+|---|---|---|
+| `credential.ErrInvalidConfig` | ✗ No | `credential.Config` validation failed (zero/negative/oversized TTL, multiple Configs, nil provider, wrong refresh-secret length): startup error |
+| `credential.ErrInvalidCredential` | ✓ Yes | `Verify`: the presented token does not match the stored hash under the given purpose and subject: return a generic "link invalid or expired" |
+| `credential.ErrExpired` | ✓ Yes | `Verify`: the token matched the stored hash but `issuedAt` is more than `TTL` in the past, or more than one minute in the future: return the same generic message as `ErrInvalidCredential` |
+| `credential.ErrEmptyPurpose` | ✗ No | `Issue` called with an empty `purpose`; the hash would be unbound and redeemable against any flow |
+| `credential.ErrEmptySubject` | ✗ No | `Issue` called with an empty `subject`; the token would not be attributable to any user |
+| `credential.ErrNotInitialised` | ✗ No | `Issue`/`Verify` called on a zero-value `Credential` (a module that was never constructed by `New`) |
+
+## `auth/field` package
+
+| Error | Client-safe? | When |
+|---|---|---|
+| `field.ErrInvalidConfig` | ✗ No | `field.Config` validation failed (today: an empty `Context`), or `New` was given a nil provider or a `Keys().RefreshSecret()` of the wrong length: startup error |
+| `field.ErrDecrypt` | ✓ Yes | `Decrypt` failed for any reason: input shorter than the nonce plus GCM tag, input not valid base64, or GCM authentication tag mismatch. The three are not distinguished, so treat the row as corrupt or from the wrong column |
+| `field.ErrNotInitialised` | ✗ No | `Encrypt`/`Decrypt`/`BlindIndex` called on a zero-value `Field` (a module that was never constructed by `New`) |
 
 ## `auth/oauth` package
 
@@ -71,7 +92,6 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
-| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
 
 ## `auth/totp` package
 
