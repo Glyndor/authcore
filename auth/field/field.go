@@ -275,6 +275,12 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 	if err != nil {
 		return "", ErrDecrypt
 	}
+	// Accept only the spelling Encrypt writes. The decoder skips "\r" and
+	// "\n" and ignores the unused bits of the last character, so one stored
+	// value had several spellings that all decrypted (measured 2026-09-25).
+	if base64.RawStdEncoding.EncodeToString(raw) != ciphertext {
+		return "", ErrDecrypt
+	}
 	if len(raw) < nonceLen+aeadTagLen {
 		// Must contain at least nonce + GCM tag; anything shorter
 		// cannot possibly be a valid sealed payload. Returning
