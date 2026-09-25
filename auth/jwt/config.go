@@ -64,7 +64,10 @@ type Config struct {
 	// expired. New tokens are always signed with the current key only.
 	//
 	// Empty by default. Each key is indexed by its derived "kid", so a token
-	// selects the right key automatically.
+	// selects the right key automatically. New refuses a key that is not a
+	// canonical encoding or is a point of small order (the all-zero 32 bytes
+	// among them): crypto/ed25519 would accept signatures anyone can make
+	// under such a key.
 	PreviousPublicKeys []ed25519.PublicKey
 }
 
@@ -165,6 +168,9 @@ func validateConfig(cfg Config) error {
 	for i, pk := range cfg.PreviousPublicKeys {
 		if len(pk) != ed25519.PublicKeySize {
 			return fmt.Errorf("previous public key %d has wrong length: got %d, want %d", i, len(pk), ed25519.PublicKeySize)
+		}
+		if err := checkVerificationKey(pk); err != nil {
+			return fmt.Errorf("previous public key %d cannot be trusted: %w", i, err)
 		}
 	}
 	return nil
