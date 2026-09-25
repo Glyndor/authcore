@@ -167,8 +167,13 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
   cached (1 h), refreshed automatically on an unknown `kid` so key rotation just
   works. Only asymmetric algorithms (RS/PS/ES) are accepted — `none` and HMAC
   are refused, closing the algorithm-confusion forgery.
-- **Issuer, audience, expiry, and nonce** are all enforced. A mismatch fails
-  closed with `ErrIDTokenInvalid`.
+- **Issuer, audience, `azp`, expiry, and nonce** are all enforced. A mismatch
+  fails closed with `ErrIDTokenInvalid`.
+- **A key's own issuer restriction.** Microsoft publishes an `issuer` on each
+  key of its common JWKS, some pinned to one tenant and some holding the
+  `{tenantid}` template. When the key that signed a token carries one, the
+  token's `iss` must equal it, with the template completed from the token's
+  `tid`, so a key scoped to one tenant cannot vouch for another.
 - **Safe redirects.** The default HTTP client refuses redirects that are
   cross-origin (the token POST replays the client secret on a 307/308),
   downgrade to `http`, or target a loopback, link-local or private IP

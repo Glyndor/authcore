@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	gjwt "github.com/golang-jwt/jwt/v5"
 )
@@ -53,9 +54,12 @@ const maxIDTokenLen = 16 * 1024
 // VerifyIDToken validates an ID token and returns its claims.
 //
 // It verifies the signature against the provider's JWKS (asymmetric algorithms
-// only), and enforces the issuer, the audience (must equal the client id and
-// no other), a numeric "iat", expiry, and that the "nonce" claim equals the
-// nonce from the matching AuthCodeURL request. nonce must be the non-empty
+// only), and enforces the issuer, the issuer the signing key is restricted to
+// when its JWK carries an "issuer" member (completing a "{tenantid}" template
+// with the token's "tid"), the audience (must equal the client id and no
+// other), "azp" (must equal the client id when present), a numeric "iat",
+// expiry, and that the "nonce" claim equals the nonce from the matching
+// AuthCodeURL request. nonce must be the non-empty
 // value you stored; passing the wrong or an empty nonce fails closed.
 //
 // On any failure it returns ErrIDTokenInvalid (wrapped). Never expose the
@@ -106,10 +110,16 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 	}
 
 	var claims gjwt.MapClaims
+	var signer candidate
 	_, err := gjwt.ParseWithClaims(idToken, &claims,
 		func(t *gjwt.Token) (any, error) {
 			kid, _ := t.Header["kid"].(string)
-			return c.jwks.key(ctx, kid, t.Method.Alg())
+			cand, err := c.jwks.candidateFor(ctx, kid, t.Method.Alg())
+			if err != nil {
+				return nil, err
+			}
+			signer = cand
+			return cand.pub, nil
 		},
 		opts...,
 	)
@@ -124,6 +134,16 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 		if iss == "" || !validator(iss) {
 			return nil, fmt.Errorf("%w: issuer %q rejected", ErrIDTokenInvalid, iss)
 		}
+	}
+
+	// A key that names an issuer signs only that issuer's tokens. Microsoft
+	// pins some keys of its common JWKS to one tenant and gives the rest the
+	// "{tenantid}" template, and multi-tenant clients must check the token's
+	// iss against it. Without this, a key scoped to the consumer tenant
+	// verified a token claiming any other tenant under AzureMultiTenantIssuer
+	// (measured 2026-09-25).
+	if err := checkKeyIssuer(signer.issuer, claims); err != nil {
+		return nil, err
 	}
 
 	// Bind the token to this login: the nonce must match the one we issued.
@@ -141,6 +161,15 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDC
 	aud := audienceClaim(claims)
 	if len(aud) != 1 || aud[0] != c.cfg.ClientID {
 		return nil, fmt.Errorf("%w: audience does not match client id", ErrIDTokenInvalid)
+	}
+	// OIDC Core 3.1.3.7: when "azp" is present it must be our client id. A
+	// token the provider issued at another client's request can still name us
+	// as its only audience. #426 dropped this check along with the
+	// multi-audience rule, and nothing noticed until 2026-09-25.
+	if azp, ok := claims["azp"]; ok {
+		if s, _ := azp.(string); s != c.cfg.ClientID {
+			return nil, fmt.Errorf("%w: azp does not match client id", ErrIDTokenInvalid)
+		}
 	}
 
 	// OIDC Core §2 requires "iat" as a NumericDate; WithIssuedAt only validates
@@ -213,4 +242,27 @@ func audienceClaim(m gjwt.MapClaims) []string {
 	default:
 		return nil
 	}
+}
+
+// checkKeyIssuer enforces the JWK "issuer" member of the key that signed the
+// token. An empty keyIssuer means the key is not restricted. A keyIssuer
+// holding the "{tenantid}" template is completed with the token's "tid"
+// claim, which must then be present; the result must equal the token's "iss"
+// exactly.
+func checkKeyIssuer(keyIssuer string, claims gjwt.MapClaims) error {
+	if keyIssuer == "" {
+		return nil
+	}
+	want := keyIssuer
+	if strings.Contains(keyIssuer, "{tenantid}") {
+		tid, _ := claims["tid"].(string)
+		if tid == "" {
+			return fmt.Errorf("%w: the signing key is restricted to %q and the token has no tid", ErrIDTokenInvalid, keyIssuer)
+		}
+		want = strings.ReplaceAll(keyIssuer, "{tenantid}", tid)
+	}
+	if iss, _ := claims["iss"].(string); iss != want {
+		return fmt.Errorf("%w: issuer %q is not the %q the signing key is restricted to", ErrIDTokenInvalid, iss, want)
+	}
+	return nil
 }
