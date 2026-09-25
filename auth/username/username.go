@@ -76,6 +76,14 @@ func New(p authcore.Provider) (*Username, error) {
 //	    AllowReservedNames: []string{"support"},
 //	})
 func NewWithConfig(p authcore.Provider, cfg Config) (*Username, error) {
+	// A nil provider or logger used to panic (#406 fixed four other modules
+	// and not this one, found 2026-09-25).
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
 	resolved := applyDefaults(cfg)
 	if err := validateConfig(resolved); err != nil {
 		return nil, err

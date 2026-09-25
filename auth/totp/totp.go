@@ -136,21 +136,45 @@ type TOTP struct {
 //	totpMod, err := totp.New(auth, totp.DefaultConfig()) // explicit
 //	totpMod, err := totp.New(auth, totp.Config{Issuer: "Acme"})
 //
-// One caveat for the zero-value Config{}: SkewSteps=0 is a meaningful
-// value ("no skew, only the current step matches"), not a sentinel
-// for "use the default", so applyDefaults deliberately does not
-// substitute 1 in its place. To get SkewSteps=1 with no other
-// configuration, pass nothing to New, or pass DefaultConfig().
+// SkewSteps is a pointer: nil (the zero Config) means the default of one
+// step either side, and totp.Int(0) means only the current step. New copies
+// the value, so changing the caller's int afterwards has no effect.
+//
+// The provider must supply a 32-byte refresh secret, which keys the
+// recovery-code hashes.
 //
 // The module reads the parent AuthCore's logger and refresh secret; it
 // generates no key material of its own.
 func New(p authcore.Provider, cfg ...Config) (*TOTP, error) {
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
+	keys := p.Keys()
+	if keys == nil {
+		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
+	}
+	// An absent or short secret hashed recovery codes under a key anyone can
+	// compute; apikey, jwt, field and credential refused it since #425.
+	secret := keys.RefreshSecret()
+	if l := len(secret); l != refreshSecretLen {
+		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d", ErrInvalidConfig, l, refreshSecretLen)
+	}
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = applyDefaults(cfg[0])
 	} else {
 		resolved = DefaultConfig()
 	}
+	// Copy SkewSteps before validating it. New kept the caller's pointer, so a
+	// write through it after New widened the window past maxSkewSteps: at
+	// 1,000,000, four of five arbitrary codes verified (measured 2026-09-25).
+	resolved.SkewSteps = Int(*resolved.SkewSteps)
 	if err := validateConfig(resolved); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
@@ -158,11 +182,11 @@ func New(p authcore.Provider, cfg ...Config) (*TOTP, error) {
 	t := &TOTP{
 		cfg:    resolved,
 		log:    p.Logger(),
-		secret: p.Keys().RefreshSecret(),
+		secret: secret,
 		clock:  clock.New(p.Config().Timezone),
 	}
 	t.log.Info("totp: module initialised (skew=%d, recovery_codes=%d, issuer=%q)",
-		resolved.SkewSteps, resolved.RecoveryCodeCount, resolved.Issuer)
+		*resolved.SkewSteps, resolved.RecoveryCodeCount, resolved.Issuer)
 	return t, nil
 }
 
@@ -469,8 +493,14 @@ func decodeSecret(s string) ([]byte, error) {
 	// len(s)%8 != 0 could therefore no longer produce an accepted result:
 	// every input it selected the padded encoding for is one the length check
 	// rejects anyway. Measured before removing it.
-	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(s)
+	enc := base32.StdEncoding.WithPadding(base32.NoPadding)
+	key, err := enc.DecodeString(s)
 	if err != nil || len(key) != secretLen {
+		return nil, ErrInvalidSecret
+	}
+	// The decoder skips "\r" and "\n", so a secret with line breaks decoded
+	// to the same key; accept only the spelling Enroll hands out.
+	if enc.EncodeToString(key) != s {
 		return nil, ErrInvalidSecret
 	}
 	return key, nil
@@ -521,24 +551,23 @@ func buildURI(issuer, account, secret string) (string, error) {
 	q.Set("digits", strconv.Itoa(digits))
 	q.Set("period", strconv.Itoa(timeStep))
 
-	var path string
+	// The label is written as text rather than through url.URL: Path is the
+	// decoded field, so the escaped label put there was escaped a second
+	// time and an issuer "Acme Corp" reached the authenticator as
+	// "Acme%20Corp" (measured 2026-09-25). A colon inside the issuer or the
+	// account is escaped too, so the one literal colon stays the separator.
+	label := escapeLabelPart(account)
 	if issuer != "" {
-		// The colon is structural; ":", "@" and the sub-delims are
-		// safe inside a URL path (RFC 3986 §3.3) so url.URL does
-		// not re-escape it.
-		path = "/" + url.PathEscape(issuer) + ":" + url.PathEscape(account)
+		label = escapeLabelPart(issuer) + ":" + label
 		q.Set("issuer", issuer)
-	} else {
-		path = "/" + url.PathEscape(account)
 	}
+	return "otpauth://totp/" + label + "?" + q.Encode(), nil
+}
 
-	u := url.URL{
-		Scheme:   "otpauth",
-		Host:     "totp",
-		Path:     path,
-		RawQuery: q.Encode(),
-	}
-	return u.String(), nil
+// escapeLabelPart percent-encodes one side of an otpauth label, including
+// any colon, which the label reserves as its separator.
+func escapeLabelPart(s string) string {
+	return strings.ReplaceAll(url.PathEscape(s), ":", "%3A")
 }
 
 // isSixDigits reports whether s is exactly six ASCII decimal digits.

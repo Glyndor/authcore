@@ -153,11 +153,25 @@ idx, ok := totpMod.VerifyRecoveryCode(form.RecoveryCode, hashes)
 if !ok {
     return http.StatusUnauthorized
 }
-// Single-use: delete the matched hash so the same code can never
-// redeem again.
-hashes = append(hashes[:idx], hashes[idx+1:]...)
-db.SetRecoveryHashes(userID, hashes)
+// Single-use: consume exactly the matched hash, and let the database
+// decide who got it. The redemption succeeds only if this statement
+// deleted one row.
+//
+//   DELETE FROM totp_recovery WHERE user_id = $1 AND hash = $2
+n, err := db.DeleteRecoveryHash(userID, hashes[idx])
+if err != nil {
+    return http.StatusInternalServerError
+}
+if n != 1 {
+    return http.StatusUnauthorized // someone else redeemed this code first
+}
 ```
+
+Do not write the list back instead (read the hashes, remove the match,
+store the rest). Two requests carrying the same code both read the full
+list and both succeed; two requests redeeming different codes each write
+back a list that still holds the other's code, so the last write revives
+it. Keep one row per code and delete conditionally, as above.
 
 `VerifyRecoveryCode` normalises the input (strips hyphens and spaces,
 uppercases letters) and scans every hash in the list in constant time,
@@ -179,10 +193,12 @@ to the application and are easy to forget:
    a hard lockout or notification after a dozen.
 
 2. **Recovery codes are single use and the caller enforces it.**
-   The module returns the index of the matched code; deleting or
-   flagging that row in your store is the caller's responsibility.
-   Without that step, a stolen recovery code can be redeemed
-   repeatedly until the user notices.
+   The module returns the index of the matched code; deleting that row
+   in your store is the caller's responsibility, and the delete must be
+   conditional, with its affected-row count deciding success (see
+   "Recovery codes" above). Without the delete, a stolen recovery code
+   can be redeemed repeatedly; with a read-modify-write of the whole
+   list, two concurrent redemptions can redeem one code twice.
 
 3. **The `StepRecorder` must be atomic.** A recorder that reads the
    step, decides in user code, then writes back races with itself.
