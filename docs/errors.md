@@ -45,6 +45,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
 | `email.ErrDomainNoMX` | ✓ Yes | Domain exists but has no MX records (cannot receive email) |
 | `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
+| `email.ErrInvalidConfig` | ✗ No | `New`/`NewWithConfig` was given a nil provider or a provider with no logger |
 
 ## `auth/username` package
 
