@@ -258,6 +258,15 @@ and activation links). It is also the input `auth/field` runs HKDF-SHA256 over
 to derive the AES-256-GCM column key and the blind index key, with a distinct
 info label for each.
 
+Only `auth/field` derives per-purpose keys. The four hashing users key
+HMAC-SHA256 with the secret itself, so `apikey.Hash`, `jwt.HashRefreshToken`
+and `totp.HashRecoveryCode` of one string are one digest (`auth/credential`
+differs by length-prefixing its three fields). Nothing in the library compares
+a value from one module against another module's table, but a schema that
+keeps two kinds of hash in one column with no type column would. Keying each
+module under its own HKDF label would close that and would change every
+stored hash, so it waits for a release that can say so.
+
 That is cryptographic separation, not operational separation, and the
 difference is the whole of this section. The two jobs fail very differently:
 
