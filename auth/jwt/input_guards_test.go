@@ -184,7 +184,9 @@ func TestZeroValue_RefreshHashFails(t *testing.T) {
 	if hash != "" {
 		t.Errorf("HashRefreshToken on zero value returned %q, want empty string", hash)
 	}
-	if zero.VerifyRefreshTokenHash("any-token", "any-hash") {
-		t.Error("VerifyRefreshTokenHash on zero value returned true")
+	// The stored hash is the one an empty key produces, which anyone can
+	// compute; "any-hash" matched nothing with or without the guard.
+	if zero.VerifyRefreshTokenHash("any-token", computeHMAC("any-token", nil)) {
+		t.Error("VerifyRefreshTokenHash on zero value accepted the empty-key hash")
 	}
 }
