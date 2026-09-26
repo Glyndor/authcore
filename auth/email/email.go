@@ -63,11 +63,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"net"
 	"net/mail"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 	"golang.org/x/sync/singleflight"
@@ -86,9 +89,10 @@ var idnaProfile = idna.Lookup
 const DefaultCacheTTL = 5 * time.Minute
 
 // maxCacheSize is the maximum number of domains held in the cache at once.
-// If the cache is full when a new result arrives, it is silently dropped —
-// the next request will query DNS again. Background eviction keeps the cache
-// below this limit under normal operation.
+// When the cache is full and a result arrives, store first drops every
+// expired entry; if the cache is still full, the result is not cached and
+// the next request for that domain queries DNS again. There is no
+// background eviction since #135.
 const maxCacheSize = 10_000
 
 // cacheEntry holds the result of a single MX lookup.
@@ -183,19 +187,6 @@ func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
 // and always safe — including multiple times and from multiple goroutines.
 func (e *Email) Close() {}
 
-// evictExpired deletes all expired entries from the cache, taking the write
-// lock itself.
-func (e *Email) evictExpired() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	now := time.Now()
-	for k, v := range e.cache {
-		if now.After(v.expiresAt) {
-			delete(e.cache, k)
-		}
-	}
-}
-
 // Name implements authcore.Module.
 func (e *Email) Name() string { return "email" }
 
@@ -249,19 +240,45 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 // do not catch a leading-hyphen label, and a malformed name has no
 // canonical form to store or query.
 func normalize(address string) (string, error) {
-	lower := strings.ToLower(strings.TrimSpace(address))
-	atIdx := strings.LastIndexByte(lower, '@')
+	trimmed := strings.TrimSpace(address)
+	atIdx := strings.LastIndexByte(trimmed, '@')
 	if atIdx < 0 {
 		// Addresses without an "@" fail validation regardless of IDN, so
 		// leaving the input untouched here produces a clearer error path.
-		return lower, nil
+		return strings.ToLower(trimmed), nil
 	}
-	local, domain := lower[:atIdx], lower[atIdx+1:]
+	local, err := canonicalLocalPart(trimmed[:atIdx])
+	if err != nil {
+		return "", err
+	}
+	domain := strings.ToLower(trimmed[atIdx+1:])
 	ascii, err := idnaProfile.ToASCII(domain)
 	if err != nil {
 		return "", &emailViolation{reason: fmt.Errorf("domain %q is not a valid internationalised name: %w", domain, err)}
 	}
 	return local + "@" + ascii, nil
+}
+
+// canonicalLocalPart returns the one canonical spelling of a local part: NFC,
+// then lowercased. Until 2026-09-25 the local part was lowercased as typed,
+// so one mailbox had two canonical forms (precomposed and decomposed
+// accents), two mailboxes could share one (U+212A KELVIN SIGN lowercases to
+// "k", U+0130 to "i"), and control, format and line-separator characters
+// travelled into the stored value. Each of those is refused now; the ASCII
+// controls were already refused by net/mail.
+func canonicalLocalPart(local string) (string, error) {
+	local = norm.NFC.String(local)
+	for _, r := range local {
+		switch {
+		case unicode.Is(unicode.Cc, r), unicode.Is(unicode.Cf, r),
+			unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r),
+			unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
+			return "", &emailViolation{reason: fmt.Errorf("local part holds an invisible or control character %U", r)}
+		case r >= utf8.RuneSelf && unicode.ToLower(r) < utf8.RuneSelf:
+			return "", &emailViolation{reason: fmt.Errorf("local part holds %U, which lowercases to an ASCII letter", r)}
+		}
+	}
+	return strings.ToLower(local), nil
 }
 
 // validate checks address against RFC 5321 / RFC 5322 rules.
