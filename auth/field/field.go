@@ -32,9 +32,11 @@
 //	         ON CONFLICT (email_idx) DO NOTHING`, ct, idx)
 //
 //	// Read path: hash the candidate the same way, look up the row,
-//	// then decrypt. A hit in the blind index proves the ciphertext
-//	// came from a row that shared the same plaintext; a miss proves
-//	// it didn't.
+//	// decrypt, then compare the index of what was decrypted with the
+//	// index you looked up. A hit says only that the row's index column
+//	// holds this value; a row whose index and ciphertext disagree (a
+//	// write bug, or a write-capable attacker) passes the lookup and
+//	// decrypts to something else.
 //	candidate, err := fld.BlindIndex(plain)
 //	if err != nil { return serverError() }
 //	row := db.QueryRow(`SELECT email_ct FROM users WHERE email_idx = ?`,
@@ -43,6 +45,8 @@
 //	if err := row.Scan(&ct); err != nil { return notFound() }
 //	decrypted, err := fld.Decrypt(ct)
 //	if err != nil { return serverError() }
+//	check, err := fld.BlindIndex(decrypted)
+//	if err != nil || check != candidate { return notFound() }
 //
 // # What is fixed and what is open
 //

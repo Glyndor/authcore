@@ -28,6 +28,8 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `jwt.ErrWrongTokenType` | access token passed where refresh expected, or vice-versa |
 | `jwt.ErrInvalidSubject` | subject passed to `CreateTokens` is not a UUID v7 |
 | `jwt.ErrTokenRevoked` | a configured `Denylist` reports the token's session revoked |
+| `jwt.ErrTokenOversized` | a token to verify is over 8 KiB, or the pair to issue would be |
+| `jwt.ErrNotInitialised` | method called on a `JWT` that `New` did not build (a zero value) |
 
 ## `auth/password` package
 
