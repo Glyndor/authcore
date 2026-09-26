@@ -226,7 +226,15 @@ func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
 	// may have created KeysDir without syncing its parent entry yet, and
 	// this process is about to publish keys that other processes will use.
 	if err := syncDir(filepath.Dir(dir)); err != nil {
-		return nil, fmt.Errorf("sync parent of keys directory: %w", err)
+		// A parent with search but no read permission (0711, 0311) cannot be
+		// opened for fsync, and nothing here needs to read it. The load path
+		// treats the same sync as best effort; so does this one since
+		// 2026-09-25. Any other failure still stops the first run.
+		if errors.Is(err, fs.ErrPermission) {
+			log.Warn("authcore/keymanager: could not sync the parent of %q (continuing): %v", dir, err)
+		} else {
+			return nil, fmt.Errorf("sync parent of keys directory: %w", err)
+		}
 	}
 	staging, priv, pub, secret, err := createStagingSet(dir)
 	if err != nil {

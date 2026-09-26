@@ -101,6 +101,7 @@ func Load(dir string, log logger) (*KeyManager, error) {
 	// not a finding.
 	warnIfReadableByOthers(privPath, log)
 	warnIfReadableByOthers(secretPath, log)
+	warnIfDirWritableByOthers(dir, log)
 
 	keyID := computeKeyID(pub)
 	reportLeftovers(dir, log)
