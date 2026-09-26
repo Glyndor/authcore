@@ -22,7 +22,8 @@
 //   - Output: PHC string format — self-describing, portable
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
-//   - Printable input only: Hash refuses control and invisible characters
+//   - Printable input only: Hash refuses control, format and other
+//     default-ignorable characters, and the blank braille pattern
 //
 // # What is tunable
 //
@@ -246,7 +247,15 @@ func checkPolicy(plaintext string, cfg Config) error {
 // this check existed: "Abcdefghijk1\xff" passed the default policy with the
 // stray byte counted as its special character.
 func isPrintable(r rune) bool {
-	return r != utf8.RuneError && unicode.IsPrint(r)
+	if r == utf8.RuneError || !unicode.IsPrint(r) {
+		return false
+	}
+	// IsPrint admits code points that render as nothing: the Hangul fillers
+	// and the other default-ignorable letters and marks (U+115F, U+3164,
+	// U+FFA0, U+034F among them), and U+2800 BRAILLE PATTERN BLANK, a symbol.
+	// Measured 2026-09-25: "Abcdefghijk1" + U+2800 satisfied RequireSymbol
+	// with a character the user cannot see, the lockout #347 describes.
+	return r != 0x2800 && !unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r)
 }
 
 // isSpecial reports whether r satisfies RequireSymbol: Unicode punctuation
