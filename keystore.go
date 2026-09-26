@@ -64,6 +64,13 @@ func validateLoadedKeys(keys Keys) error {
 	if err := keymanager.ValidateMaterial(keys.PrivateKey(), keys.PublicKey(), keys.RefreshSecret()); err != nil {
 		return fmt.Errorf("KeyStore.Load returned unusable key material: %w", err)
 	}
+	// The kid goes into every token header and selects the verification key.
+	// An empty one registered the current key under "", so a token with no
+	// kid header verified against it, contrary to what auth/jwt promises.
+	if keys.KeyID() == "" {
+		return errors.New("KeyStore.Load returned Keys with an empty KeyID; " +
+			"return a stable, non-empty identifier for the signing key")
+	}
 	return nil
 }
 
