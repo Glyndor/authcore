@@ -125,6 +125,10 @@ type TOTP struct {
 	log    authcore.Logger
 	secret []byte      // HMAC-SHA256 pepper for recovery-code hashing
 	clock  clock.Clock // injected; replaced by clock.Fixed in tests
+	// initialised is set by New as its last act. A zero-value TOTP hashed
+	// recovery codes under an empty key, which anyone can compute, until
+	// 2026-09-25; every method now refuses on it.
+	initialised bool
 }
 
 // New creates a TOTP module.
@@ -185,6 +189,7 @@ func New(p authcore.Provider, cfg ...Config) (*TOTP, error) {
 		secret: secret,
 		clock:  clock.New(p.Config().Timezone),
 	}
+	t.initialised = true
 	t.log.Info("totp: module initialised (skew=%d, recovery_codes=%d, issuer=%q)",
 		*resolved.SkewSteps, resolved.RecoveryCodeCount, resolved.Issuer)
 	return t, nil
@@ -200,6 +205,9 @@ func (t *TOTP) Name() string { return "totp" }
 // without the issuer parameter and the label, and the authenticator
 // displays only the account name.
 func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
+	if t == nil || !t.initialised {
+		return nil, ErrNotInitialised
+	}
 	secretBytes, err := randomBytes(secretLen)
 	if err != nil {
 		return nil, fmt.Errorf("totp: generate secret: %w", err)
@@ -273,6 +281,9 @@ func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
 //	totp.ErrInvalidSecret - secret is not base32, or is not 20 bytes decoded
 //	totp.ErrCodeReused    - matches a step at or below lastUsedStep
 func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, error) {
+	if t == nil || !t.initialised {
+		return 0, ErrNotInitialised
+	}
 	if !isSixDigits(code) {
 		return 0, ErrMalformedCode
 	}
@@ -367,6 +378,9 @@ func (t *TOTP) VerifyStep(secret, code string, lastUsedStep uint64) (uint64, err
 //	    return http.StatusUnauthorized
 //	}
 func (t *TOTP) Verify(ctx context.Context, secret, code string, rec StepRecorder) error {
+	if t == nil || !t.initialised {
+		return ErrNotInitialised
+	}
 	if isNilRecorderValue(rec) {
 		return ErrStepRecorderRequired
 	}
@@ -408,8 +422,14 @@ func isNilRecorderValue(rec StepRecorder) bool {
 
 // HashRecoveryCode returns the keyed HMAC-SHA256 hex digest of code,
 // matching the values stored in Enrollment.RecoveryHashes.
-func (t *TOTP) HashRecoveryCode(code string) string {
-	return t.hashRecoveryCode(code)
+//
+// It returns ErrNotInitialised on a zero-value TOTP, whose hash would be
+// keyed with nothing.
+func (t *TOTP) HashRecoveryCode(code string) (string, error) {
+	if t == nil || !t.initialised {
+		return "", ErrNotInitialised
+	}
+	return t.hashRecoveryCode(code), nil
 }
 
 // VerifyRecoveryCode reports whether code matches any of storedHashes,
@@ -422,6 +442,9 @@ func (t *TOTP) HashRecoveryCode(code string) string {
 // stripped, letters are uppercased), so users can read codes off a
 // printout with any grouping they like.
 func (t *TOTP) VerifyRecoveryCode(code string, storedHashes []string) (int, bool) {
+	if t == nil || !t.initialised {
+		return 0, false
+	}
 	candidate := t.hashRecoveryCode(normalizeRecoveryCode(code))
 	var matchedIdx int
 	var matched byte
