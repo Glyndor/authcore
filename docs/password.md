@@ -64,6 +64,9 @@ four `Require*` fields off:
 
 - control characters: NUL, tab, newline, DEL and the rest of C0 and C1
 - invisible format characters, such as the zero-width joiner U+200D
+- the other code points Unicode marks default-ignorable, such as the Hangul
+  filler U+3164 and the combining grapheme joiner U+034F, and the blank
+  braille pattern U+2800, all of which render as nothing
 - every space other than the ASCII one, such as the no-break space U+00A0
 - unassigned and private-use code points
 - bytes that are not valid UTF-8, and the replacement character U+FFFD

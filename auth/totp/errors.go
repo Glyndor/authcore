@@ -57,4 +57,9 @@ var (
 	//
 	// Safety: INTERNAL, a startup or programming error. Treat as a 500.
 	ErrStepRecorderRequired = errors.New("totp: a StepRecorder is required")
+
+	// ErrNotInitialised is returned by every method of a TOTP that New did
+	// not build: a zero value has no pepper, and a hash under an empty key
+	// is one anyone can compute.
+	ErrNotInitialised = errors.New("totp: module not initialised")
 )

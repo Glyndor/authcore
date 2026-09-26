@@ -101,6 +101,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `totp.ErrInvalidConfig` | ✗ No | `totp.Config` validation failed at startup (treat as 500) |
 | `totp.ErrInvalidSecret` | ✗ No | Stored secret is not base32 or not 20 bytes decoded (storage corruption) |
 | `totp.ErrMalformedCode` | ✓ Yes | Presented code is not six decimal digits |
+| `totp.ErrNotInitialised` | ✗ No | Method called on a `TOTP` that `New` did not build (a zero value) |
 | `totp.ErrInvalidCode` | ✓ Yes | Presented code does not match any step in the window |
 | `totp.ErrCodeReused` | ✓ Yes | Recorder refused to advance the stored step; the code (or its step) was already accepted |
 | `totp.ErrStepRecorderRequired` | ✗ No | `Verify` was called with a nil `StepRecorder` (programming error, treat as 500) |

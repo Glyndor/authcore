@@ -480,25 +480,40 @@ func TestVerifyDomain_cacheDropsEntryWhenFull(t *testing.T) {
 	}
 }
 
-func TestEvictExpired_removesStaleKeepsLive(t *testing.T) {
+// store is the only eviction there is since #135 removed the background
+// goroutine: when the cache is full it drops the expired entries and then
+// admits the new one. Until 2026-09-25 the test for eviction called a helper
+// nothing in production called, so this path could be deleted with the suite
+// green, and a full cache would then never admit another domain.
+func TestStore_evictsExpiredEntriesWhenFull(t *testing.T) {
 	m := newMod(t)
 	m.mu.Lock()
-	m.cache["stale.example"] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(-time.Second)}
+	for i := 0; i < maxCacheSize-1; i++ {
+		m.cache[fmt.Sprintf("stale%d.example", i)] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(-time.Second)}
+	}
 	m.cache["live.example"] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(time.Minute)}
 	m.mu.Unlock()
 
-	m.evictExpired()
+	m.store("new.example", cacheEntry{hasMX: true, expiresAt: time.Now().Add(time.Minute)})
 
 	m.mu.RLock()
-	_, staleOk := m.cache["stale.example"]
+	_, newOk := m.cache["new.example"]
 	_, liveOk := m.cache["live.example"]
+	_, staleOk := m.cache["stale0.example"]
+	size := len(m.cache)
 	m.mu.RUnlock()
 
-	if staleOk {
-		t.Error("evictExpired must remove stale entries")
+	if !newOk {
+		t.Error("a full cache of expired entries must admit the new domain")
 	}
 	if !liveOk {
-		t.Error("evictExpired must keep live entries")
+		t.Error("eviction must keep live entries")
+	}
+	if staleOk {
+		t.Error("eviction must remove expired entries")
+	}
+	if size != 2 {
+		t.Errorf("cache holds %d entries after eviction, want 2", size)
 	}
 }
 

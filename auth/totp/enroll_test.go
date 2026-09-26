@@ -247,8 +247,9 @@ func TestHashRecoveryCode_MatchesEnrollmentHashes(t *testing.T) {
 		t.Fatalf("Enroll: %v", err)
 	}
 	for i, c := range enr.RecoveryCodes {
-		if got := mod.HashRecoveryCode(c); got != enr.RecoveryHashes[i] {
-			t.Errorf("HashRecoveryCode(%q) = %q, want %q", c, got, enr.RecoveryHashes[i])
+		got, err := mod.HashRecoveryCode(c)
+		if err != nil || got != enr.RecoveryHashes[i] {
+			t.Errorf("HashRecoveryCode(%q) = %q, %v; want %q", c, got, err, enr.RecoveryHashes[i])
 		}
 	}
 }
@@ -260,7 +261,12 @@ func TestHashRecoveryCode_Peppered(t *testing.T) {
 	p2 := fakeProvider{keys: fakeKeys{secret: []byte(strings.Repeat("z", 32))}}
 	m1, _ := New(p1)
 	m2, _ := New(p2)
-	if m1.HashRecoveryCode("ABCD1234-EFGH5678") == m2.HashRecoveryCode("ABCD1234-EFGH5678") {
+	h1, err1 := m1.HashRecoveryCode("ABCD1234-EFGH5678")
+	h2, err2 := m2.HashRecoveryCode("ABCD1234-EFGH5678")
+	if err1 != nil || err2 != nil {
+		t.Fatalf("HashRecoveryCode: %v, %v", err1, err2)
+	}
+	if h1 == h2 {
 		t.Error("hash is identical under different server secrets; HMAC pepper is not applied")
 	}
 }
