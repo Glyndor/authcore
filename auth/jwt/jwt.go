@@ -170,8 +170,16 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	// Build the verification key set: the current key plus any previous public
 	// keys still in their rotation overlap. Signing always uses the current key.
 	j.verifyKeys = map[string]ed25519.PublicKey{j.kid: j.pub}
-	for _, prev := range resolved.PreviousPublicKeys {
-		j.verifyKeys[keymanager.KeyID(prev)] = prev
+	for i, prev := range resolved.PreviousPublicKeys {
+		kid := keymanager.KeyID(prev)
+		// A previous key registered under the current kid replaced the
+		// current key in this map, and every token the module then issued
+		// failed its own verification (measured 2026-09-25 with a KeyStore
+		// reporting a stale kid). Refuse it at startup instead.
+		if kid == j.kid {
+			return nil, fmt.Errorf("%w: previous public key %d has the current signing key's id %q", ErrInvalidConfig, i, kid)
+		}
+		j.verifyKeys[kid] = prev
 	}
 
 	j.initialised = true

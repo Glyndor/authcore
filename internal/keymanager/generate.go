@@ -1,6 +1,7 @@
 package keymanager
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/hex"
@@ -94,11 +95,11 @@ func readPublicKey(path string) (ed25519.PublicKey, error) {
 // decodeEd25519PrivatePEM parses a PKCS#8 PEM block into an Ed25519 private key.
 // src names the origin (a path or "input") for error messages.
 func decodeEd25519PrivatePEM(data []byte, src string) (ed25519.PrivateKey, error) {
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM block found in %q", src)
+	der, err := decodePEMBlock(data, "PRIVATE KEY", src)
+	if err != nil {
+		return nil, err
 	}
-	raw, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	raw, err := x509.ParsePKCS8PrivateKey(der)
 	if err != nil {
 		return nil, fmt.Errorf("parse PKCS#8 private key from %q: %w", src, err)
 	}
@@ -112,11 +113,11 @@ func decodeEd25519PrivatePEM(data []byte, src string) (ed25519.PrivateKey, error
 // decodeEd25519PublicPEM parses a PKIX PEM block into an Ed25519 public key.
 // src names the origin (a path or "input") for error messages.
 func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) {
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM block found in %q", src)
+	der, err := decodePEMBlock(data, "PUBLIC KEY", src)
+	if err != nil {
+		return nil, err
 	}
-	raw, err := x509.ParsePKIXPublicKey(block.Bytes)
+	raw, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
 		return nil, fmt.Errorf("parse PKIX public key from %q: %w", src, err)
 	}
@@ -125,6 +126,34 @@ func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) 
 		return nil, fmt.Errorf("key in %q is not an Ed25519 public key (got %T)", src, raw)
 	}
 	return key, nil
+}
+
+// decodePEMBlock returns the DER bytes of the one PEM block in data, which
+// must be labelled wantType, carry no headers, and be the only thing in data
+// apart from whitespace. pem.Decode alone returns the first block wherever
+// it sits and ignores the label, the headers and whatever follows, so a file
+// holding two keys signed with whichever came first, and a PKCS#8 key under a
+// CERTIFICATE label or behind Proc-Type headers was accepted (measured
+// 2026-09-25). Key material has one canonical shape here.
+func decodePEMBlock(data []byte, wantType, src string) ([]byte, error) {
+	trimmed := bytes.TrimSpace(data)
+	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN ")) {
+		return nil, fmt.Errorf("%q does not start with a PEM block", src)
+	}
+	block, rest := pem.Decode(trimmed)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %q", src)
+	}
+	if block.Type != wantType {
+		return nil, fmt.Errorf("PEM block in %q is labelled %q, want %q", src, block.Type, wantType)
+	}
+	if len(block.Headers) != 0 {
+		return nil, fmt.Errorf("PEM block in %q carries headers; an encrypted or annotated block is not accepted", src)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("%q holds more than one PEM block, or text after it", src)
+	}
+	return block.Bytes, nil
 }
 
 // ----- Refresh secret ---------------------------------------------------------
@@ -138,7 +167,9 @@ func loadRefreshSecret(path string) ([]byte, error) {
 	hexStr := strings.TrimSpace(string(data))
 	secret, err := hex.DecodeString(hexStr)
 	if err != nil {
-		return nil, fmt.Errorf("decode refresh secret in %q: %w", path, err)
+		// Not %w: the hex error quotes the offending byte, which is a byte
+		// of the secret, and this message ends up in a log.
+		return nil, fmt.Errorf("refresh secret in %q is not hex encoded", path)
 	}
 	if len(secret) != refreshSecretLen {
 		return nil, fmt.Errorf(

@@ -21,10 +21,13 @@ type Keys interface {
 	// The caller must not modify the returned slice.
 	RefreshSecret() []byte
 
-	// KeyID returns the stable identifier for the current signing key.
-	// It is derived from the public key and embedded in the "kid" JOSE header
-	// of every issued token so that verifiers can select the correct key when
-	// multiple keys are in circulation (e.g. during key rotation).
+	// KeyID returns the stable, non-empty identifier for the current signing
+	// key. It is embedded in the "kid" JOSE header of every issued token so
+	// that verifiers can select the correct key when multiple keys are in
+	// circulation (e.g. during key rotation). The built-in stores derive it
+	// from the public key; a custom Keys must return the same value for the
+	// same key on every start, or tokens issued before a restart stop
+	// verifying.
 	KeyID() string
 }
 

@@ -70,8 +70,10 @@ func inspect(dir, name string) (fileState, error) {
 // exists reports whether a managed filename has something the loader must
 // deal with. A dangling symlink is not counted, for the reason inspect gives:
 // it is refused at the write instead. A classification error is reported as
-// present so the caller fails closed rather than generating over an entry it
-// could not read, a symlink loop being the case that is cheap to produce.
+// present, a symlink loop being the case that is cheap to produce. Nothing
+// generates on the strength of this answer: inspectKeySet decides that, and
+// it returns the classification error itself. exists feeds the .gitignore
+// check and the file lists in error messages.
 func exists(dir, name string) bool {
 	state, err := inspect(dir, name)
 	return state != fileAbsent || err != nil

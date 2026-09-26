@@ -238,9 +238,16 @@ them to `NewKeyStoreFromKeys` or `NewKeyStoreFromPEM`, and to write a custom
 > the material from a secret manager / KMS via a `KeyStore` instead of leaving it
 > in plaintext on disk.
 
-The `KeyID()` accessor returns a 16-character hex digest derived from the public
-key. It is embedded in every token's `kid` JOSE header. Verification selects the
-key by `kid` and rejects any token whose `kid` is not one the module accepts.
+The `KeyID()` accessor returns the identifier of the signing key. It is embedded
+in every token's `kid` JOSE header; verification selects the key by `kid` and
+rejects any token whose `kid` is not one the module accepts. The built-in
+stores derive it from the public key as a 16-character hex digest. A custom
+`Keys` must return a non-empty value that stays the same for the same key
+across restarts (`New` refuses an empty one), and must not reuse the id of a
+key listed in `jwt.Config.PreviousPublicKeys`: `jwt.New` refuses a previous
+key whose id equals the current one, because registering it would replace the
+current key in the verification set and every token then issued would fail
+its own verification.
 
 ## The refresh secret protects credentials and encrypted fields
 
