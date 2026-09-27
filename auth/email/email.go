@@ -63,11 +63,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"net"
 	"net/mail"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 	"golang.org/x/sync/singleflight"
@@ -86,9 +89,10 @@ var idnaProfile = idna.Lookup
 const DefaultCacheTTL = 5 * time.Minute
 
 // maxCacheSize is the maximum number of domains held in the cache at once.
-// If the cache is full when a new result arrives, it is silently dropped —
-// the next request will query DNS again. Background eviction keeps the cache
-// below this limit under normal operation.
+// When the cache is full and a result arrives, store first drops every
+// expired entry; if the cache is still full, the result is not cached and
+// the next request for that domain queries DNS again. There is no
+// background eviction since #135.
 const maxCacheSize = 10_000
 
 // cacheEntry holds the result of a single MX lookup.
@@ -156,6 +160,14 @@ type Config struct {
 //	    RejectPlusAddressing: true,
 //	})
 func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
+	// A nil provider or logger used to panic (#406 fixed four other modules
+	// and not this one, found 2026-09-25).
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
 	e := &Email{
 		log:                  p.Logger(),
 		resolver:             net.DefaultResolver,
@@ -174,19 +186,6 @@ func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
 // expired entries. Nothing needs to be released, so calling Close is optional
 // and always safe — including multiple times and from multiple goroutines.
 func (e *Email) Close() {}
-
-// evictExpired deletes all expired entries from the cache, taking the write
-// lock itself.
-func (e *Email) evictExpired() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	now := time.Now()
-	for k, v := range e.cache {
-		if now.After(v.expiresAt) {
-			delete(e.cache, k)
-		}
-	}
-}
 
 // Name implements authcore.Module.
 func (e *Email) Name() string { return "email" }
@@ -241,19 +240,45 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 // do not catch a leading-hyphen label, and a malformed name has no
 // canonical form to store or query.
 func normalize(address string) (string, error) {
-	lower := strings.ToLower(strings.TrimSpace(address))
-	atIdx := strings.LastIndexByte(lower, '@')
+	trimmed := strings.TrimSpace(address)
+	atIdx := strings.LastIndexByte(trimmed, '@')
 	if atIdx < 0 {
 		// Addresses without an "@" fail validation regardless of IDN, so
 		// leaving the input untouched here produces a clearer error path.
-		return lower, nil
+		return strings.ToLower(trimmed), nil
 	}
-	local, domain := lower[:atIdx], lower[atIdx+1:]
+	local, err := canonicalLocalPart(trimmed[:atIdx])
+	if err != nil {
+		return "", err
+	}
+	domain := strings.ToLower(trimmed[atIdx+1:])
 	ascii, err := idnaProfile.ToASCII(domain)
 	if err != nil {
 		return "", &emailViolation{reason: fmt.Errorf("domain %q is not a valid internationalised name: %w", domain, err)}
 	}
 	return local + "@" + ascii, nil
+}
+
+// canonicalLocalPart returns the one canonical spelling of a local part: NFC,
+// then lowercased. Until 2026-09-25 the local part was lowercased as typed,
+// so one mailbox had two canonical forms (precomposed and decomposed
+// accents), two mailboxes could share one (U+212A KELVIN SIGN lowercases to
+// "k", U+0130 to "i"), and control, format and line-separator characters
+// travelled into the stored value. Each of those is refused now; the ASCII
+// controls were already refused by net/mail.
+func canonicalLocalPart(local string) (string, error) {
+	local = norm.NFC.String(local)
+	for _, r := range local {
+		switch {
+		case unicode.Is(unicode.Cc, r), unicode.Is(unicode.Cf, r),
+			unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r),
+			unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
+			return "", &emailViolation{reason: fmt.Errorf("local part holds an invisible or control character %U", r)}
+		case r >= utf8.RuneSelf && unicode.ToLower(r) < utf8.RuneSelf:
+			return "", &emailViolation{reason: fmt.Errorf("local part holds %U, which lowercases to an ASCII letter", r)}
+		}
+	}
+	return strings.ToLower(local), nil
 }
 
 // validate checks address against RFC 5321 / RFC 5322 rules.
@@ -320,8 +345,43 @@ func validate(address string) error {
 	if labelLen == 0 {
 		return &emailViolation{reason: fmt.Errorf("domain must not end with a dot")}
 	}
+	// An all-digit top-level label is a bare IPv4 address ("user@127.0.0.1")
+	// or no domain at all (RFC 3696 section 2). It is the address literal
+	// refused above in another spelling, and it was accepted until 2026-09-25.
+	if allDigits(domain[strings.LastIndexByte(domain, '.')+1:]) {
+		return &emailViolation{reason: fmt.Errorf("top-level domain must not be all digits")}
+	}
 
 	return nil
+}
+
+// allDigits reports whether s is non-empty and made of ASCII digits only.
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// plausibleDomain reports whether domain fits DNS's size limits: at most 253
+// bytes and labels of 1 to 63. VerifyDomain checks it before the cache or the
+// resolver, so a caller passing an unvalidated value cannot pin a megabyte
+// "domain" in the cache for the cache's lifetime.
+func plausibleDomain(domain string) bool {
+	if len(domain) == 0 || len(domain) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+	}
+	return true
 }
 
 // VerifyDomain performs a DNS MX lookup to confirm that the email's domain
@@ -343,12 +403,14 @@ func validate(address string) error {
 //
 //	[ErrDomainNoMX]         — domain exists but has no MX records (CLIENT-SAFE, return 400)
 //	[ErrDomainUnresolvable] — DNS lookup failed; treat as a soft failure and do not block the user
+//	[ErrInvalidEmail]       : the domain exceeds DNS size limits, so it was not looked up
 //
-// ctx controls the deadline of the DNS query. Use a short timeout (1–3 s) to
-// avoid slowing down your registration endpoint. Concurrent callers for the
-// same domain share a single DNS query through singleflight, and each
-// caller's context still bounds its own wait, so a caller arriving with a
-// shorter deadline than the in-flight lookup is not blocked past it:
+// ctx bounds how long this caller waits. Use a short timeout (1–3 s) to avoid
+// slowing down your registration endpoint. Concurrent callers for the same
+// domain share a single DNS query through singleflight; the query itself runs
+// under the module's own 10-second bound rather than any one caller's
+// context, so a caller that gives up or disconnects neither blocks the others
+// nor decides their answer:
 //
 //	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 //	defer cancel()
@@ -360,6 +422,9 @@ func (e *Email) VerifyDomain(ctx context.Context, address string) error {
 	domain := domainOf(address)
 	if domain == "" {
 		return ErrDomainNoMX
+	}
+	if !plausibleDomain(domain) {
+		return fmt.Errorf("%w: domain exceeds DNS size limits", ErrInvalidEmail)
 	}
 
 	// Fast path: valid cache hit.
@@ -379,7 +444,15 @@ func (e *Email) VerifyDomain(ctx context.Context, address string) error {
 	// caller only, and the in-flight lookup completes for the others. The cache is populated inside the function
 	// so a deadline-limited caller benefits from another caller's answer.
 	ch := e.group.DoChan(domain, func() (any, error) {
-		mxs, err := e.resolver.LookupMX(ctx, domain)
+		// The shared lookup must not run on one caller's context: when that
+		// request was abandoned, the lookup failed, was cached as
+		// "unresolvable" for 30 s, and every caller got the soft answer the
+		// docs say never to block on, even for a domain with no MX
+		// (measured 2026-09-25). It keeps the caller's values and runs under
+		// the module's own bound.
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mxLookupTimeout)
+		defer cancel()
+		mxs, err := e.resolver.LookupMX(lookupCtx, domain)
 		if err != nil {
 			var dnsErr *net.DNSError
 			if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
@@ -464,6 +537,11 @@ func entryErr(entry cacheEntry) error {
 	}
 	return nil
 }
+
+// mxLookupTimeout bounds one shared MX lookup. It is the module's own bound,
+// independent of any caller's deadline: a caller whose deadline passes stops
+// waiting, and the lookup finishes for the others.
+const mxLookupTimeout = 10 * time.Second
 
 // domainOf extracts the domain part of a normalized email address.
 // Returns "" if address contains no '@'.

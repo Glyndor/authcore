@@ -46,6 +46,11 @@ type jwk struct {
 	Crv    string   `json:"crv"`
 	X      string   `json:"x"` // EC x (base64url)
 	Y      string   `json:"y"` // EC y (base64url)
+	// Issuer restricts the key to tokens from one issuer. Microsoft publishes
+	// it on every key of its common JWKS, some pinned to one tenant and some
+	// holding the "{tenantid}" template, and tells multi-tenant clients to
+	// enforce it. It is not an RFC 7517 member; other providers omit it.
+	Issuer string `json:"issuer"`
 }
 
 type jwksDoc struct {
@@ -61,6 +66,7 @@ type candidate struct {
 	alg    string
 	use    string
 	keyOps map[string]struct{}
+	issuer string // the JWK "issuer" member, "" when the key carries none
 }
 
 // jwksCache fetches and caches a provider's signing keys. Per kid, the cache
@@ -106,6 +112,17 @@ func newJWKSCache(url string, h *http.Client) *jwksCache {
 // the TTL has passed, a failed refresh fails closed with ErrJWKSStale so a
 // withdrawn key cannot outlive the outage.
 func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey, error) {
+	cand, err := c.candidateFor(ctx, kid, alg)
+	if err != nil {
+		return nil, err
+	}
+	return cand.pub, nil
+}
+
+// candidateFor is key, returning the whole selected candidate so the caller
+// can enforce restrictions that depend on the token's claims (the JWK
+// "issuer" member) after the signature has been checked.
+func (c *jwksCache) candidateFor(ctx context.Context, kid, alg string) (candidate, error) {
 	c.mu.RLock()
 	candidates, ok := c.keys[kid]
 	anonAvailable := c.anonAvailable
@@ -123,13 +140,26 @@ func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey,
 	// carries the previous attempt's timestamp, so concurrent callers join it
 	// rather than being refused up front.
 	if !ok && now.Sub(lastAttempt) < minRefreshInterval {
-		return nil, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
+		return candidate{}, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
+	}
+	// A known kid whose set has expired gets the same cooldown. A successful
+	// refresh moves the expiry an hour ahead, so an attempt inside the window
+	// here was a failed one. Before 2026-09-25 every verification during an
+	// outage made its own fetch toward the failing provider.
+	if ok && now.Sub(lastAttempt) < minRefreshInterval {
+		return candidate{}, fmt.Errorf("%w: %w: the last refresh failed less than %s ago", ErrJWKSStale, ErrJWKS, minRefreshInterval)
 	}
 
 	// Collapse concurrent refreshes: a burst of tokens carrying distinct
 	// unknown kids must produce a single outbound JWKS fetch, not one per
 	// request.
 	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	if err != nil && errors.Is(err, context.Canceled) && ctx.Err() == nil {
+		// The shared fetch runs under the context of the caller that started
+		// it. When that caller went away, every caller that joined got its
+		// cancellation. This caller's context is live, so fetch again.
+		_, err, _ = c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	}
 	if err != nil {
 		if ok {
 			if now.Before(expires) {
@@ -137,9 +167,9 @@ func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey,
 			}
 			// Past expiry: fail closed. A withdrawn key must not remain usable
 			// while the provider is unreachable.
-			return nil, fmt.Errorf("%w: %w", ErrJWKSStale, err)
+			return candidate{}, fmt.Errorf("%w: %w", ErrJWKSStale, err)
 		}
-		return nil, err
+		return candidate{}, err
 	}
 
 	c.mu.RLock()
@@ -150,7 +180,7 @@ func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey,
 		if kid == "" && anonAvailable {
 			candidates = c.keys[""]
 		} else {
-			return nil, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
+			return candidate{}, fmt.Errorf("%w: unknown kid %q", ErrJWKS, kid)
 		}
 	}
 	return pickCandidate(candidates, kid, alg)
@@ -159,17 +189,17 @@ func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey,
 // pickCandidate walks candidates and returns the first one whose declared
 // alg/use/key_ops match the token's alg. kid is carried only so the error
 // message names the right value; the matching itself depends on alg.
-func pickCandidate(candidates []candidate, kid, alg string) (crypto.PublicKey, error) {
+func pickCandidate(candidates []candidate, kid, alg string) (candidate, error) {
 	for _, cand := range candidates {
 		if !cand.matches(alg) {
 			continue
 		}
-		return cand.pub, nil
+		return cand, nil
 	}
 	if kid == "" {
-		return nil, fmt.Errorf("%w: no candidate matches alg %q", ErrJWKS, alg)
+		return candidate{}, fmt.Errorf("%w: no candidate matches alg %q", ErrJWKS, alg)
 	}
-	return nil, fmt.Errorf("%w: no candidate for kid %q matches alg %q", ErrJWKS, kid, alg)
+	return candidate{}, fmt.Errorf("%w: no candidate for kid %q matches alg %q", ErrJWKS, kid, alg)
 }
 
 // matches reports whether the candidate may verify a token signed with alg,
@@ -243,7 +273,7 @@ func (c *jwksCache) refresh(ctx context.Context) error {
 		if err != nil {
 			continue // skip keys we cannot use (unsupported type/curve); others remain usable
 		}
-		cand := candidate{pub: pub, alg: k.Alg, use: k.Use}
+		cand := candidate{pub: pub, alg: k.Alg, use: k.Use, issuer: k.Issuer}
 		if len(k.KeyOps) > 0 {
 			cand.keyOps = make(map[string]struct{}, len(k.KeyOps))
 			for _, op := range k.KeyOps {

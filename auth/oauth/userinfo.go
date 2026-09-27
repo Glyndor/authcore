@@ -86,5 +86,15 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (map[string]a
 	if err := dec2.Decode(&out); err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", ErrUserInfo, err)
 	}
+	// A 200 carrying an OAuth error object, or an empty object, is not a
+	// profile: both returned a nil error before 2026-09-25, and a caller
+	// keying accounts on info["id"] got nil for every such login. Exchange
+	// already refuses the error object the same way.
+	if _, isError := out["error"]; isError {
+		return nil, fmt.Errorf("%w: provider returned an error object", ErrUserInfo)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: provider returned an empty profile", ErrUserInfo)
+	}
 	return out, nil
 }

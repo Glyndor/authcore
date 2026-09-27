@@ -101,16 +101,15 @@ func Load(dir string, log logger) (*KeyManager, error) {
 	// not a finding.
 	warnIfReadableByOthers(privPath, log)
 	warnIfReadableByOthers(secretPath, log)
+	warnIfDirWritableByOthers(dir, log)
 
 	keyID := computeKeyID(pub)
 	reportLeftovers(dir, log)
 
 	return &KeyManager{
-		dir:           dir,
-		privateKey:    priv,
-		publicKey:     pub,
-		refreshSecret: secret,
-		keyID:         keyID,
+		dir:      dir,
+		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
+		keyID:    keyID,
 	}, nil
 }
 

@@ -110,10 +110,12 @@ func Discord() Provider {
 //
 // Multi-tenant aliases ("common", "organizations", "consumers") are tenant
 // ids too, but they are placeholders rather than real tenants: a token's
-// "iss" is always the signed-in user's own tenant GUID, never the alias. To
-// accept users from any tenant, use Discover against the discovery document
-// at the alias and set Config.IssuerValidator to AzureMultiTenantIssuer(),
-// which approves any per-tenant issuer.
+// "iss" is always the signed-in user's own tenant GUID, never the alias.
+// Accepting users from any tenant requires a hand-built Provider and the
+// AzureMultiTenantIssuer validator; see the multi-tenant section of
+// docs/oauth.md for the exact Config and the reason Discover cannot be
+// used against the alias discovery document (it publishes the {tenantid}
+// template issuer and refuses the round trip at the issuer-match check).
 func Microsoft(tenant string) (Provider, error) {
 	if !microsoftTenantGUID.MatchString(tenant) {
 		return Provider{}, fmt.Errorf("oauth: Microsoft tenant must be a tenant id GUID, got %q", tenant)

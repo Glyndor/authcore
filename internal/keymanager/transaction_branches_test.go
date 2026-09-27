@@ -547,12 +547,13 @@ func TestReportLeftoversWarnsOnIncompleteStaging(t *testing.T) {
 	}
 }
 
-// New's "sync parent of keys directory failed" branch. Make the parent of
-// an empty KeysDir unreadable so syncDir(parent) returns an error; assert
-// New returns that error and that no key file was published. Skip on
+// A parent with search but no read permission cannot be opened for the
+// fsync before the first publish. Nothing needs to read it, so New warns and
+// publishes; until 2026-09-25 it refused with "sync parent of keys
+// directory" while the same layout loaded an existing set fine. Skip on
 // Windows, and when running as root, because root ignores directory mode
 // bits and the chmod would not block the Open call.
-func TestNewSyncsParentBeforePublishing(t *testing.T) {
+func TestNewWarnsWhenTheParentCannotBeSynced(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission bits do not apply on Windows")
 	}
@@ -572,16 +573,27 @@ func TestNewSyncsParentBeforePublishing(t *testing.T) {
 	}
 
 	dir := filepath.Join(parent, "keys")
-	_, err := New(dir, silentLog{})
-	if err == nil {
-		t.Fatal("New succeeded on a directory under a parent the process cannot search")
+	log := &captureLogger{}
+	first, err := New(dir, log)
+	if err != nil {
+		t.Fatalf("New under an unreadable parent: %v, want the keys published with a warning", err)
 	}
-	if !strings.Contains(err.Error(), "sync parent of keys directory") {
-		t.Errorf("error must come from the parent sync, got: %v", err)
+	warned := false
+	for _, w := range log.warnings {
+		if strings.Contains(w, "could not sync the parent") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("no warning about the parent sync; warnings: %q", log.warnings)
 	}
 	for _, name := range []string{filePrivateKey, filePublicKey, fileRefreshSecret} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
-			t.Errorf("%s should not have been published, stat gave: %v", name, err)
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not published: %v", name, err)
 		}
+	}
+	again, err := New(dir, silentLog{})
+	if err != nil || again.KeyID() != first.KeyID() {
+		t.Fatalf("second New = %v, key id %q; want the published set, %q", err, again.KeyID(), first.KeyID())
 	}
 }

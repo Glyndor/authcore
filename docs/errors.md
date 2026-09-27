@@ -28,6 +28,8 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `jwt.ErrWrongTokenType` | access token passed where refresh expected, or vice-versa |
 | `jwt.ErrInvalidSubject` | subject passed to `CreateTokens` is not a UUID v7 |
 | `jwt.ErrTokenRevoked` | a configured `Denylist` reports the token's session revoked |
+| `jwt.ErrTokenOversized` | a token to verify is over 8 KiB, or the pair to issue would be |
+| `jwt.ErrNotInitialised` | method called on a `JWT` that `New` did not build (a zero value) |
 
 ## `auth/password` package
 
@@ -45,6 +47,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
 | `email.ErrDomainNoMX` | ✓ Yes | Domain exists but has no MX records (cannot receive email) |
 | `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
+| `email.ErrInvalidConfig` | ✗ No | `New`/`NewWithConfig` was given a nil provider or a provider with no logger |
 
 ## `auth/username` package
 
@@ -87,8 +90,9 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrInvalidConfig` | ✗ No | `oauth.Config` validation failed (missing/non-https endpoints, no identity source) |
 | `oauth.ErrExchange` | ✗ No | Authorization-code exchange failed (transport, non-2xx, or OAuth error) |
 | `oauth.ErrNoIDToken` | ✗ No | OIDC provider returned no `id_token` |
-| `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`) — return generic unauthorized |
+| `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`, or an `iss` outside the signing key's `issuer`); return generic unauthorized |
 | `oauth.ErrJWKS` | ✗ No | Provider signing keys could not be fetched or parsed |
+| `oauth.ErrJWKSStale` | ✗ No | The cached key set is past its TTL and could not be refreshed: the refresh failed, or the previous refresh failed less than the retry interval ago. It wraps `ErrJWKS`, so `errors.Is(err, oauth.ErrJWKS)` also matches |
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
@@ -100,6 +104,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `totp.ErrInvalidConfig` | ✗ No | `totp.Config` validation failed at startup (treat as 500) |
 | `totp.ErrInvalidSecret` | ✗ No | Stored secret is not base32 or not 20 bytes decoded (storage corruption) |
 | `totp.ErrMalformedCode` | ✓ Yes | Presented code is not six decimal digits |
+| `totp.ErrNotInitialised` | ✗ No | Method called on a `TOTP` that `New` did not build (a zero value) |
 | `totp.ErrInvalidCode` | ✓ Yes | Presented code does not match any step in the window |
 | `totp.ErrCodeReused` | ✓ Yes | Recorder refused to advance the stored step; the code (or its step) was already accepted |
 | `totp.ErrStepRecorderRequired` | ✗ No | `Verify` was called with a nil `StepRecorder` (programming error, treat as 500) |

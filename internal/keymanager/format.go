@@ -55,6 +55,14 @@ var errFormatFromFuture = errors.New("key directory was written by a newer versi
 func readMetadata(dir string) (*metadata, error) {
 	path := filepath.Join(dir, fileMetadata)
 
+	// The key files are refused unless they are regular files; the marker
+	// was opened without that check, so a FIFO here blocked New and Load in
+	// open forever (measured 2026-09-25).
+	if fi, err := os.Stat(path); err == nil && !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%q is a %s, not a regular file; authcore refuses to read it as the key layout marker",
+			path, fi.Mode().Type())
+	}
+
 	data, err := readCapped(path)
 	if err != nil {
 		if os.IsNotExist(err) {

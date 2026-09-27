@@ -32,9 +32,11 @@
 //	         ON CONFLICT (email_idx) DO NOTHING`, ct, idx)
 //
 //	// Read path: hash the candidate the same way, look up the row,
-//	// then decrypt. A hit in the blind index proves the ciphertext
-//	// came from a row that shared the same plaintext; a miss proves
-//	// it didn't.
+//	// decrypt, then compare the index of what was decrypted with the
+//	// index you looked up. A hit says only that the row's index column
+//	// holds this value; a row whose index and ciphertext disagree (a
+//	// write bug, or a write-capable attacker) passes the lookup and
+//	// decrypts to something else.
 //	candidate, err := fld.BlindIndex(plain)
 //	if err != nil { return serverError() }
 //	row := db.QueryRow(`SELECT email_ct FROM users WHERE email_idx = ?`,
@@ -43,6 +45,8 @@
 //	if err := row.Scan(&ct); err != nil { return notFound() }
 //	decrypted, err := fld.Decrypt(ct)
 //	if err != nil { return serverError() }
+//	check, err := fld.BlindIndex(decrypted)
+//	if err != nil || check != candidate { return notFound() }
 //
 // # What is fixed and what is open
 //
@@ -273,6 +277,12 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 	}
 	raw, err := base64.RawStdEncoding.DecodeString(ciphertext)
 	if err != nil {
+		return "", ErrDecrypt
+	}
+	// Accept only the spelling Encrypt writes. The decoder skips "\r" and
+	// "\n" and ignores the unused bits of the last character, so one stored
+	// value had several spellings that all decrypted (measured 2026-09-25).
+	if base64.RawStdEncoding.EncodeToString(raw) != ciphertext {
 		return "", ErrDecrypt
 	}
 	if len(raw) < nonceLen+aeadTagLen {

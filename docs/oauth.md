@@ -32,12 +32,19 @@ Identity is `VerifyIDToken` for OIDC, `UserInfo` for OAuth2.
 ## Setup
 
 ```go
-auth, _ := authcore.New(authcore.DefaultConfig())
+auth, err := authcore.New(authcore.DefaultConfig())
+if err != nil { /* startup error */ }
+
+provider := oauth.Google()
+// A single Azure AD tenant instead. Microsoft refuses anything but a tenant id GUID:
+//   provider, err = oauth.Microsoft(os.Getenv("AZURE_TENANT_ID"))
+//   if err != nil { /* startup error */ }
+
 mod, err := oauth.New(auth, oauth.Config{
-    ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-    ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+    ClientID:     os.Getenv("OAUTH_CLIENT_ID"),
+    ClientSecret: os.Getenv("OAUTH_CLIENT_SECRET"),
     RedirectURL:  "https://app.example.com/auth/callback",
-    Provider:     oauth.Google(), // or oauth.Microsoft("<your-tenant-id>"), or a custom Provider
+    Provider:     provider, // or a hand-built Provider
 })
 ```
 
@@ -67,16 +74,31 @@ the issuer by predicate instead:
 ```go
 cfg := oauth.Config{
     ClientID: id, ClientSecret: secret, RedirectURL: cb,
-    Provider:        oauth.Microsoft("common"),
+    Provider: oauth.Provider{
+        AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        JWKSURL:  "https://login.microsoftonline.com/common/discovery/v2.0/keys",
+    },
     IssuerValidator: oauth.AzureMultiTenantIssuer(), // any Azure v2.0 tenant
 }
 ```
 
-`AzureMultiTenantIssuer()` accepts any `https://login.microsoftonline.com/<tenant>/v2.0`
-issuer. It trusts users from **every** tenant — to restrict to specific tenants,
-also check the `tid` claim via `IDClaims.Raw` against your allowlist. The
-predicate replaces only the issuer check; signature, audience, expiry and nonce
-are still enforced.
+The `oauth.Microsoft` preset takes a tenant id and only works for one tenant,
+so multi-tenant setups build the three endpoints by hand as above. Calling
+`Discover` against the alias document (the `common` or `organizations`
+discovery URL) does not work: the document publishes a `{tenantid}`
+template issuer, and `Discover` requires the document's issuer to equal the
+one you asked for byte-for-byte, so the alias document is refused at the
+discovery step.
+
+`AzureMultiTenantIssuer()` accepts any
+`https://login.microsoftonline.com/<tenant>/v2.0` issuer. It trusts users
+from **every** tenant: to restrict to specific tenants, also check the
+`tid` claim via `IDClaims.Raw` against your allowlist. The predicate
+replaces only the issuer check; signature, audience, expiry, `nonce` and
+the signing key's `issuer` member, where Microsoft publishes one, with
+the `{tenantid}` placeholder filled from the token's `tid` claim, are all
+still enforced.
 
 Or hand-write the four endpoints if you prefer:
 
@@ -167,8 +189,13 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
   cached (1 h), refreshed automatically on an unknown `kid` so key rotation just
   works. Only asymmetric algorithms (RS/PS/ES) are accepted — `none` and HMAC
   are refused, closing the algorithm-confusion forgery.
-- **Issuer, audience, expiry, and nonce** are all enforced. A mismatch fails
-  closed with `ErrIDTokenInvalid`.
+- **Issuer, audience, `azp`, expiry, and nonce** are all enforced. A mismatch
+  fails closed with `ErrIDTokenInvalid`.
+- **A key's own issuer restriction.** Microsoft publishes an `issuer` on each
+  key of its common JWKS, some pinned to one tenant and some holding the
+  `{tenantid}` template. When the key that signed a token carries one, the
+  token's `iss` must equal it, with the template completed from the token's
+  `tid`, so a key scoped to one tenant cannot vouch for another.
 - **Safe redirects.** The default HTTP client refuses redirects that are
   cross-origin (the token POST replays the client secret on a 307/308),
   downgrade to `http`, or target a loopback, link-local or private IP

@@ -95,6 +95,7 @@ func DefaultConfig() Config {
 }
 
 const (
+	refreshSecretLen     = 32 // bytes New demands from Keys().RefreshSecret()
 	maxSkewSteps         = 10 // 10 steps either side = 5 minutes total window
 	minRecoveryCodeCount = 1
 	maxRecoveryCodeCount = 50
@@ -102,10 +103,9 @@ const (
 
 // applyDefaults fills zero-value fields with values from DefaultConfig.
 //
-// SkewSteps is left alone: zero is a meaningful value ("no skew, only
-// the current step matches") rather than a sentinel for "unset". The
-// default of 1 is applied when the caller passes no Config at all to
-// New (handled by New, not here). RecoveryCodeCount=0 is filled with
+// A nil SkewSteps gets the default of one step either side; totp.Int(0)
+// is kept, since zero is a meaningful value ("only the current step").
+// RecoveryCodeCount=0 is filled with
 // the default because no production deployment wants zero recovery
 // codes, and the value is range-checked by validateConfig.
 func applyDefaults(cfg Config) Config {

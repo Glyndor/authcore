@@ -111,6 +111,9 @@ func TestJWKS_failsClosedAfterExpiry(t *testing.T) {
 
 	t.Run("accepted when refresh succeeds", func(t *testing.T) {
 		doc.Store(jwksDocFor(&newer.PublicKey, kid))
+		// The failed refresh above starts a cooldown during which a stale
+		// kid fails closed without fetching; step past it.
+		cache.now = func() time.Time { return clock.Add(jwksTTL + time.Second + minRefreshInterval) }
 
 		got, err := cache.key(context.Background(), kid, "RS256")
 		if err != nil {

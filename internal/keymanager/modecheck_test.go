@@ -23,7 +23,7 @@ import (
 // modeWarnTag is the marker the warn helper prefixes its message with. Tests
 // scope their counts to it so an unrelated Warn (gitignore, metadata, leftover
 // staging) does not pollute the assertion.
-const modeWarnTag = "readable by group or others"
+const modeWarnTag = "by group or others"
 
 // modeWarnLogger captures Warn calls so a test can assert on what was logged.
 // It mirrors the recorder that lives in the internal test helpers and only

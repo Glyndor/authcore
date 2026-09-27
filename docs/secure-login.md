@@ -134,15 +134,29 @@ if !jwtMod.VerifyRefreshTokenHash(clientToken, session.RefreshTokenHash) {
 newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
 if err != nil { return unauthorized() }
 
-// Atomically replace the old hash. If the same old token is presented twice,
-// the second attempt finds no matching hash → treat as compromise (optionally
-// revoke the whole session family).
-db.ReplaceRefreshHash(session.ID, newPair.RefreshTokenHash)
+// Replace the old hash with an UPDATE that pins the row to BOTH the session
+// and the hash you just verified. Two requests carrying the same token (the
+// client and a thief replaying it) both pass the compare above; only the
+// one whose UPDATE still sees the old hash wins, and the other must not be
+// handed newPair. A replace keyed on the session id alone lets both through.
+res, err := db.Exec(`UPDATE sessions SET refresh_hash = $1
+                      WHERE id = $2 AND refresh_hash = $3`,
+    newPair.RefreshTokenHash, session.ID, session.RefreshTokenHash)
+if err != nil { return unauthorized() }
+if rows, _ := res.RowsAffected(); rows != 1 {
+    return unauthorized() // rotated by someone else first: discard newPair
+}
 ```
 
+Reuse detection is the lookup: a token presented after its rotation finds no
+row holding its hash, which is the moment to treat the session as
+compromised (optionally revoke the whole family). It works only with the
+conditional UPDATE above; `docs/jwt.md` step 5 has the same recipe with
+its reasoning.
+
 authcore: signature + expiry verification, timing-safe hash compare, stable
-`SessionID` across rotations. You: the stored-hash lookup, the atomic swap, and
-the reuse-detection decision.
+`SessionID` across rotations. You: the stored-hash lookup, the conditional
+swap, and the reuse-detection decision.
 
 ## 6. Logout & revocation
 

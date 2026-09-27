@@ -238,9 +238,16 @@ them to `NewKeyStoreFromKeys` or `NewKeyStoreFromPEM`, and to write a custom
 > the material from a secret manager / KMS via a `KeyStore` instead of leaving it
 > in plaintext on disk.
 
-The `KeyID()` accessor returns a 16-character hex digest derived from the public
-key. It is embedded in every token's `kid` JOSE header. Verification selects the
-key by `kid` and rejects any token whose `kid` is not one the module accepts.
+The `KeyID()` accessor returns the identifier of the signing key. It is embedded
+in every token's `kid` JOSE header; verification selects the key by `kid` and
+rejects any token whose `kid` is not one the module accepts. The built-in
+stores derive it from the public key as a 16-character hex digest. A custom
+`Keys` must return a non-empty value that stays the same for the same key
+across restarts (`New` refuses an empty one), and must not reuse the id of a
+key listed in `jwt.Config.PreviousPublicKeys`: `jwt.New` refuses a previous
+key whose id equals the current one, because registering it would replace the
+current key in the verification set and every token then issued would fail
+its own verification.
 
 ## The refresh secret protects credentials and encrypted fields
 
@@ -250,6 +257,15 @@ key by `kid` and rejects any token whose `kid` is not one the module accepts.
 and activation links). It is also the input `auth/field` runs HKDF-SHA256 over
 to derive the AES-256-GCM column key and the blind index key, with a distinct
 info label for each.
+
+Only `auth/field` derives per-purpose keys. The four hashing users key
+HMAC-SHA256 with the secret itself, so `apikey.Hash`, `jwt.HashRefreshToken`
+and `totp.HashRecoveryCode` of one string are one digest (`auth/credential`
+differs by length-prefixing its three fields). Nothing in the library compares
+a value from one module against another module's table, but a schema that
+keeps two kinds of hash in one column with no type column would. Keying each
+module under its own HKDF label would close that and would change every
+stored hash, so it waits for a release that can say so.
 
 That is cryptographic separation, not operational separation, and the
 difference is the whole of this section. The two jobs fail very differently:

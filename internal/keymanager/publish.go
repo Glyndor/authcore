@@ -50,9 +50,9 @@ func waitTimeoutError(dir string) error {
 		dir, presentStr, missingStr)
 }
 
-// presentAndMissing lists the three key filenames by presence in dir. A
-// classification error (symlink loop, hostile entry) is reported as present
-// so the caller fails closed rather than generating over an unreadable entry.
+// presentAndMissing lists the three key filenames by presence in dir, for
+// error messages. A classification error (symlink loop, hostile entry) counts
+// as present, so the message names the entry the operator has to look at.
 func presentAndMissing(dir string) (present, missing []string) {
 	for _, name := range []string{filePrivateKey, filePublicKey, fileRefreshSecret} {
 		if exists(dir, name) {

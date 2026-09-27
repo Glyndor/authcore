@@ -54,3 +54,9 @@ Thumbs.db
 
 # authcore managed key directory — never commit cryptographic keys
 .authcore/
+
+# Binaries built from cmd/ during development. One 5.2 MB build of
+# authcore-keygen was committed at the root in #395 and shipped in the module
+# zips of v1.15.0 to v1.16.1.
+/authcore-keygen
+/cmd/authcore-keygen/authcore-keygen

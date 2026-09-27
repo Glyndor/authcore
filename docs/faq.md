@@ -45,9 +45,13 @@ authcore could not read or create its key files. Check that:
 
 1. `KeysDir` (default `.authcore`) is writable by the process.
 2. The directory is not a read-only filesystem (common in some container setups).
-3. Existing key files are not corrupted — delete `.authcore` and let authcore
-   regenerate them. **Warning:** regenerating keys invalidates every token
-   currently in circulation.
+3. The key files are the ones you provisioned, all three of them. Restore a
+   missing or damaged file from a backup. Do not delete the directory to make
+   authcore regenerate: a new `refresh_secret.key` invalidates every stored
+   refresh-token, API-key and recovery-code hash and makes every `auth/field`
+   encrypted column unreadable for good (`docs/key-management.md`). authcore
+   refuses to regenerate over a directory whose `metadata.json` records a key
+   set, for the same reason.
 
 ## Can I verify tokens issued before I rotated my signing key?
 

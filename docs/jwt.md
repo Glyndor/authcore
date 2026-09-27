@@ -45,7 +45,7 @@ if err != nil {
 pair.AccessToken            // short-lived JWT for API requests
 pair.AccessTokenExpiresAt   // time.Time — tell the client when to refresh
 pair.RefreshToken           // long-lived JWT for token rotation
-pair.RefreshTokenExpiresAt  // time.Time — when the user must log in again
+pair.RefreshTokenExpiresAt  // time.Time: when this refresh token expires; each rotation issues a new one
 pair.RefreshTokenHash       // HMAC-SHA256 hex digest — store this in your DB
 pair.SessionID              // UUID v7 jti shared by both tokens — use as session PK
 ```
@@ -243,6 +243,8 @@ What to do about it:
   `Denylist` on the config. `VerifyAccessToken` then checks it on every
   otherwise-valid access token, keyed by the `jti`/`SessionID` (stable across
   rotations), and returns `ErrTokenRevoked` for a killed session.
+  `RotateTokens` checks it too, so a killed session cannot be renewed with
+  its refresh token.
 
 ```go
 // Your store — in-memory, Redis, a DB table. Must fail closed.
@@ -266,11 +268,17 @@ if errors.Is(err, jwt.ErrTokenRevoked) { /* 401, re-authenticate */ }
 The denylist is opt-in: leave `Denylist` nil and verification stays fully
 stateless (no per-request lookup). The lookup runs only for tokens that already
 passed signature and expiry, so a garbage token never touches your store. Use
-`VerifyAccessTokenContext` to pass a request context to the lookup; a store
-error fails closed (the token is rejected). Size the store entries to expire at
-the access token's `exp` **plus** `ClockSkewLeeway`: verification accepts a
-token up to `exp + leeway`, so an entry that disappears at `exp` leaves a
-window of `leeway` in which a revoked token still validates.
+`VerifyAccessTokenContext` (or `RotateTokensContext`) to pass a request
+context to the lookup; a store error fails closed (the token is rejected).
+
+Size each entry to outlive the session, not one access token: keep it until
+the newest refresh token of that session expires (the `RefreshTokenExpiresAt`
+of the last pair you issued) **plus** `ClockSkewLeeway`. Rotation is refused
+while the entry exists, so no later refresh token can appear; but an entry
+sized to an access token's `exp` lapses while the refresh token is still
+valid, and from then on the session rotates as if it had never been revoked.
+Delete the session's stored refresh-token hash in the same step, so the
+database refuses the refresh token as well.
 
 ## Clock skew tolerance
 

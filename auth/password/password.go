@@ -22,7 +22,8 @@
 //   - Output: PHC string format — self-describing, portable
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
-//   - Printable input only: Hash refuses control and invisible characters
+//   - Printable input only: Hash refuses control, format and other
+//     default-ignorable characters, and the blank braille pattern
 //
 // # What is tunable
 //
@@ -106,6 +107,19 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 	// Accept an optional Config via variadic to allow zero-config usage:
 	//   password.New(auth)             — OWASP defaults, no boilerplate
 	//   password.New(auth, customCfg)  — custom work factors
+	//
+	// A nil provider or logger used to panic, and a second Config was dropped
+	// without a word; #406 and #413 fixed that in four other modules and not
+	// here (2026-09-25).
+	if len(cfg) > 1 {
+		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
+	}
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
 	var resolved Config
 	if len(cfg) > 0 {
 		resolved = cfg[0]
@@ -233,7 +247,15 @@ func checkPolicy(plaintext string, cfg Config) error {
 // this check existed: "Abcdefghijk1\xff" passed the default policy with the
 // stray byte counted as its special character.
 func isPrintable(r rune) bool {
-	return r != utf8.RuneError && unicode.IsPrint(r)
+	if r == utf8.RuneError || !unicode.IsPrint(r) {
+		return false
+	}
+	// IsPrint admits code points that render as nothing: the Hangul fillers
+	// and the other default-ignorable letters and marks (U+115F, U+3164,
+	// U+FFA0, U+034F among them), and U+2800 BRAILLE PATTERN BLANK, a symbol.
+	// Measured 2026-09-25: "Abcdefghijk1" + U+2800 satisfied RequireSymbol
+	// with a character the user cannot see, the lockout #347 describes.
+	return r != 0x2800 && !unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r)
 }
 
 // isSpecial reports whether r satisfies RequireSymbol: Unicode punctuation

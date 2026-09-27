@@ -26,6 +26,12 @@ func FuzzParseID(f *testing.F) {
 	f.Add(key.Key)
 	f.Add(key.Key + "_extra")
 	f.Add(strings.ToUpper(key.Key))
+	// The uppercase seed above also uppercases the prefix, so the prefix
+	// check refused it before isHex saw anything; these reach the hex rule
+	// and the prefix rule on their own.
+	fields := strings.Split(key.Key, "_")
+	f.Add(fields[0] + "_" + strings.ToUpper(fields[1]) + "_" + fields[2])
+	f.Add(fields[1] + "_" + fields[2])
 	f.Add("")
 	f.Add("ak_")
 	f.Add("ak_" + strings.Repeat("0", 32) + "_secret")

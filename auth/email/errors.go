@@ -67,3 +67,7 @@ func (e *noMXFromDNS) Error() string {
 }
 func (e *noMXFromDNS) Is(t error) bool { return t == ErrDomainNoMX }
 func (e *noMXFromDNS) Unwrap() error   { return e.cause }
+
+// ErrInvalidConfig is returned by New and NewWithConfig when the provider is
+// nil or has no logger.
+var ErrInvalidConfig = errors.New("email: invalid config")

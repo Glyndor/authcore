@@ -165,9 +165,10 @@ const exchangeErrorMaxLen = 512
 // advertised methods: when the discovery document listed "client_secret_basic"
 // (or "basic"), the secret is sent in the HTTP Basic header; when only
 // "client_secret_post" (or "post") is advertised, it is sent in the form
-// body; when the field is absent the OIDC default (Basic) applies. A
-// provider that advertises a method this library does not know is refused
-// before the round trip.
+// body; when the field is absent it is sent in the form body too, which is
+// what every hand-configured Provider relied on before the methods were
+// read (the OIDC default would be Basic). A provider that advertises only
+// methods this library does not know is refused before the round trip.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
 	// Reject empty inputs before talking to the provider. An empty code or
 	// verifier would round-trip useless bytes and could mask a wiring bug in
@@ -200,7 +201,11 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	switch method {
 	case authMethodBasic:
 		// The secret goes in the Authorization header, never in the body.
-		req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
+		// RFC 6749 section 2.3.1 form-encodes both values before base64, and a
+		// compliant server decodes them: sent raw, a client id holding ":"
+		// splits in the wrong place and a secret holding "+" or "%2F" arrives
+		// altered.
+		req.SetBasicAuth(url.QueryEscape(c.cfg.ClientID), url.QueryEscape(c.cfg.ClientSecret))
 	case authMethodPost:
 		form.Set("client_id", c.cfg.ClientID)
 		form.Set("client_secret", c.cfg.ClientSecret)

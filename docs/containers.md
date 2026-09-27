@@ -157,13 +157,16 @@ else
 fi
 ```
 
-Concurrent first start is the trap this whole pattern avoids. Eight containers
-on one empty named volume, started at once against an unprepared volume, hit
-`refusing to write "/keys/ed25519_private.pem": something already exists
-there` on 43 of 80 starts in one batch and 51 of 80 in another. The containers
-that lost exited with that error; started again, they loaded the winner's keys,
-and no two containers ever held different keys. Concurrent first start is being
-reworked. Until then, create the keys **once** before starting replicas.
+Concurrent first start works since v1.14.0, and the pattern above is still
+the one to use. Several replicas started at once on one empty volume race to
+publish a key set; the loser of the race waits for the winner's set and loads
+it, so every replica ends up with the same keys. Measured on 2026-09-25 with
+separate processes: 180 starts without the race detector and 900 with it, no
+failure and no two processes holding different keys. Before v1.14.0 the
+losers exited with `refusing to write "/keys/ed25519_private.pem": something
+already exists there`, 43 and 51 of 80 starts in two batches. Creating the
+keys once beforehand is still simpler to reason about, and it is the only
+way to get a load-only deployment.
 
 ## Replicas
 
