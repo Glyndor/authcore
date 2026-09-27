@@ -21,25 +21,6 @@ import (
 	"github.com/Glyndor/authcore/auth/oauth"
 )
 
-// tokenServerRedirectingTo returns a token endpoint that 307-redirects to loc.
-func tokenServerRedirectingTo(t *testing.T, loc string) *oauth.Client {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, loc, http.StatusTemporaryRedirect)
-	}))
-	t.Cleanup(srv.Close)
-	c, err := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID:    testClientID,
-		RedirectURL: "https://app.example/cb",
-		Scopes:      []string{"read:user"},
-		Provider:    oauth.Provider{AuthURL: srv.URL + "/a", TokenURL: srv.URL + "/token", UserInfoURL: srv.URL + "/u"},
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	return c
-}
-
 // TestExchange_refusesUnsafeRedirect requires the redirect policy to refuse a
 // token-endpoint redirect that would replay the client secret. The cross-origin
 // case points at a local HTTPS server whose URL is rewritten to use the

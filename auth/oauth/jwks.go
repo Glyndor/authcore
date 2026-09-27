@@ -125,7 +125,6 @@ func (c *jwksCache) key(ctx context.Context, kid, alg string) (crypto.PublicKey,
 func (c *jwksCache) candidateFor(ctx context.Context, kid, alg string) (candidate, error) {
 	c.mu.RLock()
 	candidates, ok := c.keys[kid]
-	anonAvailable := c.anonAvailable
 	expires := c.expiresAt
 	lastAttempt := c.lastAttempt
 	c.mu.RUnlock()
@@ -174,7 +173,7 @@ func (c *jwksCache) candidateFor(ctx context.Context, kid, alg string) (candidat
 
 	c.mu.RLock()
 	candidates, ok = c.keys[kid]
-	anonAvailable = c.anonAvailable
+	anonAvailable := c.anonAvailable
 	c.mu.RUnlock()
 	if !ok {
 		if kid == "" && anonAvailable {
