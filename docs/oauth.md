@@ -27,7 +27,8 @@ Six presets ship; practically any provider works beyond them.
 | GitHub | OAuth2 | `oauth.GitHub()` |
 | Discord | OAuth2 (preset) / OIDC via Discover | `oauth.Discord()` |
 | **Any OIDC** (Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
-| **Any OAuth2** (Facebook, Spotify, Twitch…) | OAuth2 | `oauth.Provider{AuthURL, TokenURL, UserInfoURL}` |
+| **Any OAuth2** (Spotify, Twitch…) | OAuth2 | `oauth.Provider{AuthURL, TokenURL, UserInfoURL}` |
+| Facebook | OIDC (hand-built) | `oauth.Provider{...}`, see below |
 
 Identity is `VerifyIDToken` for OIDC, `UserInfo` for OAuth2.
 
@@ -228,6 +229,34 @@ Two things the Apple integration has to get right:
 
 Apple accepts `client_secret_post` only; the secret is sent in the form
 body, never in the `Authorization` header.
+
+## Facebook
+
+Facebook has no preset. Its discovery document at
+`https://www.facebook.com/.well-known/openid-configuration` lists the issuer,
+the authorization endpoint and the JWKS but no `token_endpoint`, so `Discover`
+refuses it with `missing required endpoints`, and its endpoints carry a Graph
+API version that Meta retires, which a preset would pin. Build the Provider by
+hand:
+
+```go
+cfg := oauth.Config{
+    ClientID: appID, ClientSecret: appSecret, RedirectURL: cb,
+    Provider: oauth.Provider{
+        Issuer:   "https://www.facebook.com",
+        AuthURL:  "https://www.facebook.com/v25.0/dialog/oauth",
+        TokenURL: "https://graph.facebook.com/v25.0/oauth/access_token",
+        JWKSURL:  "https://www.facebook.com/.well-known/oauth/openid/jwks/",
+    },
+}
+```
+
+The `v25.0` in the URLs is the Graph API version Meta published on 2026-09-27;
+move it forward when Meta retires it. Meta documents an OIDC authorization code
+flow with PKCE (S256) whose token response carries an `id_token`, verified with
+`VerifyIDToken` like any OIDC provider: signature, issuer, audience, expiry and
+nonce. Meta shows the token request as a GET; this client sends a POST, which
+RFC 6749 section 3.2 requires of a token endpoint request.
 
 ## What it guarantees
 
