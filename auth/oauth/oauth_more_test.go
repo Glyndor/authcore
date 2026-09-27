@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -63,8 +64,9 @@ func TestUserInfo_noURLConfigured(t *testing.T) {
 	srv := jwksServer(t, &key.PublicKey)
 	defer srv.Close()
 	// An OIDC client has no UserInfoURL.
-	if _, err := newClient(t, srv).UserInfo(context.Background(), "x"); err == nil {
-		t.Error("expected ErrNoUserInfo on an OIDC client")
+	_, err := newClient(t, srv).UserInfo(context.Background(), "x")
+	if !errors.Is(err, oauth.ErrNoUserInfo) {
+		t.Fatalf("expected ErrNoUserInfo on an OIDC client, got %v", err)
 	}
 }
 

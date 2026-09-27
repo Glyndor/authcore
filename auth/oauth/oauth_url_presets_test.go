@@ -372,16 +372,24 @@ func TestNew_acceptsFragmentFreeAuthURL(t *testing.T) {
 // path: when the AuthURL already carries a "state" or "code_challenge"
 // parameter, the call must overwrite it instead of producing duplicates
 // (which most OIDC servers read as the pre-existing value).
+//
+// The AuthURL below carries a pre-existing value for every parameter the
+// library generates. Each one is asserted to be present exactly once, with
+// the fresh value, so a regression that switched from url.Values.Set to
+// url.Values.Add, or that left a parameter alone, would either repeat the
+// pre-existing string ("plain", "pre", "evil.example", "token") or drop
+// the fresh value.
 func TestAuthCodeURL_dedupsPreExistingQueryParameters(t *testing.T) {
 	c, err := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID:    testClientID,
-		RedirectURL: "https://app.example/cb",
+		ClientID: testClientID,
+		Scopes:   []string{"openid email profile"},
 		Provider: oauth.Provider{
 			Issuer:   "https://id.example",
-			AuthURL:  "https://id.example/auth?state=fixed&client_id=cid&code_challenge=pre-existing",
+			AuthURL:  "https://id.example/auth?state=fixed&client_id=cid&code_challenge=pre-existing&code_challenge_method=plain&nonce=pre&redirect_uri=https://evil.example/cb&scope=pre&response_type=token",
 			TokenURL: "https://id.example/token",
 			JWKSURL:  "https://id.example/jwks",
 		},
+		RedirectURL: "https://app.example/cb",
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -394,14 +402,31 @@ func TestAuthCodeURL_dedupsPreExistingQueryParameters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse AuthCodeURL result: %v", err)
 	}
-	if got := u.Query().Get("state"); got != req.State {
-		t.Errorf("state = %q, want the fresh value %q", got, req.State)
+	checks := map[string]string{
+		"state":                 req.State,
+		"nonce":                 req.Nonce,
+		"client_id":             testClientID,
+		"code_challenge":        "", // not equal to "pre-existing"; checked below
+		"code_challenge_method": "S256",
+		"redirect_uri":          "https://app.example/cb",
+		"scope":                 "openid email profile",
+		"response_type":         "code",
 	}
-	if got := u.Query().Get("code_challenge"); got == "pre-existing" {
-		t.Errorf("code_challenge must be overwritten, still %q", got)
-	}
-	if got := u.Query().Get("client_id"); got != testClientID {
-		t.Errorf("client_id = %q, want %q", got, testClientID)
+	for key, want := range checks {
+		vs := u.Query()[key]
+		if len(vs) != 1 {
+			t.Errorf("%s: got %d values (%v), want exactly 1", key, len(vs), vs)
+			continue
+		}
+		if key == "code_challenge" {
+			if vs[0] == "pre-existing" {
+				t.Errorf("%s: must be overwritten, still %q", key, vs[0])
+			}
+			continue
+		}
+		if vs[0] != want {
+			t.Errorf("%s = %q, want %q", key, vs[0], want)
+		}
 	}
 }
 

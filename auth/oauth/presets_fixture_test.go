@@ -137,10 +137,20 @@ func TestPreset_AzureMultiTenantIssuer(t *testing.T) {
 		"https://login.microsoftonline.com/{tenantid}/v2.0",
 		"https://login.microsoftonline.com",
 		"https://login.microsoftonline.com/not-a-guid/v2.0",
+		// The predicate is anchored at both ends. A path-injected "v2.0"
+		// host or a host-injected "/extra" suffix passes a naive string
+		// contains check but is not a per-tenant issuer and must be
+		// refused, so a regression that loosens the regex is visible here.
+		"https://evil.example/https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0",
+		"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0.evil.example",
+		"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0/extra",
 	} {
 		if validate(reject) {
 			t.Errorf("alias/template issuer must be rejected: %s", reject)
 		}
+	}
+	if !validate("https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0") {
+		t.Errorf("the documented per-tenant issuer must be accepted")
 	}
 }
 
