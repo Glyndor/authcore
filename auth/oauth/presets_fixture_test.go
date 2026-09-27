@@ -201,6 +201,7 @@ func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 		"google":    "google-discovery.json",
 		"microsoft": "microsoft-common-discovery.json",
 		"discord":   "discord-discovery.json",
+		"apple":     "apple-discovery.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -219,6 +220,8 @@ func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 				wellKnown = "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
 			case "discord":
 				issuer = "https://discord.com"
+			case "apple":
+				issuer = "https://appleid.apple.com"
 			}
 			if wellKnown == "" {
 				wellKnown = strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
@@ -276,6 +279,7 @@ func TestPreset_EveryAdvertisedAlgIsAccepted(t *testing.T) {
 		"google":    "google-discovery.json",
 		"microsoft": "microsoft-common-discovery.json",
 		"discord":   "discord-discovery.json",
+		"apple":     "apple-discovery.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -309,6 +313,7 @@ func TestFixture_JWKSKeysParseAndAreKeyTypeConformant(t *testing.T) {
 		"google":    "google-jwks.json",
 		"microsoft": "microsoft-common-jwks.json",
 		"discord":   "discord-jwks.json",
+		"apple":     "apple-jwks.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

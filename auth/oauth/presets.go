@@ -128,3 +128,46 @@ func Microsoft(tenant string) (Provider, error) {
 		JWKSURL:  fmt.Sprintf("%s/discovery/v2.0/keys", base),
 	}, nil
 }
+
+// Apple returns the Provider endpoints for Sign in with Apple.
+//
+// The authorization URL carries response_mode=form_post by design: requesting
+// the "name" or "email" scopes requires it, and the callback arrives as an HTTP
+// POST rather than a redirect. Read "code" and "state" from the request form
+// just as you would for a query-string callback. Apple also posts a "user"
+// field on the first authorization only, holding a JSON object with the
+// user's name; it is not signed, has no identity meaning, and MUST NOT be
+// treated as identity. Key accounts on the ID token's "sub" claim.
+//
+// Apple advertises only client_secret_post at its token endpoint: the client
+// secret is a JWT signed with an ES256 key from the Apple Developer portal,
+// passed in the form body. The Config struct accepts a static secret via
+// ClientSecret, or a per-Exchange function via ClientSecretFunc. Use
+// AppleClientSecret to obtain that function from your team's private key:
+//
+//	secret, err := oauth.AppleClientSecret(teamID, keyID, servicesID, p8PEM)
+//	if err != nil { /* startup error */ }
+//	mod, err := oauth.New(auth, oauth.Config{
+//	    ClientID:         servicesID,
+//	    ClientSecretFunc: secret,
+//	    RedirectURL:      "https://app.example.com/auth/apple/callback",
+//	    Provider:         oauth.Apple(),
+//	})
+//
+// The key material in p8 stays on the server; never commit it.
+func Apple() Provider {
+	// response_mode=form_post is part of the documented Apple flow (Apple's
+	// developer docs require it whenever the name or email scope is
+	// requested) and must remain on the URL, so embedding it in the preset
+	// instead of injecting it at AuthCodeURL time avoids the risk that a
+	// caller passes a Config that drops it.
+	// #nosec G101 -- these are Apple's public OIDC endpoint URLs, not credentials.
+	return Provider{
+		Issuer:        "https://appleid.apple.com",
+		AuthURL:       "https://appleid.apple.com/auth/authorize?response_mode=form_post",
+		TokenURL:      "https://appleid.apple.com/auth/token",
+		JWKSURL:       "https://appleid.apple.com/auth/keys",
+		AuthMethods:   []string{"client_secret_post"},
+		DefaultScopes: []string{"openid", "email", "name"},
+	}
+}

@@ -180,6 +180,22 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 		return nil, fmt.Errorf("%w: code_verifier must not be empty", ErrExchange)
 	}
 
+	// Resolve the secret once per Exchange. ClientSecretFunc is invoked here,
+	// before any HTTP request is constructed, so a failure (including an empty
+	// return) leaves the token endpoint never called. The wrapped sentinel
+	// lets callers errors.Is against ErrExchange.
+	secret := c.cfg.ClientSecret
+	if c.cfg.ClientSecretFunc != nil {
+		s, err := c.cfg.ClientSecretFunc(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%w: client secret function failed: %w", ErrExchange, err)
+		}
+		if s == "" {
+			return nil, fmt.Errorf("%w: client secret function returned an empty secret", ErrExchange)
+		}
+		secret = s
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -187,8 +203,8 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 	form.Set("client_id", c.cfg.ClientID)
 	form.Set("code_verifier", verifier)
 
-	method := clientAuthMethod(c.cfg.Provider.AuthMethods, c.cfg.ClientSecret != "")
-	if method == authMethodNone && c.cfg.ClientSecret != "" {
+	method := clientAuthMethod(c.cfg.Provider.AuthMethods, secret != "")
+	if method == authMethodNone && secret != "" {
 		return nil, fmt.Errorf("%w: provider advertises no supported client auth method (advertised %v)", ErrExchange, c.cfg.Provider.AuthMethods)
 	}
 
@@ -205,10 +221,10 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 		// compliant server decodes them: sent raw, a client id holding ":"
 		// splits in the wrong place and a secret holding "+" or "%2F" arrives
 		// altered.
-		req.SetBasicAuth(url.QueryEscape(c.cfg.ClientID), url.QueryEscape(c.cfg.ClientSecret))
+		req.SetBasicAuth(url.QueryEscape(c.cfg.ClientID), url.QueryEscape(secret))
 	case authMethodPost:
 		form.Set("client_id", c.cfg.ClientID)
-		form.Set("client_secret", c.cfg.ClientSecret)
+		form.Set("client_secret", secret)
 		// Reissue the request body after we mutate the form.
 		req.Body, req.ContentLength, err = formBody(form)
 		if err != nil {
