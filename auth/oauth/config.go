@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -46,6 +47,13 @@ type Provider struct {
 	// Issuer. The predicate sees the raw "iss" claim value from the token,
 	// without scheme normalisation, which keeps the comparison tight.
 	IssuerValidator func(issuer string) bool
+
+	// DefaultScopes is the scope set requested when Config.Scopes is empty.
+	// Presets set it for providers whose scopes differ from the OIDC default
+	// ("openid email profile"). A caller-supplied Config.Scopes wins, so a
+	// caller can still narrow the set; Config.Scopes empty and a nil
+	// DefaultScopes falls back to the OIDC default set.
+	DefaultScopes []string
 }
 
 // Config configures an OIDC client for a single provider.
@@ -55,6 +63,14 @@ type Config struct {
 	// ClientSecret is the client secret. Leave empty for a public client that
 	// relies on PKCE alone (PKCE is always used regardless).
 	ClientSecret string
+	// ClientSecretFunc returns the client secret on demand. It is called once
+	// per Exchange, with the request's own context, and must be safe for
+	// concurrent use. Setting ClientSecretFunc is mutually exclusive with
+	// ClientSecret: New refuses a Config that sets both.
+	//
+	// AppleClientSecret returns a function for this field that signs a
+	// five-minute secret per call.
+	ClientSecretFunc func(ctx context.Context) (string, error)
 	// RedirectURL is the callback URL registered with the provider; it must
 	// match exactly.
 	RedirectURL string
@@ -93,9 +109,19 @@ var defaultScopes = []string{"openid", "email", "profile"}
 // authorization URL the client produces; an OIDC caller includes "openid",
 // an OAuth2 caller sets the provider's own scopes, so the same constructor
 // serves both flows.
+//
+// When Config.Scopes is empty the OIDC default set is used. A preset whose
+// Provider.DefaultScopes is non-empty overrides that with its own scope list,
+// and Apple uses "openid email name" in place of "openid email profile".
+// Both paths clone the source slice, so a caller that mutates the slice on
+// their side after New cannot change the URL a built client produces.
 func applyDefaults(cfg Config) Config {
 	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = append([]string(nil), defaultScopes...)
+		if len(cfg.Provider.DefaultScopes) > 0 {
+			cfg.Scopes = append([]string(nil), cfg.Provider.DefaultScopes...)
+		} else {
+			cfg.Scopes = append([]string(nil), defaultScopes...)
+		}
 	} else {
 		cfg.Scopes = append([]string(nil), cfg.Scopes...)
 	}
@@ -245,6 +271,9 @@ func isPrivateHost(host string) bool {
 func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.ClientID) == "" {
 		return fmt.Errorf("client id must not be empty")
+	}
+	if cfg.ClientSecret != "" && cfg.ClientSecretFunc != nil {
+		return fmt.Errorf("ClientSecret and ClientSecretFunc are mutually exclusive: set one or the other")
 	}
 	if strings.TrimSpace(cfg.RedirectURL) == "" {
 		return fmt.Errorf("redirect URL must not be empty")
