@@ -217,6 +217,14 @@ Two things the Apple integration has to get right:
   itself never logs the key or the signed client secret. Each Exchange
   signs a fresh five-minute secret (well under Apple's 15777000 s ceiling):
   a leaked secret is only good until its `exp`.
+- The cross-site callback. Because Apple's preset carries
+  `response_mode=form_post`, the callback is a cross-site HTTP POST, not a
+  same-site redirect. Whatever carries `state`, `nonce` and the PKCE
+  verifier across that boundary (cookie or session) must be sent on a
+  cross-site POST: a cookie set with `SameSite=None; Secure`, or a
+  server-side session looked up by some other means. A `SameSite=Lax` or
+  `SameSite=Strict` cookie is not sent on a cross-site POST, and the
+  callback then fails because the saved state is missing.
 
 Apple accepts `client_secret_post` only; the secret is sent in the form
 body, never in the `Authorization` header.
