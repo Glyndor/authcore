@@ -18,11 +18,12 @@ import (
 // hand written from the provider specifications. A hand written preset is an
 // unverified claim: it might point at an endpoint the provider retired, or at
 // a path the provider never published. The fixtures in testdata/providers/ are
-// the real documents those providers served, captured on 2026-09-07, so a test
-// that drives the parser against them catches a drift on either side: the
-// document or the preset, without making the test a liveness check (a job
-// that re-fetches the live endpoints and reddens when somebody else is having
-// a bad afternoon).
+// the real documents those providers served, captured on 2026-09-07 (Google,
+// Microsoft, Discord) and 2026-09-27 (Apple, Vercel), so a test that drives
+// the parser against them catches a drift on either side: the document or the
+// preset, without making the test a liveness check (a job that re-fetches
+// the live endpoints and reddens when somebody else is having a bad
+// afternoon).
 
 // fixtureRoundTrip answers requests whose URL is in routes with the bytes the
 // test registered, and 404 for everything else. The 404 is deliberate: a typo
@@ -202,6 +203,7 @@ func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 		"microsoft": "microsoft-common-discovery.json",
 		"discord":   "discord-discovery.json",
 		"apple":     "apple-discovery.json",
+		"vercel":    "vercel-discovery.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -222,6 +224,8 @@ func TestPreset_DiscoveryDocumentIgnoresUnknownFields(t *testing.T) {
 				issuer = "https://discord.com"
 			case "apple":
 				issuer = "https://appleid.apple.com"
+			case "vercel":
+				issuer = "https://vercel.com"
 			}
 			if wellKnown == "" {
 				wellKnown = strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
@@ -280,6 +284,7 @@ func TestPreset_EveryAdvertisedAlgIsAccepted(t *testing.T) {
 		"microsoft": "microsoft-common-discovery.json",
 		"discord":   "discord-discovery.json",
 		"apple":     "apple-discovery.json",
+		"vercel":    "vercel-discovery.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -314,6 +319,7 @@ func TestFixture_JWKSKeysParseAndAreKeyTypeConformant(t *testing.T) {
 		"microsoft": "microsoft-common-jwks.json",
 		"discord":   "discord-jwks.json",
 		"apple":     "apple-jwks.json",
+		"vercel":    "vercel-jwks.json",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

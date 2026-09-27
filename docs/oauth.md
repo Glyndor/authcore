@@ -16,13 +16,14 @@ server. It stores nothing and runs no HTTP server; you own the two routes.
 
 ## Providers
 
-Five presets ship; practically any provider works beyond them.
+Six presets ship; practically any provider works beyond them.
 
 | Provider | Kind | How |
 |---|---|---|
 | Apple | OIDC | `oauth.Apple()` |
 | Google | OIDC | `oauth.Google()` |
 | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenant)` |
+| Vercel | OIDC | `oauth.Vercel()` |
 | GitHub | OAuth2 | `oauth.GitHub()` |
 | Discord | OAuth2 (preset) / OIDC via Discover | `oauth.Discord()` |
 | **Any OIDC** (Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
