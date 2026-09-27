@@ -90,10 +90,10 @@ Pick only what you need — each is independent, testable, and safe by default.
 
 | Provider | Protocol | Build it with |
 |---|---|---|
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/google-dark.svg"><img src="docs/assets/providers/google.svg" width="20" height="20" align="top" alt=""></picture> Google | OIDC | `oauth.Google()` |
+| Google | OIDC | `oauth.Google()` |
 | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenantID)`, or a [multi-tenant Provider](docs/oauth.md#multi-tenant-providers-azure-ad-common) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/github-dark.svg"><img src="docs/assets/providers/github.svg" width="20" height="20" align="top" alt=""></picture> GitHub | OAuth2 | `oauth.GitHub()` |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/discord-dark.svg"><img src="docs/assets/providers/discord.svg" width="20" height="20" align="top" alt=""></picture> Discord | OAuth2 | `oauth.Discord()` |
+| GitHub | OAuth2 | `oauth.GitHub()` |
+| Discord | OAuth2 | `oauth.Discord()` |
 | Any other OIDC provider (Apple, Okta, Auth0, GitLab, Keycloak, …) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
 
 Plain OAuth2 providers without OIDC take a hand-built `Provider`; see [OIDC login](docs/oauth.md).
