@@ -86,6 +86,18 @@ Pick only what you need — each is independent, testable, and safe by default.
 | 🛡️ | **[field](docs/field.md)** | Column encryption. AES-256-GCM plus an HMAC blind index, so a value stays searchable by equality without being readable. |
 | 🌐 | **[oauth](docs/oauth.md)** | Social login — Google, Microsoft (OIDC) and GitHub, Discord (OAuth2). Auth Code + PKCE, ID-token validation or userinfo. |
 
+### Sign-in providers
+
+| | Provider | Protocol | Build it with |
+|---|---|---|---|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/google-dark.svg"><img src="docs/assets/providers/google.svg" width="32" height="32" alt="Google logo"></picture> | Google | OIDC | `oauth.Google()` |
+| | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenantID)`, or a [multi-tenant Provider](docs/oauth.md#multi-tenant-providers-azure-ad-common) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/github-dark.svg"><img src="docs/assets/providers/github.svg" width="32" height="32" alt="GitHub logo"></picture> | GitHub | OAuth2 | `oauth.GitHub()` |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/providers/discord-dark.svg"><img src="docs/assets/providers/discord.svg" width="32" height="32" alt="Discord logo"></picture> | Discord | OAuth2 | `oauth.Discord()` |
+| | Any other OIDC provider (Apple, Okta, Auth0, GitLab, Keycloak, …) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
+
+Plain OAuth2 providers without OIDC take a hand-built `Provider`; see [OIDC login](docs/oauth.md).
+
 ```mermaid
 flowchart LR
     App["Your app"] -->|init once| Core["authcore"]
