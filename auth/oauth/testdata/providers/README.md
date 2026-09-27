@@ -1,9 +1,10 @@
 # Provider fixtures
 
-Real discovery and JWKS documents, fetched anonymously on 2026-09-07 and
-committed verbatim. They exist so the parsing this library ships is exercised
-against what providers actually send, rather than against a document written
-from the specification by the same person who wrote the parser.
+Real discovery and JWKS documents, fetched anonymously and committed verbatim.
+They exist so the parsing this library ships is exercised against what providers
+actually send, rather than against a document written from the specification by
+the same person who wrote the parser. The Google, Microsoft and Discord
+fixtures date from 2026-09-07; the Apple and Vercel fixtures were fetched on 2026-09-27.
 
 | File | Source |
 |---|---|
@@ -13,6 +14,10 @@ from the specification by the same person who wrote the parser.
 | `microsoft-common-jwks.json` | `https://login.microsoftonline.com/common/discovery/v2.0/keys` |
 | `discord-discovery.json` | `https://discord.com/.well-known/openid-configuration` |
 | `discord-jwks.json` | `https://discord.com/api/oauth2/keys` |
+| `apple-discovery.json` | `https://appleid.apple.com/.well-known/openid-configuration` (fetched 2026-09-27) |
+| `apple-jwks.json` | `https://appleid.apple.com/auth/keys` (fetched 2026-09-27) |
+| `vercel-discovery.json` | `https://vercel.com/.well-known/openid-configuration` (fetched 2026-09-27) |
+| `vercel-jwks.json` | `https://vercel.com/.well-known/jwks` (fetched 2026-09-27) |
 
 GitHub is absent on purpose: it publishes no discovery document
 (`https://github.com/.well-known/openid-configuration` answers 404), so its

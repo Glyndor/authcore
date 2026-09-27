@@ -95,7 +95,7 @@ func readPublicKey(path string) (ed25519.PublicKey, error) {
 // decodeEd25519PrivatePEM parses a PKCS#8 PEM block into an Ed25519 private key.
 // src names the origin (a path or "input") for error messages.
 func decodeEd25519PrivatePEM(data []byte, src string) (ed25519.PrivateKey, error) {
-	der, err := decodePEMBlock(data, "PRIVATE KEY", src)
+	der, err := DecodePEMBlock(data, "PRIVATE KEY", src)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func decodeEd25519PrivatePEM(data []byte, src string) (ed25519.PrivateKey, error
 // decodeEd25519PublicPEM parses a PKIX PEM block into an Ed25519 public key.
 // src names the origin (a path or "input") for error messages.
 func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) {
-	der, err := decodePEMBlock(data, "PUBLIC KEY", src)
+	der, err := DecodePEMBlock(data, "PUBLIC KEY", src)
 	if err != nil {
 		return nil, err
 	}
@@ -128,14 +128,14 @@ func decodeEd25519PublicPEM(data []byte, src string) (ed25519.PublicKey, error) 
 	return key, nil
 }
 
-// decodePEMBlock returns the DER bytes of the one PEM block in data, which
+// DecodePEMBlock returns the DER bytes of the one PEM block in data, which
 // must be labelled wantType, carry no headers, and be the only thing in data
 // apart from whitespace. pem.Decode alone returns the first block wherever
 // it sits and ignores the label, the headers and whatever follows, so a file
 // holding two keys signed with whichever came first, and a PKCS#8 key under a
 // CERTIFICATE label or behind Proc-Type headers was accepted (measured
 // 2026-09-25). Key material has one canonical shape here.
-func decodePEMBlock(data []byte, wantType, src string) ([]byte, error) {
+func DecodePEMBlock(data []byte, wantType, src string) ([]byte, error) {
 	trimmed := bytes.TrimSpace(data)
 	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN ")) {
 		return nil, fmt.Errorf("%q does not start with a PEM block", src)

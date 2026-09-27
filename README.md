@@ -84,17 +84,19 @@ Pick only what you need — each is independent, testable, and safe by default.
 | 🔐 | **[totp](docs/totp.md)** | TOTP / RFC 6238 second factor. Enroll, verify (with replay protection), recovery codes. |
 | ✉️ | **[credential](docs/credential.md)** | Single-use tokens for password reset and account activation. Bound to a purpose and a subject, TTL enforced. |
 | 🛡️ | **[field](docs/field.md)** | Column encryption. AES-256-GCM plus an HMAC blind index, so a value stays searchable by equality without being readable. |
-| 🌐 | **[oauth](docs/oauth.md)** | Social login — Google, Microsoft (OIDC) and GitHub, Discord (OAuth2). Auth Code + PKCE, ID-token validation or userinfo. |
+| 🌐 | **[oauth](docs/oauth.md)** | Social login: Google, Apple, Microsoft, Vercel (OIDC) and GitHub, Discord (OAuth2). Auth Code + PKCE, ID-token validation or userinfo. |
 
 ### Sign-in providers
 
 | Provider | Protocol | Build it with |
 |---|---|---|
 | Google | OIDC | `oauth.Google()` |
+| Apple | OIDC | `oauth.Apple()` with `oauth.AppleClientSecret` |
 | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenantID)`, or a [multi-tenant Provider](docs/oauth.md#multi-tenant-providers-azure-ad-common) |
 | GitHub | OAuth2 | `oauth.GitHub()` |
 | Discord | OAuth2 | `oauth.Discord()` |
-| Any other OIDC provider (Apple, Okta, Auth0, GitLab, Keycloak, …) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
+| Vercel | OIDC | `oauth.Vercel()` |
+| Any other OIDC provider (Okta, Auth0, GitLab, Keycloak, …) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
 
 Plain OAuth2 providers without OIDC take a hand-built `Provider`; see [OIDC login](docs/oauth.md).
 

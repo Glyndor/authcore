@@ -16,15 +16,17 @@ server. It stores nothing and runs no HTTP server; you own the two routes.
 
 ## Providers
 
-Four presets ship; practically any provider works beyond them.
+Six presets ship; practically any provider works beyond them.
 
 | Provider | Kind | How |
 |---|---|---|
+| Apple | OIDC | `oauth.Apple()` |
 | Google | OIDC | `oauth.Google()` |
 | Microsoft (Azure AD) | OIDC | `oauth.Microsoft(tenant)` |
+| Vercel | OIDC | `oauth.Vercel()` |
 | GitHub | OAuth2 | `oauth.GitHub()` |
 | Discord | OAuth2 (preset) / OIDC via Discover | `oauth.Discord()` |
-| **Any OIDC** (Apple, Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
+| **Any OIDC** (Okta, Auth0, GitLab, Cognito, Keycloak…) | OIDC | `oauth.Discover(ctx, issuer, nil)` |
 | **Any OAuth2** (Facebook, Spotify, Twitch…) | OAuth2 | `oauth.Provider{AuthURL, TokenURL, UserInfoURL}` |
 
 Identity is `VerifyIDToken` for OIDC, `UserInfo` for OAuth2.
@@ -180,6 +182,44 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
 > Custom OAuth2 provider: set `Provider{AuthURL, TokenURL, UserInfoURL}` (no
 > issuer/JWKS). A provider with neither issuer+JWKS nor a userinfo URL is
 > rejected at `New` — it could not identify the user.
+
+## Sign in with Apple
+
+Apple publishes an OIDC discovery document, but its client secret is not a
+shared string: it is a short-lived JWT signed with an ES256 key Apple gave
+your team. The library exposes that signing step as `oauth.AppleClientSecret`,
+returns a per-Exchange function from it, and wires it into `Config.ClientSecretFunc`.
+The preset (`oauth.Apple()`) carries `response_mode=form_post` on the
+authorization URL because the `name` scope requires it, so the callback
+arrives as an HTTP POST: read `code` and `state` from the form the same
+way you'd read them from a query string.
+
+```go
+secret, err := oauth.AppleClientSecret(teamID, keyID, servicesID, p8PEM)
+if err != nil { /* startup error */ }
+mod, err := oauth.New(auth, oauth.Config{
+    ClientID:         servicesID,
+    ClientSecretFunc: secret,
+    RedirectURL:      "https://app.example.com/auth/apple/callback",
+    Provider:         oauth.Apple(),
+})
+```
+
+Two things the Apple integration has to get right:
+
+- The first authorization only. Apple posts an unauthenticated `user` JSON
+  blob on the first login. It holds the user's name (when the `name` scope
+  was approved), may be used to prefill a display name, and has **no
+  identity meaning**. Key accounts on the ID token's `sub` and treat
+  `email` as a hint subject to the usual `email_verified` check.
+- The `.p8` key. Apple delivers it once from the Developer portal; load it
+  from a secret store or environment variable, never commit it. The library
+  itself never logs the key or the signed client secret. Each Exchange
+  signs a fresh five-minute secret (well under Apple's 15777000 s ceiling):
+  a leaked secret is only good until its `exp`.
+
+Apple accepts `client_secret_post` only; the secret is sent in the form
+body, never in the `Authorization` header.
 
 ## What it guarantees
 
