@@ -31,13 +31,15 @@ func TestSafeRedirect(t *testing.T) {
 		hops int
 		want string // substring of the expected rejection, "" means allowed
 	}{
-		"same origin is allowed":         {to: "https://provider.example/token2", want: ""},
-		"cross-origin leaks the secret":  {to: "https://evil.example/steal", want: "cross-origin"},
-		"plaintext downgrade":            {to: "http://provider.example/token", want: "non-https"},
-		"cloud metadata endpoint":        {to: "https://169.254.169.254/latest", want: "private host"},
-		"loopback":                       {to: "https://127.0.0.1/token", want: "private host"},
-		"private range":                  {to: "https://10.0.0.5/token", want: "private host"},
-		"too many hops on the same host": {to: "https://provider.example/token", hops: 5, want: "too many redirects"},
+		"same origin is allowed":            {to: "https://provider.example/token2", want: ""},
+		"explicit default port is the same": {to: "https://provider.example:443/token2", want: ""},
+		"same host, other port":             {to: "https://provider.example:8443/collect", want: "cross-origin"},
+		"cross-origin leaks the secret":     {to: "https://evil.example/steal", want: "cross-origin"},
+		"plaintext downgrade":               {to: "http://provider.example/token", want: "non-https"},
+		"cloud metadata endpoint":           {to: "https://169.254.169.254/latest", want: "private host"},
+		"loopback":                          {to: "https://127.0.0.1/token", want: "private host"},
+		"private range":                     {to: "https://10.0.0.5/token", want: "private host"},
+		"too many hops on the same host":    {to: "https://provider.example/token", hops: 5, want: "too many redirects"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			hops := tc.hops
