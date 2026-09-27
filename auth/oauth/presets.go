@@ -171,3 +171,25 @@ func Apple() Provider {
 		DefaultScopes: []string{"openid", "email", "name"},
 	}
 }
+
+// Vercel returns the Provider endpoints for Vercel's OIDC service.
+//
+//	cfg := oauth.Config{
+//	    ClientID:     id, ClientSecret: secret,
+//	    RedirectURL:  "https://app.example.com/auth/vercel/callback",
+//	    Provider:     oauth.Vercel(),
+//	}
+//
+// Vercel publishes a discovery document at its issuer, captured in
+// testdata/providers/vercel-discovery.json. Calling Discover with the
+// issuer "https://vercel.com" builds the same Provider.
+func Vercel() Provider {
+	// #nosec G101 -- these are Vercel's public OIDC endpoint URLs, not credentials.
+	return Provider{
+		Issuer:      "https://vercel.com",
+		AuthURL:     "https://vercel.com/oauth/authorize",
+		TokenURL:    "https://api.vercel.com/login/oauth/token",
+		JWKSURL:     "https://vercel.com/.well-known/jwks",
+		AuthMethods: []string{"client_secret_basic", "client_secret_post"},
+	}
+}
