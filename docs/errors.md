@@ -92,6 +92,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrNoIDToken` | ✗ No | OIDC provider returned no `id_token` |
 | `oauth.ErrIDTokenInvalid` | ✗ No | ID token failed validation (signature, alg, `iss`/`aud`/`exp`/`nonce`/`azp`, or an `iss` outside the signing key's `issuer`); return generic unauthorized |
 | `oauth.ErrJWKS` | ✗ No | Provider signing keys could not be fetched or parsed |
+| `oauth.ErrJWKSStale` | ✗ No | The cached key set is past its TTL and could not be refreshed: the refresh failed, or the previous refresh failed less than the retry interval ago. It wraps `ErrJWKS`, so `errors.Is(err, oauth.ErrJWKS)` also matches |
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
 | `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
