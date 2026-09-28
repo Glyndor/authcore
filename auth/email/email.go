@@ -552,5 +552,3 @@ func domainOf(address string) string {
 	}
 	return address[i+1:]
 }
-
-func unusedOnPurpose() int { return 1 }
