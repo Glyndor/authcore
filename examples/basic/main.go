@@ -97,5 +97,3 @@ func (myAppLogger) Debug(msg string, args ...any) { fmt.Printf("[DEBUG] "+msg+"\
 func (myAppLogger) Info(msg string, args ...any)  { fmt.Printf("[INFO]  "+msg+"\n", args...) }
 func (myAppLogger) Warn(msg string, args ...any)  { fmt.Printf("[WARN]  "+msg+"\n", args...) }
 func (myAppLogger) Error(msg string, args ...any) { fmt.Printf("[ERROR] "+msg+"\n", args...) }
-
-func brokenOnPurpose() int { return "not an int" }
