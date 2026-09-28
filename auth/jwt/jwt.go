@@ -98,10 +98,13 @@ type JWT[T any] struct {
 // timezone — all sourced from the parent AuthCore instance.
 //
 // New returns a wrapped ErrInvalidConfig when the provider is unusable
-// (a nil interface, a Logger() or Keys() that returns nil) or when
-// Keys().RefreshSecret() is not exactly 32 bytes. A module that
-// successfully returned is the only path to a working JWT; every
-// method on a zero value refuses to produce output.
+// (a nil interface, a Logger() or Keys() that returns nil), when the
+// provider's Ed25519 key pair fails keymanager.ValidateMaterial (nil or
+// short private key, nil public key, a public key from another pair, an
+// internally inconsistent private key, or a refresh secret that is not
+// exactly 32 bytes). A module that successfully returned is the only
+// path to a working JWT; every method on a zero value refuses to produce
+// output.
 func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	if len(cfg) > 1 {
 		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
@@ -150,9 +153,15 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	}
 
 	secret := keys.RefreshSecret()
-	if l := len(secret); l != refreshSecretLen {
-		return nil, fmt.Errorf("%w: refresh secret has wrong length: got %d, want %d",
-			ErrInvalidConfig, l, refreshSecretLen)
+
+	// Hold a caller-written Provider to the rules the key stores apply.
+	// Measured on 2026-09-27 against v1.18.1, when only the secret was
+	// checked here: a nil or 10-byte private key passed New and CreateTokens
+	// panicked ("slice bounds out of range [32:0]" and "[32:10]"), and a nil
+	// public key or one from another pair passed New and every token issued
+	// failed VerifyAccessToken with "jwt: token is invalid".
+	if err := keymanager.ValidateMaterial(keys.PrivateKey(), keys.PublicKey(), secret); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
 	j := &JWT[T]{
