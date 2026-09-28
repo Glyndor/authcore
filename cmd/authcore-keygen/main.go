@@ -93,25 +93,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitUsage
 		}
-		fmt.Fprint(stderr, usage)
+		_, _ = fmt.Fprint(stderr, usage)
 		return exitUsage
 	}
 
 	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "authcore-keygen: unexpected positional argument(s): %s\n\n", flags.Args())
-		fmt.Fprint(stderr, usage)
+		_, _ = fmt.Fprintf(stderr, "authcore-keygen: unexpected positional argument(s): %s\n\n", flags.Args())
+		_, _ = fmt.Fprint(stderr, usage)
 		return exitUsage
 	}
 
 	if *out == "" {
-		fmt.Fprint(stderr, "authcore-keygen: -out is required\n\n")
-		fmt.Fprint(stderr, usage)
+		_, _ = fmt.Fprint(stderr, "authcore-keygen: -out is required\n\n")
+		_, _ = fmt.Fprint(stderr, usage)
 		return exitUsage
 	}
 
 	absOut, err := filepath.Abs(*out)
 	if err != nil {
-		fmt.Fprintf(stderr, "authcore-keygen: cannot resolve %q: %v\n", *out, err)
+		_, _ = fmt.Fprintf(stderr, "authcore-keygen: cannot resolve %q: %v\n", *out, err)
 		return exitFailure
 	}
 
@@ -119,14 +119,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// the operator's error, not a silently-created tree.
 	if err := os.Mkdir(absOut, newDirMode); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			fmt.Fprintf(stderr,
+			_, _ = fmt.Fprintf(stderr,
 				"authcore-keygen: %s already exists; authcore-keygen never "+
 					"writes into an existing directory. Pick a new path; an "+
 					"existing directory may hold keys that are in use.\n",
 				absOut)
 			return exitFailure
 		}
-		fmt.Fprintf(stderr,
+		_, _ = fmt.Fprintf(stderr,
 			"authcore-keygen: could not create directory %s: %v\n"+
 				"the directory was NOT created; nothing was written.\n",
 			absOut, err)
@@ -140,7 +140,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// still surfaced to the operator.
 	km, err := keymanager.New(absOut, stderrLogger{w: stderr})
 	if err != nil {
-		fmt.Fprintf(stderr,
+		_, _ = fmt.Fprintf(stderr,
 			"authcore-keygen: key generation failed for %s: %v\n"+
 				"the directory exists but is INCOMPLETE and must not be mounted "+
 				"or used. Inspect it (it may hold a .staging-* worth keeping) "+
@@ -151,8 +151,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// Two lines, nothing else. Key material must never reach stdout or
 	// stderr: a shell history, a CI log or a process trace would expose it.
-	fmt.Fprintf(stdout, "wrote %s\n", absOut)
-	fmt.Fprintf(stdout, "key id %s\n", km.KeyID())
+	_, _ = fmt.Fprintf(stdout, "wrote %s\n", absOut)
+	_, _ = fmt.Fprintf(stdout, "key id %s\n", km.KeyID())
 	return 0
 }
 
@@ -167,7 +167,7 @@ type stderrLogger struct {
 func (stderrLogger) Info(string, ...any) {}
 
 func (l stderrLogger) Warn(msg string, args ...any) {
-	fmt.Fprintf(l.w, "authcore-keygen: "+msg+"\n", args...)
+	_, _ = fmt.Fprintf(l.w, "authcore-keygen: "+msg+"\n", args...)
 }
 
 func main() {

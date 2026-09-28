@@ -196,10 +196,10 @@ func inspectKeySet(dir string) (setState, error) {
 			present++
 		}
 	}
-	switch {
-	case present == 0:
+	switch present {
+	case 0:
 		return setEmpty, nil
-	case present == 3:
+	case 3:
 		return setComplete, nil
 	default:
 		return setPartial, nil

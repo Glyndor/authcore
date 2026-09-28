@@ -356,6 +356,7 @@ func parseJWK(k jwk) (crypto.PublicKey, error) {
 		if err := ecPointOnCurve(k.Crv, x, y); err != nil {
 			return nil, err
 		}
+		//nolint:staticcheck // SA1019: X and Y were deprecated in Go 1.26; moving to ParseUncompressedPublicKey is tracked separately.
 		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 	default:
 		return nil, fmt.Errorf("unsupported key type %q", k.Kty)

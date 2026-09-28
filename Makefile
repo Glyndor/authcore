@@ -16,8 +16,8 @@ lint:
 	@if command -v golangci-lint > /dev/null; then \
 		golangci-lint run; \
 	else \
-		echo "golangci-lint not installed. Skipping..."; \
-		go vet ./...; \
+		echo "golangci-lint 2.14.0 is required (the version CI pins); install it from https://github.com/golangci/golangci-lint/releases/tag/v2.14.0" >&2; \
+		exit 1; \
 	fi
 
 ## coverage: Run tests and generate coverage report

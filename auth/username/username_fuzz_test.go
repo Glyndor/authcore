@@ -53,7 +53,7 @@ func FuzzValidateAndNormalize(f *testing.F) {
 		}
 		for i := 0; i < len(got); i++ {
 			c := got[i]
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 				t.Fatalf("accepted %q with byte %q outside [a-z0-9_-]", got, c)
 			}
 		}
