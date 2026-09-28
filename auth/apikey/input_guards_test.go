@@ -7,7 +7,6 @@ package apikey_test
 // just inside the limit.
 
 import (
-	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,16 +19,6 @@ import (
 )
 
 // ---- test doubles ---------------------------------------------------------
-
-// nilLoggerKeys is a Keys value whose accessor returns a nil Logger.
-// A provider that surfaces a nil Logger is the second defect class
-// New must reject.
-type nilLoggerKeys struct{}
-
-func (nilLoggerKeys) PrivateKey() ed25519.PrivateKey { return nil }
-func (nilLoggerKeys) PublicKey() ed25519.PublicKey   { return nil }
-func (nilLoggerKeys) RefreshSecret() []byte          { return nil }
-func (nilLoggerKeys) KeyID() string                  { return "" }
 
 // nilKeysProvider is a Provider whose Keys() returns nil. The third
 // defect class: New dereferences Keys() before validating, so a
@@ -211,6 +200,3 @@ func TestZeroValue_VerifyReturnsFalse(t *testing.T) {
 		t.Error("Verify on zero value returned true for an unrelated hash")
 	}
 }
-
-// silence the unused import in case ed25519 is later removed
-var _ = ed25519.PrivateKey(nil)

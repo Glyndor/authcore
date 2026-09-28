@@ -1,9 +1,6 @@
 package authcore_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/x509"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,40 +89,6 @@ func seedDir(t *testing.T, dir string) authcore.Keys {
 		t.Fatalf("seed New: %v", err)
 	}
 	return ac.Keys()
-}
-
-// mustMarshalPKCS8 / mustMarshalPKIX turn Ed25519 keys into the PEM bytes
-// the loader expects. They live in a test helper because the encoding is a
-// stable detail of the disk layout, and any drift would show up as an
-// integration failure before a unit test could catch it.
-func mustMarshalPKCS8(t *testing.T, k ed25519.PrivateKey) []byte {
-	t.Helper()
-	der, err := x509.MarshalPKCS8PrivateKey(k)
-	if err != nil {
-		t.Fatalf("marshal PKCS8: %v", err)
-	}
-	return der
-}
-
-func mustMarshalPKIX(t *testing.T, k ed25519.PublicKey) []byte {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(k)
-	if err != nil {
-		t.Fatalf("marshal PKIX: %v", err)
-	}
-	return der
-}
-
-// randSecretBytes returns 32 random bytes for the refresh secret. It is a
-// helper rather than a fixture because the bytes themselves are arbitrary
-// and never asserted on.
-func randSecretBytes(t *testing.T) []byte {
-	t.Helper()
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatalf("rand secret: %v", err)
-	}
-	return b
 }
 
 var _ = filepath.Join // keep the import live for any future fixture

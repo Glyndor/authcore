@@ -19,14 +19,6 @@ import (
 
 // ---- test doubles ---------------------------------------------------------
 
-// nilLoggerKeys is a Keys value whose accessor returns a nil Logger.
-type nilLoggerKeys struct{}
-
-func (nilLoggerKeys) PrivateKey() ed25519.PrivateKey { return nil }
-func (nilLoggerKeys) PublicKey() ed25519.PublicKey   { return nil }
-func (nilLoggerKeys) RefreshSecret() []byte          { return nil }
-func (nilLoggerKeys) KeyID() string                  { return "" }
-
 // nilKeysProvider is a Provider whose Keys() returns nil.
 type nilKeysProvider struct{}
 
