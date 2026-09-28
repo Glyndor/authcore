@@ -40,3 +40,31 @@ jobs:
           go build ./...
           go vet ./...
           go test -race -count=1 ./...
+
+  # Aggregation gate for the matrix above. needs: alone skips this job when
+  # a matrix leg fails, and a skipped required check reports success to a
+  # ruleset, so a broken example would merge green. With if: always() and an
+  # explicit check of needs.build.result below, this job runs on every
+  # outcome and surfaces the aggregate as a single stable check named
+  # "Examples", which is the string GitHub emits for this check (the job's
+  # name: in a non-reusable workflow), and the string a ruleset should
+  # require. The per-leg "build & vet (<example>)" checks vary per matrix
+  # leg and must not be required.
+  examples:
+    name: Examples
+    needs: [build]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    # One shell comparison. Five minutes is a ceiling, not a measurement:
+    # tighten it after the first runs have been read.
+    timeout-minutes: 5
+    steps:
+      - name: Verify matrix result
+        env:
+          RESULT: ${{ needs.build.result }}
+        run: |
+          printf 'needs.build.result=%s\n' "$RESULT"
+          if [ "$RESULT" != "success" ]; then
+            exit 1
+          fi
