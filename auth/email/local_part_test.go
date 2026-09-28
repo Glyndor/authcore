@@ -52,9 +52,9 @@ func TestValidateAndNormalize_localPartThatFoldsIntoASCII(t *testing.T) {
 func TestValidateAndNormalize_refusesInvisibleAndControlCharactersInTheLocalPart(t *testing.T) {
 	m := newMod(t)
 	for name, addr := range map[string]string{
-		"zero width space":       "admin​@example.com",
-		"soft hyphen":            "ad­min@example.com",
-		"right-to-left override": "admin‮@example.com",
+		"zero width space":       "admin\u200b@example.com",
+		"soft hyphen":            "ad\u00admin@example.com",
+		"right-to-left override": "admin\u202e@example.com",
 		"next line (C1 control)": "admin\u0085@example.com",
 		"line separator":         "admin @example.com",
 		"hangul filler":          "adminㅤ@example.com",
