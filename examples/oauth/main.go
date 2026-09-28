@@ -76,6 +76,7 @@ func main() {
 		if teamID == "" || keyID == "" || keyFile == "" {
 			log.Fatal("set APPLE_TEAM_ID, APPLE_KEY_ID and APPLE_PRIVATE_KEY_FILE (path to the .p8) for OAUTH_PROVIDER=apple")
 		}
+		//nolint:gosec // G304: the .p8 path comes from APPLE_PRIVATE_KEY_FILE set by the operator on the demo host. The operator chose it.
 		p8, err := os.ReadFile(keyFile)
 		if err != nil {
 			log.Fatalf("APPLE_PRIVATE_KEY_FILE: %v", err)

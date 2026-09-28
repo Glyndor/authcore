@@ -129,10 +129,9 @@ func applyDefaults(cfg Config) Config {
 	// call, so a caller mutating its slice after New would change how an
 	// existing client authenticates, and race with a concurrent Exchange.
 	cfg.Provider.AuthMethods = append([]string(nil), cfg.Provider.AuthMethods...)
-	switch {
-	case cfg.HTTPClient == nil:
+	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = newSafeHTTPClient()
-	default:
+	} else {
 		cfg.HTTPClient = guardClient(cfg.HTTPClient)
 	}
 	return cfg

@@ -56,14 +56,14 @@ func TestAppleClientSecret_EndToEndLoopback(t *testing.T) {
 		tokenCalls atomic.Int32
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
 			// JWKS: Apple signs ID tokens with RS256, so the published
 			// key is the test RSA key.
-			n := base64.RawURLEncoding.EncodeToString(idKey.PublicKey.N.Bytes())
+			n := base64.RawURLEncoding.EncodeToString(idKey.N.Bytes())
 			e := base64.RawURLEncoding.EncodeToString([]byte{0x01, 0x00, 0x01})
 			fmt.Fprintf(w, `{"keys":[{"kty":"RSA","kid":%q,"n":%q,"e":%q,"alg":"RS256","use":"sig"}]}`, "apple-rsa-1", n, e)
-		case r.Method == http.MethodPost:
+		case http.MethodPost:
 			tokenCalls.Add(1)
 			_ = r.ParseForm()
 			secret := r.FormValue("client_secret")

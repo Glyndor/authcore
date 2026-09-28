@@ -64,6 +64,7 @@ linters:
           - funlen
           - godot
           - errcheck
+          - cyclop
 
       # Internal keymanager reads paths constructed by the package itself,
       # not from external user input.
@@ -71,6 +72,53 @@ linters:
         linters:
           - gosec
         text: "G304"
+
+      # Targeted cyclop exclusions, one function per rule. Each rule keeps
+      # a security or test-flow transaction in one piece instead of
+      # scattering it across helpers; see the lint-report for the
+      # rationale behind each one.
+      #
+      # VerifyIDToken is the OIDC token verifier: the iss/aud/azp/nonce
+      # checks, the key-issuer pinning, the iat presence check, and the
+      # provider-vs-validator resolution must read in order.
+      - text: "calculated cyclomatic complexity for function VerifyIDToken is 21"
+        linters:
+          - cyclop
+      # Exchange is the OAuth2 token-exchange request: the basic-vs-post
+      # client-auth choice, the provider-error decode, and the OIDC id_token
+      # presence rule must read in order; the path count comes from the
+      # auth-method switch, the error envelope, and the id_token check.
+      - text: "calculated cyclomatic complexity for function Exchange is 28"
+        linters:
+          - cyclop
+      # linkKeys is the transactional publish of the three key files:
+      # hard-link, fault-injection, two-init detection, symlink refusal,
+      # recovery through a leftover staging directory; the order of those
+      # branches is the guarantee.
+      - text: "calculated cyclomatic complexity for function linkKeys is 23"
+        linters:
+          - cyclop
+      # TestAppleClientSecret_EndToEndLoopback is a single httptest server
+      # whose handler dispatches GET JWKS, POST token and 404 in one
+      # closure; the path count comes from the request dispatcher, not
+      # from real branching.
+      - text: "calculated cyclomatic complexity for function TestAppleClientSecret_EndToEndLoopback is 27"
+        linters:
+          - cyclop
+
+      # Same functions, funlen exclusion. The cyclop rules above explain
+      # why each function is one piece; funlen would otherwise split the
+      # same flow. VerifyIDToken is 92 lines, Exchange is 70 statements
+      # and linkKeys is 55 statements.
+      - text: "Function 'VerifyIDToken' is too long"
+        linters:
+          - funlen
+      - text: "Function 'Exchange' has too many statements"
+        linters:
+          - funlen
+      - text: "Function 'linkKeys' has too many statements"
+        linters:
+          - funlen
 
 formatters:
   enable:

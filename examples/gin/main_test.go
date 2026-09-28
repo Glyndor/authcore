@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -47,7 +48,7 @@ func newExample(t *testing.T) call {
 	engine := newRouter(pwdMod, jwtMod)
 
 	return func(method, path, body, bearer string) (int, map[string]any) {
-		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)

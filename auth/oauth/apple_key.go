@@ -29,7 +29,7 @@ func validateAppleTenChar(s, field string) error {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
 			return fmt.Errorf("%w: %s must contain only A-Z and 0-9", ErrInvalidConfig, field)
 		}
 	}
