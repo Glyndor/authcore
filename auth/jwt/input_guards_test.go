@@ -26,26 +26,50 @@ func (nilKeysProvider) Config() authcore.Config { return authcore.DefaultConfig(
 func (nilKeysProvider) Logger() authcore.Logger { return silentLogger{} }
 func (nilKeysProvider) Keys() authcore.Keys     { return nil }
 
-// nilLoggerProvider is a Provider whose Logger() returns nil.
+// nilLoggerProvider is a Provider whose Logger() returns nil. The
+// nil-logger check in New fires before the Ed25519-material check, so the
+// fixture's private and public keys never reach it; they remain zero values
+// to keep the test focused on the rule it names.
 type nilLoggerProvider struct{}
 
 func (nilLoggerProvider) Config() authcore.Config { return authcore.DefaultConfig() }
 func (nilLoggerProvider) Logger() authcore.Logger { return nil }
 func (nilLoggerProvider) Keys() authcore.Keys     { return &fakeKeys{secret: make([]byte, 32)} }
 
-// shortSecretProvider returns a 31-byte refresh secret.
+// shortSecretProvider returns a 31-byte refresh secret alongside a
+// generated Ed25519 pair, so New refuses the call on the secret-length rule
+// and not on the new key-material rule.
 type shortSecretProvider struct{}
 
 func (shortSecretProvider) Config() authcore.Config { return authcore.DefaultConfig() }
 func (shortSecretProvider) Logger() authcore.Logger { return silentLogger{} }
-func (shortSecretProvider) Keys() authcore.Keys     { return &fakeKeys{secret: make([]byte, 31)} }
+func (shortSecretProvider) Keys() authcore.Keys {
+	return &fakeKeys{priv: guardTestPriv, pub: guardTestPub, secret: make([]byte, 31)}
+}
 
-// nilSecretProvider returns a nil refresh secret.
+// nilSecretProvider returns a nil refresh secret alongside a generated
+// Ed25519 pair, so New refuses the call on the secret-length rule and not
+// on the new key-material rule.
 type nilSecretProvider struct{}
 
 func (nilSecretProvider) Config() authcore.Config { return authcore.DefaultConfig() }
 func (nilSecretProvider) Logger() authcore.Logger { return silentLogger{} }
-func (nilSecretProvider) Keys() authcore.Keys     { return &fakeKeys{secret: nil} }
+func (nilSecretProvider) Keys() authcore.Keys {
+	return &fakeKeys{priv: guardTestPriv, pub: guardTestPub, secret: nil}
+}
+
+// guardTestPriv / guardTestPub are a single Ed25519 pair shared by every
+// guard-fixture provider. They are generated once at test binary start;
+// the fixtures only need a valid pair to pass the new material check, not
+// a distinct one per provider.
+var (
+	guardTestPub  ed25519.PublicKey
+	guardTestPriv ed25519.PrivateKey
+)
+
+func init() {
+	guardTestPub, guardTestPriv, _ = ed25519.GenerateKey(rand.Reader)
+}
 
 // goodSecretProvider hands back a 32-byte refresh secret with valid
 // Ed25519 keys. New demands all three.
