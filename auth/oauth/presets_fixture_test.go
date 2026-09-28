@@ -319,6 +319,7 @@ func TestFixture_JWKSKeysParseAndAreKeyTypeConformant(t *testing.T) {
 		"microsoft": "microsoft-common-jwks.json",
 		"discord":   "discord-jwks.json",
 		"apple":     "apple-jwks.json",
+		"facebook":  "facebook-jwks.json",
 		"vercel":    "vercel-jwks.json",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -350,5 +351,36 @@ func TestFixture_JWKSKeysParseAndAreKeyTypeConformant(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPreset_FacebookDiscoveryRefusedForMissingTokenEndpoint pins the
+// documented reason Facebook has no preset: its OIDC discovery document
+// (captured 2026-09-27 in facebook-discovery.json) advertises an issuer,
+// authorization endpoint, and jwks_uri, but no token_endpoint. Discover
+// requires authorization_endpoint, token_endpoint, and jwks_uri to all be
+// present, and it refuses a document that is missing any of them with the
+// fragment "missing required endpoints". Without this test, a regression that
+// relaxed the missing-endpoint check would silently admit Facebook into
+// oauth.Discover and produce a Provider whose TokenURL is empty, which
+// oauth.New would then refuse at construction time for a reason that has
+// nothing to do with what Facebook's document actually says. The current
+// behaviour, and the one this test fixes, is to surface the real reason at
+// the discovery step.
+func TestPreset_FacebookDiscoveryRefusedForMissingTokenEndpoint(t *testing.T) {
+	t.Parallel()
+	routes := map[string][]byte{
+		"https://www.facebook.com/.well-known/openid-configuration": readFixture(t, "facebook-discovery.json"),
+	}
+	_, err := Discover(context.Background(),
+		"https://www.facebook.com", stubClient(routes))
+	if err == nil {
+		t.Fatal("Discover(facebook) must fail: the document omits token_endpoint, the most basic reason a preset cannot be built")
+	}
+	if !errors.Is(err, ErrDiscovery) {
+		t.Fatalf("rejection must wrap ErrDiscovery, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "missing required endpoints") {
+		t.Fatalf("rejection must name the missing-endpoint reason, got: %v", err)
 	}
 }

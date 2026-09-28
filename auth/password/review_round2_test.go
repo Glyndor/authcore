@@ -122,7 +122,7 @@ func TestValidatePolicy_refusesBlankRenderingCodePoints(t *testing.T) {
 		"braille blank as the symbol": "Abcdefghijk1⠀",
 		"hangul filler":               "Abcdefghijk1!ㅤ",
 		"combining grapheme joiner":   "Abcdefghijk1!͏",
-		"zero width joiner":           "Abcdefghijk1!‍",
+		"zero width joiner":           "Abcdefghijk1!\u200d",
 	} {
 		err := mod.ValidatePolicy(pw)
 		if !errors.Is(err, ErrWeakPassword) || !errors.Is(err, ErrNonPrintableCharacter) {

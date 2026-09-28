@@ -38,7 +38,7 @@ func TestValidatePolicy_rejectsNonPrintableCharacters(t *testing.T) {
 		{"tab", "\t"},
 		{"DEL", "\x7f"},
 		{"C1 control", "\u0085"},
-		{"zero-width joiner", "‍"},
+		{"zero-width joiner", "\u200d"},
 		{"no-break space", " "},
 		{"unassigned code point", "͸"},
 		{"noncharacter", "￿"},

@@ -4,7 +4,11 @@ The library persists an Ed25519 signing key and an HMAC refresh secret under
 `Config.KeysDir`, and the format of that directory is its source of truth across
 restarts. A container filesystem does not preserve it across recreation, and a
 deployment often runs more than one replica. Everything below was measured on
-2026-09-19 with rootless Podman 5.7.0 and podup, unless it says otherwise.
+2026-09-19 with rootless Podman 5.7.0 and podup, unless it says otherwise. The
+recommended setup, the key generation recipe, replicas, Podman secrets and the
+change of user were run again on 2026-09-27 with podup 5.10.5, Podman 5.7.0 and
+authcore v1.18.0, and behaved as described. The backup recipe, the `KeyStore`
+variant and the SELinux section were not part of that run.
 
 ## Keys must outlive the container
 
@@ -94,6 +98,15 @@ Every line of that file matters:
 - `external: true` and `name: authcore-production-keys` point at a named volume
   that already exists. `podup down -v` left it in place when measured; a
   volume that is not declared `external` is removed by `-v`, keys included.
+
+Check that every replica is running before relying on the deployment. On
+2026-09-27, with `deploy.replicas` and `keep-id`, `podup up -d` left one or
+two replicas in `created` in about one run out of three, with `crun: write
+to /proc/sys/net/ipv4/ping_group_range (are all the IDs mapped in the user
+namespace?): Invalid argument`. A second `podup up -d` started them, and
+every replica that started held the same key. `podup ps` shows the state;
+with `RequireExistingKeys` set, a replica that did start cannot have
+generated keys of its own.
 
 To create the keys **once** into that volume: install `authcore-keygen` on
 the host, point it at a directory that does not exist yet, then copy the
