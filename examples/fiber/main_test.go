@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 	warmUp := fiber.New()
 	warmUp.Get("/", func(c fiber.Ctx) error { return c.SendStatus(fiber.StatusNoContent) })
 
-	resp, err := warmUp.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+	resp, err := warmUp.Test(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warm-up request: %v\n", err)
 		os.Exit(1)
@@ -65,7 +66,7 @@ func newExample(t *testing.T) call {
 	app := newApp(pwdMod, jwtMod)
 
 	return func(method, path, body, bearer string) (int, map[string]any) {
-		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)

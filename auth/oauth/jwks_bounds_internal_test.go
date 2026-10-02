@@ -119,6 +119,48 @@ func TestParseJWK_supportsEveryCurveItClaims(t *testing.T) {
 	}
 }
 
+// TestParseJWK_acceptsECKeysEqualToTheGeneratedPublicKey pairs each EC
+// acceptance with a check that the parsed key is bit-for-bit the public key
+// the JWK was encoded from. The earlier curve-claim test only asserts the
+// curve name, so a regression that decoded the wrong coordinates while still
+// landing on the right curve would slip past it. None of the captured
+// provider fixtures (testdata/providers/*-jwks.json) carries an EC key, so
+// the JWK is generated here from fresh keys on P-256 and P-384.
+func TestParseJWK_acceptsECKeysEqualToTheGeneratedPublicKey(t *testing.T) {
+	for name, curve := range map[string]elliptic.Curve{
+		"P-256": elliptic.P256(),
+		"P-384": elliptic.P384(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			k, err := ecdsa.GenerateKey(curve, rand.Reader)
+			if err != nil {
+				t.Fatalf("generate %s key: %v", name, err)
+			}
+			got, err := parseJWK(jwk{Kty: "EC", Crv: name, X: b64(k.X), Y: b64(k.Y)})
+			if err != nil {
+				t.Fatalf("%s must be supported, got: %v", name, err)
+			}
+			pub, ok := got.(*ecdsa.PublicKey)
+			if !ok {
+				t.Fatalf("%s parsed into the wrong key type: %T", name, got)
+			}
+			if !pub.Equal(&k.PublicKey) {
+				gotBytes, gerr := pub.Bytes()
+				wantBytes, werr := k.PublicKey.Bytes()
+				gotStr, wantStr := "<unavailable>", "<unavailable>"
+				if gerr == nil {
+					gotStr = base64.RawURLEncoding.EncodeToString(gotBytes)
+				}
+				if werr == nil {
+					wantStr = base64.RawURLEncoding.EncodeToString(wantBytes)
+				}
+				t.Fatalf("%s parsed key does not equal the original public key: got %s, want %s",
+					name, gotStr, wantStr)
+			}
+		})
+	}
+}
+
 func TestParseJWK_rejectsAnUnknownCurve(t *testing.T) {
 	_, err := parseJWK(jwk{Kty: "EC", Crv: "P-999", X: b64(big.NewInt(1)), Y: b64(big.NewInt(1))})
 	if err == nil {

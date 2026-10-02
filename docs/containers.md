@@ -100,13 +100,15 @@ Every line of that file matters:
   volume that is not declared `external` is removed by `-v`, keys included.
 
 Check that every replica is running before relying on the deployment. On
-2026-09-27, with `deploy.replicas` and `keep-id`, `podup up -d` left one or
-two replicas in `created` in about one run out of three, with `crun: write
-to /proc/sys/net/ipv4/ping_group_range (are all the IDs mapped in the user
-namespace?): Invalid argument`. A second `podup up -d` started them, and
-every replica that started held the same key. `podup ps` shows the state;
-with `RequireExistingKeys` set, a replica that did start cannot have
-generated keys of its own.
+2026-09-27, with `deploy.replicas` and `keep-id`, podup 5.10.5 left one or two
+replicas in `created` in about one run out of three, with `crun: write to
+/proc/sys/net/ipv4/ping_group_range (are all the IDs mapped in the user
+namespace?): Invalid argument` (Glyndor/podup#1955). podup 5.10.6 creates
+`keep-id` containers one at a time, and on 2026-10-01, with podup 5.10.8, 16
+runs in a row started all three replicas with the same key. On an older podup,
+a second `podup up -d` starts the replicas left in `created`. `podup ps` shows
+the state; with `RequireExistingKeys` set, a replica that did start cannot
+have generated keys of its own.
 
 To create the keys **once** into that volume: install `authcore-keygen` on
 the host, point it at a directory that does not exist yet, then copy the

@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"crypto"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -350,47 +349,25 @@ func parseJWK(k jwk) (crypto.PublicKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Validate the point lies on the curve via crypto/ecdh, which performs
-		// the on-curve check with the modern (non-deprecated) API. The key is
-		// then used for ECDSA signature verification.
-		if err := ecPointOnCurve(k.Crv, x, y); err != nil {
-			return nil, err
+		// Bound the coordinates to the field size before calling FillBytes:
+		// big.Int.FillBytes panics when the value does not fit the buffer,
+		// and a malformed JWKS could carry integers wider than the field.
+		size := (curve.Params().BitSize + 7) / 8
+		if x.Sign() < 0 || y.Sign() < 0 || len(x.Bytes()) > size || len(y.Bytes()) > size {
+			return nil, fmt.Errorf("EC coordinate out of range")
 		}
-		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+		buf := make([]byte, 1+2*size)
+		buf[0] = 4 // uncompressed point per SEC 1 §2.3.3
+		x.FillBytes(buf[1 : 1+size])
+		y.FillBytes(buf[1+size:])
+		pub, err := ecdsa.ParseUncompressedPublicKey(curve, buf)
+		if err != nil {
+			return nil, fmt.Errorf("EC point is not on curve: %w", err)
+		}
+		return pub, nil
 	default:
 		return nil, fmt.Errorf("unsupported key type %q", k.Kty)
 	}
-}
-
-// ecPointOnCurve validates that (x, y) is a valid point on the named curve,
-// using crypto/ecdh's NewPublicKey (which rejects off-curve points) instead of
-// the deprecated elliptic.Curve.IsOnCurve.
-func ecPointOnCurve(crv string, x, y *big.Int) error {
-	var ec ecdh.Curve
-	var size int
-	switch crv {
-	case "P-256":
-		ec, size = ecdh.P256(), 32
-	case "P-384":
-		ec, size = ecdh.P384(), 48
-	case "P-521":
-		ec, size = ecdh.P521(), 66
-	default:
-		return fmt.Errorf("unsupported curve %q", crv)
-	}
-	// FillBytes panics if a value does not fit, so bound the coordinates to the
-	// field size first (a malformed JWKS could carry oversized integers).
-	if x.Sign() < 0 || y.Sign() < 0 || len(x.Bytes()) > size || len(y.Bytes()) > size {
-		return fmt.Errorf("EC coordinate out of range")
-	}
-	buf := make([]byte, 1+2*size)
-	buf[0] = 4 // uncompressed point
-	x.FillBytes(buf[1 : 1+size])
-	y.FillBytes(buf[1+size:])
-	if _, err := ec.NewPublicKey(buf); err != nil {
-		return fmt.Errorf("EC point is not on curve: %w", err)
-	}
-	return nil
 }
 
 func ecCurve(crv string) (elliptic.Curve, error) {

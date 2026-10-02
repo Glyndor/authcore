@@ -218,7 +218,7 @@ func TestVerifyIDToken_ecOffCurveAndBadCurveRejected(t *testing.T) {
 	// test for the same input lives in jwks_bounds_internal_test.go and
 	// pins the rejection text.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"keys":[{"kty":"EC","kid":%q,"crv":"P-256","x":%q,"y":%q}]}`, testKID, x, base64.RawURLEncoding.EncodeToString(yBad))))
+		_, _ = fmt.Fprintf(w, `{"keys":[{"kty":"EC","kid":%q,"crv":"P-256","x":%q,"y":%q}]}`, testKID, x, base64.RawURLEncoding.EncodeToString(yBad))
 	}))
 	defer srv.Close()
 	c := newClient(t, srv)

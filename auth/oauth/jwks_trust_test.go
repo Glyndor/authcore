@@ -123,7 +123,7 @@ func TestJWKS_failsClosedAfterExpiry(t *testing.T) {
 		if !ok {
 			t.Fatalf("returned key type = %T, want *rsa.PublicKey", got)
 		}
-		if pub.N.Cmp(newer.PublicKey.N) != 0 {
+		if pub.N.Cmp(newer.N) != 0 {
 			t.Fatal("the returned key is not the rotated material")
 		}
 	})

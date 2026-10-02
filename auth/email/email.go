@@ -63,7 +63,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/text/unicode/norm"
 	"net"
 	"net/mail"
 	"strings"
@@ -74,6 +73,7 @@ import (
 
 	"golang.org/x/net/idna"
 	"golang.org/x/sync/singleflight"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore"
 )

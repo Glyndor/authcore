@@ -1,6 +1,8 @@
 package oauth
 
 import (
+	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"testing"
@@ -46,42 +48,17 @@ func FuzzParseJWK(f *testing.F) {
 			}
 			// Oracle: when parseJWK returned nil error, the key shape must
 			// obey the parser's published contract. parseJWK's own helpers
-			// are deliberately NOT called here; the EC check uses the
-			// independent ecdsa.ParseUncompressedPublicKey entry point,
-			// which has no overlap with parseJWK's ecPointOnCurve.
+			// are deliberately NOT called here; the EC check re-encodes the
+			// accepted key with ecdsa.PublicKey.Bytes and parses the result
+			// through crypto/ecdh.NewPublicKey, a different standard library
+			// entry point from the parser's ecdsa.ParseUncompressedPublicKey.
+			// Both reach the same curve arithmetic underneath, so this pins the
+			// parser's use of the library, not the library itself.
 			switch kty {
 			case "RSA":
-				rsaKey, ok := pub.(*rsa.PublicKey)
-				if !ok {
-					t.Errorf("RSA kty: returned %T, want *rsa.PublicKey", pub)
-					continue
-				}
-				if bits := rsaKey.N.BitLen(); bits < 2048 || bits > 16384 {
-					t.Errorf("RSA modulus bit length %d outside [2048, 16384]", bits)
-				}
-				if rsaKey.E < 2 {
-					t.Errorf("RSA exponent %d below the minimum 2", rsaKey.E)
-				}
-				// E must fit an int on a 32-bit build and be a real exponent
-				// (commonly 65537).
-				if rsaKey.E >= 1<<31 {
-					t.Errorf("RSA exponent %d exceeds the 31-bit cap", rsaKey.E)
-				}
+				checkRSAKey(t, pub)
 			case "EC":
-				ecKey, ok := pub.(*ecdsa.PublicKey)
-				if !ok {
-					t.Errorf("EC kty: returned %T, want *ecdsa.PublicKey", pub)
-					continue
-				}
-				b, berr := ecKey.Bytes()
-				if berr != nil {
-					t.Errorf("EC key could not be re-encoded as an uncompressed point: %v", berr)
-					continue
-				}
-				if _, perr := ecdsa.ParseUncompressedPublicKey(ecKey.Curve, b); perr != nil {
-					t.Errorf("EC point on %s could not be re-parsed from its uncompressed encoding: %v",
-						ecKey.Curve.Params().Name, perr)
-				}
+				checkECKey(t, pub)
 			default:
 				t.Errorf("kty=%q: parseJWK returned %T with no error; only RSA and EC are supported", kty, pub)
 			}
@@ -108,5 +85,62 @@ func TestParseJWK_googleJWKSSeed(t *testing.T) {
 	}
 	if rsaKey.E != 65537 {
 		t.Errorf("Google seed exponent = %d, want 65537", rsaKey.E)
+	}
+}
+
+// checkRSAKey is the RSA branch of the FuzzParseJWK oracle, lifted into its
+// own function so the fuzz harness stays under the cyclop limit.
+func checkRSAKey(t *testing.T, pub crypto.PublicKey) {
+	t.Helper()
+	rsaKey, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		t.Errorf("RSA kty: returned %T, want *rsa.PublicKey", pub)
+		return
+	}
+	if bits := rsaKey.N.BitLen(); bits < 2048 || bits > 16384 {
+		t.Errorf("RSA modulus bit length %d outside [2048, 16384]", bits)
+	}
+	if rsaKey.E < 2 {
+		t.Errorf("RSA exponent %d below the minimum 2", rsaKey.E)
+	}
+	// E must fit an int on a 32-bit build and be a real exponent
+	// (commonly 65537).
+	if rsaKey.E >= 1<<31 {
+		t.Errorf("RSA exponent %d exceeds the 31-bit cap", rsaKey.E)
+	}
+}
+
+// checkECKey is the EC branch of the FuzzParseJWK oracle, lifted into its
+// own function so the fuzz harness stays under the cyclop limit. The check
+// re-encodes the accepted key with ecdsa.PublicKey.Bytes and parses the
+// result through crypto/ecdh.NewPublicKey, a path that does not share code
+// with the parser's ecdsa.ParseUncompressedPublicKey call.
+func checkECKey(t *testing.T, pub crypto.PublicKey) {
+	t.Helper()
+	ecKey, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		t.Errorf("EC kty: returned %T, want *ecdsa.PublicKey", pub)
+		return
+	}
+	b, berr := ecKey.Bytes()
+	if berr != nil {
+		t.Errorf("EC key could not be re-encoded as an uncompressed point: %v", berr)
+		return
+	}
+	var ec ecdh.Curve
+	switch ecKey.Curve.Params().Name {
+	case "P-256":
+		ec = ecdh.P256()
+	case "P-384":
+		ec = ecdh.P384()
+	case "P-521":
+		ec = ecdh.P521()
+	default:
+		t.Errorf("EC key has unrecognised curve %q", ecKey.Curve.Params().Name)
+		return
+	}
+	if _, perr := ec.NewPublicKey(b); perr != nil {
+		t.Errorf("EC point on %s could not be re-parsed via crypto/ecdh: %v",
+			ecKey.Curve.Params().Name, perr)
 	}
 }
