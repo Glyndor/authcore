@@ -10,6 +10,11 @@ change of user were run again on 2026-09-27 with podup 5.10.5, Podman 5.7.0 and
 authcore v1.18.0, and behaved as described. The backup recipe, the `KeyStore`
 variant and the SELinux section were not part of that run.
 
+The recommended setup, the keygen recipe, the guard, the replicas, the recreate
+and the empty-volume refusal are run by `examples/containers/recipe.sh` in CI
+on every change and weekly. The backup recipe, Podman secrets, `KeyStore`, the
+change of user and SELinux are not.
+
 ## Keys must outlive the container
 
 `KeysDir` left at the default `.authcore` inside the container, no volume

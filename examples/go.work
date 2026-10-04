@@ -21,6 +21,7 @@ use (
 	../
 	./apikey
 	./basic
+	./containers
 	./email
 	./fiber
 	./gin
