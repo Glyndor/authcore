@@ -1,0 +1,71 @@
+name: Containers
+
+# Runs examples/containers/recipe.sh, which turns the central claims of
+# docs/containers.md into a check: keygen once, copy into a named volume, the
+# guard that refuses an existing volume, three read-only keep-id replicas that
+# must all load the same key, a down -v and up that must keep it, and an empty
+# volume that RequireExistingKeys must refuse.
+#
+# Podman and podup change outside this repository, so a green history of pull
+# requests says nothing about them. The weekly run is what notices when the
+# runner image or a new podup breaks the recipe.
+#
+# Dependabot does not see PODUP_VERSION and PODUP_SHA256: bump both by hand
+# from the release's SHA256SUMS. sha256sum -c fails the step on a mismatch
+# before the binary runs.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Weekly, off the hour. GitHub reads schedules from the default branch,
+    # so this fires only once the workflow is on main.
+    - cron: '37 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recipe:
+    name: containers recipe
+    # podup requires Podman 5.0 or later. ubuntu-24.04, which ubuntu-latest
+    # still points to, ships Podman 4.9.3; ubuntu-26.04 ships 5.7.0, the
+    # version docs/containers.md was measured on (both read 2026-10-04).
+    runs-on: ubuntu-26.04
+    # 15 minutes is a ceiling, not a measurement: tighten it after the
+    # first runs are read.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Download and verify podup ${{ env.PODUP_VERSION }}
+        env:
+          PODUP_VERSION: 5.10.10
+          PODUP_SHA256: 997bc2e3c4b1c06b9241aa8213d9b049376c5cf04e39edaf059a19cd8d72a985
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSL -o "$RUNNER_TEMP/bin/podup" \
+            "https://github.com/Glyndor/podup/releases/download/v${PODUP_VERSION}/podup-linux-x86_64"
+          echo "${PODUP_SHA256}  $RUNNER_TEMP/bin/podup" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/podup"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # podup speaks the libpod API, and the runner image does not start the
+      # rootless user socket (first run: "podman.sock: No such file or
+      # directory"). podman --remote fails here if the socket is not answering.
+      - name: Start the Podman API socket
+        run: |
+          systemctl --user enable --now podman.socket
+          podman --remote version
+
+      - name: Run the containers recipe
+        run: bash examples/containers/recipe.sh
