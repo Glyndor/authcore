@@ -22,7 +22,7 @@ import (
 func main() {
 	cfg := authcore.DefaultConfig()
 	cfg.KeysDir = os.Getenv("AUTHCORE_KEYS_DIR")
-	cfg.RequireExistingKeys = true
+	cfg.RequireExistingKeys = false
 	auth, err := authcore.New(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: %v\n", err)
