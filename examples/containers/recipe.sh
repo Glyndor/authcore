@@ -47,7 +47,7 @@ cleanup() {
     podman volume rm "$vol" 2>/dev/null
     podman volume rm "$empty_vol" 2>/dev/null
     podman rmi -f "$image" 2>/dev/null
-    rm -rf "$tmp"
+    rm -rf $tmp
     exit $trap_rc
 }
 trap cleanup EXIT
