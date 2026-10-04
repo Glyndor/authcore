@@ -1,0 +1,18 @@
+services:
+  app:
+    image: localhost/authcore-probe:recipe
+    user: "${PROBE_UID}:${PROBE_GID}"
+    userns_mode: keep-id
+    read_only: true
+    restart: unless-stopped
+    environment:
+      AUTHCORE_KEYS_DIR: /run/authcore
+    volumes:
+      - authcore_keys:/run/authcore:ro
+    deploy:
+      replicas: 3
+
+volumes:
+  authcore_keys:
+    external: true
+    name: ${KEYS_VOLUME}

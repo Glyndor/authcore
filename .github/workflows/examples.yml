@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [apikey, basic, email, fiber, gin, jwt, oauth, password, username]
+        example: [apikey, basic, containers, email, fiber, gin, jwt, oauth, password, username]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
