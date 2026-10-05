@@ -46,7 +46,7 @@ func main() {
 	// SessionID (pair.SessionID) is the JTI — store it in your session table.
 	// RefreshTokenHash is what you persist in the database, never the raw token.
 	// -------------------------------------------------------------------------
-	fmt.Println("=== Login — CreateTokens ===")
+	fmt.Println("=== Login: CreateTokens ===")
 
 	userID := "019600ab-1234-7000-8000-000000000001"
 	pair, err := jwtMod.CreateTokens(userID, UserClaims{Name: "Ana García", Role: "admin"})
@@ -63,7 +63,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	// Example 2: verify an access token on each authenticated request.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Authenticated request — VerifyAccessToken ===")
+	fmt.Println("\n=== Authenticated request: VerifyAccessToken ===")
 
 	claims, err := jwtMod.VerifyAccessToken(pair.AccessToken)
 	if err != nil {
@@ -90,7 +90,7 @@ func main() {
 	// Verify the hash first (constant-time), then issue a new pair and replace
 	// the stored hash — both steps must succeed or roll back the transaction.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Token rotation — RotateTokens ===")
+	fmt.Println("\n=== Token rotation: RotateTokens ===")
 
 	storedHash := pair.RefreshTokenHash // what you loaded from the database
 
