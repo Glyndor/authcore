@@ -41,8 +41,11 @@ cleanup() {
     set +e
     # Containers go by label rather than through podup down, which would need
     # the compose variables of whichever step failed.
+    # podup also creates a <project>_default network for each project; it
+    # goes too, or every run leaves two behind.
     for p in "$project" "${project}-empty"; do
         podman ps -aq --filter "label=${label}=${p}" | xargs -r podman rm -f >/dev/null 2>&1
+        podman network rm -f "${p}_default" >/dev/null 2>&1
     done
     podman volume rm "$vol" 2>/dev/null
     podman volume rm "$empty_vol" 2>/dev/null
