@@ -8,7 +8,8 @@ Two ways to construct the library:
 ## Run
 
 ```bash
-go run ./examples/basic
+cd examples/basic
+go run .
 ```
 
 ## What it does

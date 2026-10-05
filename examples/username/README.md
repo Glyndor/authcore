@@ -5,7 +5,8 @@ Validate + normalize a handle in one call, reject reserved names like `admin`, `
 ## Run
 
 ```bash
-go run ./examples/username
+cd examples/username
+go run .
 ```
 
 ## What it shows

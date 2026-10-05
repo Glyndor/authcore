@@ -1,18 +1,55 @@
 # Secure login recipe
 
-authcore gives you the parts of authentication you only get wrong once — password
-hashing, token signing, timing-safe comparison, key management. It does **not**
-build the login flow around them. This page is the checklist for that flow: the
-things you, the consumer, still own so the result is login "a security auditor
-would accept."
-
-Read it once, wire it once. Each section says what authcore does for you and
-what you must add.
+authcore provides password hashing, token signing, timing-safe comparison and key
+management. It does **not** build the login flow around them. This page is the
+checklist for that flow: each section says what authcore does and what your
+application must add.
 
 > [!IMPORTANT]
 > authcore is a library, not an identity server. It has no database, no HTTP
-> layer, no rate limiter, no session store. Those are yours. The recipe below is
-> how to connect them without opening a hole.
+> server, no rate limiter and no session store. Your application supplies them.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App
+    participant authcore
+    participant Database
+
+    Note over Browser,App: 1. Register
+    Browser->>App: email + password
+    App->>authcore: pwdMod.Hash(password)
+    authcore-->>App: hash
+    App->>Database: store emailNorm + hash
+    Database-->>App: ok
+
+    Note over Browser,App: 2. Login
+    Browser->>App: email + password
+    App->>Database: find user by email
+    Database-->>App: user (or not found)
+    App->>authcore: pwdMod.Verify(password, hash)
+    authcore-->>App: ok
+    App->>authcore: jwtMod.CreateTokens(userID, claims)
+    authcore-->>App: pair (access, refresh, session)
+    App->>Database: store session + refresh hash
+    Database-->>App: ok
+
+    Note over Browser,App: 3. Authenticated request
+    Browser->>App: Authorization: Bearer accessToken
+    App->>authcore: jwtMod.VerifyAccessToken(accessToken)
+    authcore-->>App: claims (or error)
+
+    Note over Browser,App: 4. Refresh (with rotation)
+    Browser->>App: refreshToken
+    App->>Database: find session
+    Database-->>App: session
+    App->>authcore: jwtMod.VerifyRefreshTokenHash(refreshToken, storedHash)
+    authcore-->>App: true
+    App->>authcore: jwtMod.RotateTokens(refreshToken, claims)
+    authcore-->>App: newPair
+    App->>Database: UPDATE refresh_hash WHERE id AND old hash
+    Database-->>App: rows affected
+```
 
 ## At a glance
 

@@ -5,7 +5,8 @@ End-to-end JWT flow: create a pair, verify the access token, handle errors, rota
 ## Run
 
 ```bash
-go run ./examples/jwt
+cd examples/jwt
+go run .
 ```
 
 ## What it shows
