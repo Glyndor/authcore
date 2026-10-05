@@ -6,10 +6,11 @@ smoke-test the whole handshake end to end.
 ## Run
 
 ```bash
+cd examples/oauth
 OAUTH_PROVIDER=google \
 OAUTH_CLIENT_ID=your-client-id \
 OAUTH_CLIENT_SECRET=your-client-secret \
-go run ./examples/oauth
+go run .
 ```
 
 Then open <http://localhost:8080/login>. After you approve at the provider, the

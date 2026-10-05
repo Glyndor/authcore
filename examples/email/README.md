@@ -5,7 +5,8 @@ Validate + normalize an address in one call, optionally verify its domain can re
 ## Run
 
 ```bash
-go run ./examples/email
+cd examples/email
+go run .
 ```
 
 > The `VerifyDomain` step performs a real DNS lookup. It is skipped automatically if your network has no outbound DNS access.

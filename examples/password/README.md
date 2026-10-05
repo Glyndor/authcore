@@ -5,7 +5,8 @@ Policy check → hash → verify → error handling → custom work parameters.
 ## Run
 
 ```bash
-go run ./examples/password
+cd examples/password
+go run .
 ```
 
 ## What it shows

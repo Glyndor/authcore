@@ -6,7 +6,8 @@ would (parse the id, look up the stored hash, constant-time compare).
 ## Run
 
 ```bash
-go run ./examples/apikey
+cd examples/apikey
+go run .
 ```
 
 ## What it shows
