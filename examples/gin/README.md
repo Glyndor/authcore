@@ -1,4 +1,4 @@
-# examples/gin — full auth API with Gin
+# examples/gin: full auth API with Gin
 
 A runnable HTTP server that wires AuthCore into [Gin](https://gin-gonic.com). Same routes as the Fiber example, different framework.
 
@@ -17,8 +17,8 @@ Server listens on `:3000`.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/register` | — | Hash + store the new user's password |
-| `POST` | `/login` | — | Verify password, issue an access + refresh pair |
+| `POST` | `/register` | none | Hash + store the new user's password |
+| `POST` | `/login` | none | Verify password, issue an access + refresh pair |
 | `GET` | `/me` | `Authorization: Bearer <access>` | Verify the access token, return claims |
 | `POST` | `/refresh` | refresh token in body | Rotate the pair, replace the stored hash |
 
@@ -30,7 +30,7 @@ curl -X POST localhost:3000/register \
   -H 'content-type: application/json' \
   -d '{"email":"ana@example.com","password":"Str0ng-P@ssword!"}'
 
-# 2. Login — capture the tokens
+# 2. Login: capture the tokens
 curl -X POST localhost:3000/login \
   -H 'content-type: application/json' \
   -d '{"email":"ana@example.com","password":"Str0ng-P@ssword!"}'
@@ -50,6 +50,6 @@ curl -X POST localhost:3000/refresh \
 - `pwdMod.Hash` / `pwdMod.Verify` for registration + login.
 - `jwtMod.CreateTokens` with typed `UserClaims`.
 - `jwtMod.VerifyAccessToken` in a Gin middleware for `/me`.
-- `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens` — the full anti-reuse rotation pattern.
+- `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens`: the full anti-reuse rotation pattern.
 
-User storage is an in-memory `map` for brevity — swap it for your real database.
+User storage is an in-memory `map` for brevity. Swap it for your real database.

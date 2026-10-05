@@ -1,4 +1,4 @@
-# auth/username — validation, normalization, reserved names
+# auth/username: validation, normalization, reserved names
 
 Validate + normalize a handle in one call, reject reserved names like `admin`, `root`, `login`.
 
@@ -16,7 +16,7 @@ go run .
 | Normalize + validate in one call | `userMod.ValidateAndNormalize(input)` |
 | Character rules (`[a-z0-9_-]`, no consecutive specials, length 3–32) | `errors.Unwrap(err).Error()` |
 | Reserved-name blocklist (built-in, fixed) | `username.ErrInvalidUsername` |
-| Idempotent normalization — `Alice_Dev99` and `alice_dev99` collapse to the same canonical form |
+| Idempotent normalization: `Alice_Dev99` and `alice_dev99` collapse to the same canonical form |
 
 ## Expected output (abridged)
 
@@ -43,4 +43,4 @@ reason only       : "admin" is a reserved name
 
 ## Golden rule
 
-Always normalize **before storing** and **before querying** — two users should never differ only in casing or whitespace.
+Always normalize **before storing** and **before querying**. Two users should never differ only in casing or whitespace.

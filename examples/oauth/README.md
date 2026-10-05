@@ -1,4 +1,4 @@
-# auth/oauth — social login example
+# auth/oauth: social login example
 
 A runnable two-route OIDC / OAuth2 login flow. Point it at a live provider to
 smoke-test the whole handshake end to end.
@@ -24,7 +24,7 @@ Register `http://localhost:8080/callback` as the redirect URI with your provider
 | `OAUTH_PROVIDER` | Kind | Identity from |
 |---|---|---|
 | `google` (default) | OIDC | `VerifyIDToken` |
-| `microsoft` | OIDC | `VerifyIDToken` (set `OAUTH_TENANT` to a specific tenant id — the `common`/`organizations` aliases fail exact-issuer validation) |
+| `microsoft` | OIDC | `VerifyIDToken` (set `OAUTH_TENANT` to a specific tenant id; the `common`/`organizations` aliases fail exact-issuer validation) |
 | `github` | OAuth2 | `UserInfo` |
 | `discord` | OAuth2 | `UserInfo` |
 
@@ -32,12 +32,12 @@ Register `http://localhost:8080/callback` as the redirect URI with your provider
 
 | Step | API |
 |---|---|
-| Start — build redirect with PKCE + state + nonce | `mod.AuthCodeURL()` |
-| Callback — verify state, swap the code | `mod.Exchange(ctx, code, verifier)` |
-| OIDC — validate the ID token | `mod.VerifyIDToken(ctx, idToken, nonce)` |
-| OAuth2 — fetch the profile | `mod.UserInfo(ctx, accessToken)` |
+| Start: build redirect with PKCE + state + nonce | `mod.AuthCodeURL()` |
+| Callback: verify state, swap the code | `mod.Exchange(ctx, code, verifier)` |
+| OIDC: validate the ID token | `mod.VerifyIDToken(ctx, idToken, nonce)` |
+| OAuth2: fetch the profile | `mod.UserInfo(ctx, accessToken)` |
 
 > The example keeps `state`/`nonce`/`verifier` in a plain `HttpOnly` cookie for
 > brevity. In production sign that cookie (and set `Secure`) or use a
-> server-side session, and serve over HTTPS — see the
+> server-side session, and serve over HTTPS. See the
 > [secure login recipe](../../docs/secure-login.md).

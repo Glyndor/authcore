@@ -1,9 +1,9 @@
-# authcore — basic initialisation example
+# authcore: basic initialisation example
 
 Two ways to construct the library:
 
-1. **Zero config** — call `authcore.New(authcore.DefaultConfig())`. Keys are generated under `./.authcore/` on first run.
-2. **Custom config** — override `Timezone`, `EnableLogs`, `KeysDir`, or plug in your own `Logger`.
+1. **Zero config**: call `authcore.New(authcore.DefaultConfig())`. Keys are generated under `./.authcore/` on first run.
+2. **Custom config**: override `Timezone`, `EnableLogs`, `KeysDir`, or plug in your own `Logger`.
 
 ## Run
 
@@ -33,4 +33,4 @@ timezone      : America/Bogota
 logs enabled  : false
 ```
 
-The temporary `KeysDir` is removed at the end of each run — real apps should point it at persistent storage.
+The temporary `KeysDir` is removed at the end of each run. Real apps should point it at persistent storage.

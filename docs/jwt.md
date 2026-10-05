@@ -1,7 +1,7 @@
 # JWT authentication
 
 `auth/jwt` signs and verifies access + refresh tokens with EdDSA (Ed25519),
-supports generic custom claims, and handles rotation — all timing-safe. See the
+supports generic custom claims, and handles rotation, all timing-safe. See the
 [error reference](errors.md) for every sentinel error and the
 [runnable example](../examples/jwt/).
 
@@ -24,30 +24,30 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 |---|---|---|
 | `AccessTokenTTL` | 15 minutes | 24 hours |
 | `RefreshTokenTTL` | 24 hours | 365 days |
-| `Issuer` | `"github.com/Glyndor/authcore"` | — |
-| `Audience` | `["github.com/Glyndor/authcore"]` | — |
-| `ClockSkewLeeway` | 0 (no leeway) | — |
+| `Issuer` | `"github.com/Glyndor/authcore"` | none |
+| `Audience` | `["github.com/Glyndor/authcore"]` | none |
+| `ClockSkewLeeway` | 0 (no leeway) | none |
 
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
 > issuing effectively permanent bearer tokens by accident (e.g. typing
 > `48 * time.Hour` where `48 * time.Minute` was intended).
 
-## Login — creating a token pair
+## Login: creating a token pair
 
 ```go
 // subject must be a UUID v7 (RFC 9562 §5.7).
 pair, err := jwtMod.CreateTokens(userID, UserClaims{Name: "Ana", Role: "admin"})
 if err != nil {
-    // jwt.ErrInvalidSubject — subject is not a valid UUID v7
+    // jwt.ErrInvalidSubject: subject is not a valid UUID v7
 }
 
 pair.AccessToken            // short-lived JWT for API requests
-pair.AccessTokenExpiresAt   // time.Time — tell the client when to refresh
+pair.AccessTokenExpiresAt   // time.Time: tell the client when to refresh
 pair.RefreshToken           // long-lived JWT for token rotation
 pair.RefreshTokenExpiresAt  // time.Time: when this refresh token expires; each rotation issues a new one
-pair.RefreshTokenHash       // HMAC-SHA256 hex digest — store this in your DB
-pair.SessionID              // UUID v7 jti shared by both tokens — use as session PK
+pair.RefreshTokenHash       // HMAC-SHA256 hex digest. Store this in your DB
+pair.SessionID              // UUID v7 jti shared by both tokens. Use as session PK
 ```
 
 > **Never store the raw refresh token.** Store only `RefreshTokenHash`.
@@ -58,24 +58,24 @@ pair.SessionID              // UUID v7 jti shared by both tokens — use as sess
 claims, err := jwtMod.VerifyAccessToken(tokenFromHeader)
 switch {
 case errors.Is(err, jwt.ErrTokenExpired):
-    // 401 — client should refresh
+    // 401: client should refresh
 case errors.Is(err, jwt.ErrTokenInvalid):
-    // 401 — tampered, wrong key, or issuer/audience mismatch
+    // 401: tampered, wrong key, or issuer/audience mismatch
 case errors.Is(err, jwt.ErrTokenMalformed):
-    // 400 — not a JWT at all
+    // 400: not a JWT at all
 case err != nil:
-    // 401 — catch-all
+    // 401: catch-all
 }
 
 fmt.Println(claims.Subject)    // UUID v7 user ID
-fmt.Println(claims.Extra.Role) // "admin" — your custom claims
+fmt.Println(claims.Extra.Role) // "admin". Your custom claims
 fmt.Println(claims.ExpiresAt)  // time.Time
 ```
 
 > [!NOTE]
 > Verification enforces both **`iss` (issuer)** and **`aud` (audience)** match
 > the values in `jwt.Config`. A token signed by a trusted key but minted for a
-> different service is rejected with `ErrTokenInvalid` — this is the defense
+> different service is rejected with `ErrTokenInvalid`. This is the defense
 > against accidental key reuse across services.
 
 ## Rotating tokens
@@ -84,7 +84,7 @@ Each refresh token carries a random `rid` claim, so two tokens of one session
 never compare equal, whatever the clock says. The `SessionID` (`jti`) is still
 preserved across rotations; `rid` only guarantees the token bytes change.
 
-The recommended pattern — verify the hash **before** calling `RotateTokens` to
+The recommended pattern: verify the hash **before** calling `RotateTokens` to
 prevent token-reuse attacks even if your database is compromised:
 
 ```go
@@ -104,7 +104,7 @@ if !jwtMod.VerifyRefreshTokenHash(clientToken, session.RefreshTokenHash) {
     return http.StatusUnauthorized
 }
 
-// 4. Rotate — authcore verifies the token's signature and expiry.
+// 4. Rotate: authcore verifies the token's signature and expiry.
 freshClaims := UserClaims{Name: session.UserName, Role: session.UserRole}
 newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
 if err != nil {
@@ -225,7 +225,7 @@ before it expires.
 
 This matters for logout. Deleting the stored refresh-token hash on logout stops
 the session from being **renewed**, but it does **not** kill the access token
-the client already holds — that token keeps working until it expires.
+the client already holds. That token keeps working until it expires.
 
 ```go
 // Logout: delete the refresh hash so the session cannot be renewed.
@@ -247,7 +247,7 @@ What to do about it:
   its refresh token.
 
 ```go
-// Your store — in-memory, Redis, a DB table. Must fail closed.
+// Your store: in-memory, Redis, a DB table. Must fail closed.
 type myDenylist struct{ /* ... */ }
 func (d *myDenylist) IsRevoked(ctx context.Context, jti string) (bool, error) {
     return d.store.Exists(ctx, "revoked:"+jti)
@@ -289,5 +289,5 @@ In distributed systems, server clocks may drift by a few seconds. Set
 cfg.ClockSkewLeeway = 30 * time.Second
 ```
 
-The leeway applies to both access and refresh token verification. Keep it small
-— large values reduce the security margin of short-lived tokens.
+The leeway applies to both access and refresh token verification. Keep it small:
+large values reduce the security margin of short-lived tokens.
