@@ -8,6 +8,17 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    # Patch and minor bumps of the library's own dependencies land together:
+    # on 2026-09-19 four golang.org/x bumps arrived as four pull requests that
+    # each ran the full CI for the same review. Majors stay out of the group,
+    # one pull request each, because a major is the one worth reading alone.
+    groups:
+      go-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "build"
       include: "scope"
@@ -47,6 +58,19 @@ updates:
       - "type:deps"
       - "type:ci"
     open-pull-requests-limit: 10
+    # Two groups, not one, because they get opposite reviews. One release of
+    # Glyndor/.github opened nine pull requests on 2026-09-19, one per
+    # reusable, and a reusable bump usually changes nothing this repository
+    # calls. An actions/* bump (checkout, setup-go) is the one worth reading
+    # line by line. In a single group, closing the first as a no-op would
+    # close the second with it.
+    groups:
+      glyndor-reusables:
+        patterns:
+          - "Glyndor/*"
+      github-owned:
+        patterns:
+          - "actions/*"
     commit-message:
       prefix: "ci"
       include: "scope"
