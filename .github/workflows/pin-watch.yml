@@ -1,0 +1,126 @@
+name: Pin watch
+
+# Four tool versions in CI are pinned by hand, in an `env:` block
+# rather than as a Dependabot-tracked dependency: golangci-lint in
+# `ci.yml`, podup in `containers.yml`, actionlint and shellcheck in
+# `workflow-lint.yml`. Dependabot does not see those strings, and a
+# new upstream release can land without anyone noticing, the way
+# podup 5.10.11 did on 2026-10-04. The response is this workflow:
+# every run, for each pin, ask `gh release view` what the upstream
+# latest non-prerelease tag is and compare against the value in the
+# workflow. The selection and the report live in
+# `.github/scripts/pin_watch.py`; the `report` job below also runs
+# the script's unit tests so a broken edit cannot merge without
+# having been executed.
+#
+# Four triggers, each for a different reason:
+#
+# - `schedule`, weekly Monday 05:17 UTC: a hand pin is the kind of
+#   thing that ages by a release at a time, and the report has to
+#   keep appearing whether or not anyone pushes. GitHub reads
+#   `schedule:` from the default branch only, so this cron is inert
+#   until the workflow is promoted to `main`; the push trigger
+#   covers the gap until then. The minute is off the hour and off
+#   the other weekly crons (audit 06:00 Mon, fuzz 07:00 Mon,
+#   containers 05:37 Tue) so the runs do not queue behind each
+#   other.
+# - `push` to `develop`: the watcher proves itself alive every time
+#   work lands, which stands in for a freshness watcher. A cron
+#   that stops firing emits nothing, and "no alert" reads as "all
+#   clear"; a run that appears on every merge into `develop` is the
+#   second fact that tells the two apart.
+# - `pull_request` on `[main, develop]`, with no `paths:` filter on
+#   purpose: a filter that omits this file would make a broken edit
+#   to the watcher merge without having been executed, and a filter
+#   that includes only the watcher would miss every pull request
+#   that touches one of the four pinned workflows. The `report`
+#   job is read-only on every pull request: it proves the parser
+#   still reads every pin and that upstream is reachable.
+# - `workflow_dispatch`: rerun by hand after a bump, to confirm the
+#   report went quiet.
+#
+# Adding a hand pin means adding a row to `PINS` in
+# `.github/scripts/pin_watch.py` and bumping the version and its
+# sha256 together in the workflow; the report, the real-workflow
+# test, and the issue body all derive from that one row.
+#
+# The check the runtime job emits is `pin watch`, composed from the
+# job id `pin-watch` and its `name:`. It is advisory on purpose
+# and not required anywhere: a watcher that holds a merge because a
+# third party opened a release would block unrelated work on
+# someone else's release timing.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions: {}
+
+concurrency:
+  group: pin-watch-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: pin watch report
+    runs-on: ubuntu-latest
+    # 5 minutes is a ceiling, not a measurement: tighten after the
+    # first runs are read.
+    timeout-minutes: 5
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run pin watch unit tests
+        # Standard library only: `unittest` ships with Python and
+        # needs no installed package, so a future Python bump cannot
+        # move the goal posts by adding a dependency the workflow
+        # did not pin. Discovery uses the same path the watch job
+        # runs against.
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Run pin watch report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # `pipefail` makes a failed `gh` call fail the step; without
+        # it the script would read an empty stream, exit 1, and the
+        # step would still be red, but for a reason the log would
+        # not name. Read-only: the script never opens or edits
+        # issues on this code path.
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/pin_watch.py --report
+
+  watch:
+    name: pin watch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reconcile the pin watch drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # `pipefail` again, for the same reason: a failed `gh`
+        # call must surface as a step failure, not as a swallowed
+        # non-zero exit that the script then turns into a half-
+        # written issue.
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/pin_watch.py --issue

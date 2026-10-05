@@ -2,8 +2,8 @@
 
 ## Testing your auth layer
 
-Every authcore module accepts a `Provider` interface — not a concrete
-`*AuthCore` — which means **you never need to generate real keys or touch the
+Every authcore module accepts a `Provider` interface, not a concrete
+`*AuthCore`, which means **you never need to generate real keys or touch the
 disk in tests**. Pass in a stub.
 
 ```go
@@ -64,7 +64,7 @@ func TestMyHandler(t *testing.T) {
 
 ## Writing a module
 
-Modules depend on `authcore.Provider` — not the concrete `*AuthCore` — so they
+Modules depend on `authcore.Provider`, not the concrete `*AuthCore`, so they
 remain independently testable without touching the filesystem or generating real
 keys.
 
@@ -101,7 +101,7 @@ func New(p authcore.Provider, cfg Config) (*MyModule, error) {
 func (m *MyModule) Name() string { return "mypkg" }
 ```
 
-In tests, inject a stub `Provider` that returns fixed keys — no disk I/O
+In tests, inject a stub `Provider` that returns fixed keys. No disk I/O
 required.
 
 ## Project layout
@@ -115,7 +115,7 @@ authcore/
 ├── errors.go            # Sentinel errors
 │
 ├── internal/
-│   ├── clock/           # Timezone-aware Clock — injected for deterministic tests
+│   ├── clock/           # Timezone-aware Clock: injected for deterministic tests
 │   └── keymanager/      # Ed25519 + HMAC key generation, persistence, validation
 │
 ├── auth/

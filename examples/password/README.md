@@ -1,22 +1,23 @@
-# auth/password — Argon2id hashing example
+# auth/password: Argon2id hashing example
 
 Policy check → hash → verify → error handling → custom work parameters.
 
 ## Run
 
 ```bash
-go run ./examples/password
+cd examples/password
+go run .
 ```
 
 ## What it shows
 
 | Step | API |
 |---|---|
-| Policy validation — weak passwords are rejected *before* any CPU is spent | `pwdMod.Hash(weak)` → `ErrWeakPassword` |
-| Hashing — 64 MiB Argon2id, PHC-encoded output | `pwdMod.Hash(strong)` |
-| Verification — constant-time comparison, parameters read from the stored hash | `pwdMod.Verify(plain, hash)` |
-| Error handling — malformed hashes return `ErrInvalidHash` | `errors.Is(err, password.ErrInvalidHash)` |
-| Tuning — scale `Memory`, `Iterations`, `Parallelism` for your hardware | `password.New(auth, password.Config{…})` |
+| Policy validation: weak passwords are rejected *before* any CPU is spent | `pwdMod.Hash(weak)` → `ErrWeakPassword` |
+| Hashing: 64 MiB Argon2id, PHC-encoded output | `pwdMod.Hash(strong)` |
+| Verification: constant-time comparison, parameters read from the stored hash | `pwdMod.Verify(plain, hash)` |
+| Error handling: malformed hashes return `ErrInvalidHash` | `errors.Is(err, password.ErrInvalidHash)` |
+| Tuning: scale `Memory`, `Iterations`, `Parallelism` for your hardware | `password.New(auth, password.Config{…})` |
 
 ## Expected output (abridged)
 
@@ -39,7 +40,7 @@ ErrInvalidHash caught correctly
 128 MiB hash: $argon2id$v=19$m=131072,t=4,p=4$…
 ```
 
-Each run produces a **different** hash string for the same password — every call generates a fresh random salt.
+Each run produces a **different** hash string for the same password. Every call generates a fresh random salt.
 
 ## Why Argon2id?
 

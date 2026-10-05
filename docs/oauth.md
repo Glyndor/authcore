@@ -1,16 +1,16 @@
 # OIDC login
 
-`auth/oauth` is an OpenID Connect **client** — "log in with Google / Microsoft /
+`auth/oauth` is an OpenID Connect **client**, for "log in with Google / Microsoft /
 any OIDC provider". It implements the security-critical mechanics: Authorization
 Code flow with **PKCE (S256)**, an unguessable `state` and `nonce`, and strict
 **ID-token validation** (signature against the provider's JWKS, plus issuer,
-audience, expiry, and nonce). It is a client only — authcore is not an OAuth
+audience, expiry, and nonce). It is a client only. authcore is not an OAuth
 server. It stores nothing and runs no HTTP server; you own the two routes.
 
 > [!NOTE]
 > Two kinds of provider are supported. **OIDC** providers (Google, Microsoft,
-> Auth0, Keycloak…) issue an ID token — validate it with `VerifyIDToken`.
-> **Plain-OAuth2** providers (GitHub, Discord…) issue no ID token — fetch the
+> Auth0, Keycloak…) issue an ID token. Validate it with `VerifyIDToken`.
+> **Plain-OAuth2** providers (GitHub, Discord…) issue no ID token. Fetch the
 > profile with `UserInfo` instead. The authorization + PKCE + exchange steps are
 > identical for both. Discord publishes a discovery document too; see below.
 
@@ -51,11 +51,11 @@ mod, err := oauth.New(auth, oauth.Config{
 })
 ```
 
-### Any OIDC provider — discovery
+### Any OIDC provider: discovery
 
 You don't need a preset or hand-written endpoints. `Discover` reads the
-provider's `.well-known/openid-configuration` and builds the `Provider` for you
-— always-current endpoints, works for Apple, Okta, Auth0, GitLab, Cognito,
+provider's `.well-known/openid-configuration` and builds the `Provider` for you:
+always-current endpoints, works for Apple, Okta, Auth0, GitLab, Cognito,
 Keycloak, any standard OIDC issuer:
 
 ```go
@@ -116,7 +116,7 @@ Provider: oauth.Provider{
 
 ## The two routes
 
-**Start** — build the redirect and persist the three secrets where only this
+**Start**: build the redirect and persist the three secrets where only this
 browser can return them (a short-lived `HttpOnly` signed cookie or the session):
 
 ```go
@@ -125,7 +125,7 @@ saveToCookie(w, req.State, req.Nonce, req.Verifier) // all three
 http.Redirect(w, r, req.URL, http.StatusFound)
 ```
 
-**Callback** — check `state`, exchange the code, validate the ID token:
+**Callback**: check `state`, exchange the code, validate the ID token:
 
 ```go
 // Reject an empty saved state before the comparison: two empty byte
@@ -170,7 +170,7 @@ if err != nil { /* 401 */ }
 ```
 
 `UserInfo` sends the access token as a Bearer credential, caps the response, and
-returns the decoded JSON. There is no ID token to validate here — identity is
+returns the decoded JSON. There is no ID token to validate here. Identity is
 whatever the userinfo endpoint returns, so trust only the provider's stable id.
 
 > Discord also publishes an OIDC discovery document. The `oauth.Discord()`
@@ -182,7 +182,7 @@ whatever the userinfo endpoint returns, so trust only the provider's stable id.
 
 > Custom OAuth2 provider: set `Provider{AuthURL, TokenURL, UserInfoURL}` (no
 > issuer/JWKS). A provider with neither issuer+JWKS nor a userinfo URL is
-> rejected at `New` — it could not identify the user.
+> rejected at `New`: it could not identify the user.
 
 ## Sign in with Apple
 
@@ -264,7 +264,7 @@ RFC 6749 section 3.2 requires of a token endpoint request.
   cannot strip it. Works for public clients (no secret) too.
 - **ID-token signature** is checked against the provider's JWKS, fetched and
   cached (1 h), refreshed automatically on an unknown `kid` so key rotation just
-  works. Only asymmetric algorithms (RS/PS/ES) are accepted — `none` and HMAC
+  works. Only asymmetric algorithms (RS/PS/ES) are accepted. `none` and HMAC
   are refused, closing the algorithm-confusion forgery.
 - **Issuer, audience, `azp`, expiry, and nonce** are all enforced. A mismatch
   fails closed with `ErrIDTokenInvalid`.
@@ -292,5 +292,5 @@ RFC 6749 section 3.2 requires of a token endpoint request.
 ## What is yours
 
 Sessions, cookies, CSRF on your own routes, and where you persist the per-request
-secrets — same as the rest of authcore. See the
+secrets, same as the rest of authcore. See the
 [secure login recipe](secure-login.md).

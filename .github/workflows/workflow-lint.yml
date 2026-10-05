@@ -1,0 +1,73 @@
+name: Workflow lint
+
+# Lints every workflow YAML and every tracked shell script. actionlint runs
+# shellcheck only over the `run:` blocks of workflows; the standalone shell
+# scripts in scripts/ and examples/ are checked by the second step, which
+# fails if `git ls-files '*.sh'` matches nothing (otherwise a rename could
+# empty the list and the step would still pass).
+#
+# Versions are pinned by hand; Dependabot does not see the strings here, and
+# bumping them is a deliberate decision.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-lint:
+    # The string `workflow-lint` is the check name a ruleset will require;
+    # changing it later would orphan the required check.
+    name: workflow-lint
+    runs-on: ubuntu-latest
+    # 10 minutes is a ceiling, not a measurement; tighten it after the
+    # first runs are read.
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: v1.7.12
+      SHELLCHECK_VERSION: v0.11.0
+      SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # `go install @version` resolves the module through the Go checksum
+      # database, so a tampered module fails the install. GOBIN is set in the
+      # shell because a YAML env: value is not expanded.
+      - name: Install actionlint ${{ env.ACTIONLINT_VERSION }}
+        run: GOBIN="$RUNNER_TEMP/bin" go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+
+      - name: Download and verify shellcheck ${{ env.SHELLCHECK_VERSION }}
+        run: |
+          tmp="$(mktemp -d)"
+          curl -sSfL -o "$tmp/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  $tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJ -f "$tmp/shellcheck.tar.xz" -C "$RUNNER_TEMP" \
+            "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+
+      - name: Run actionlint
+        run: |
+          "$RUNNER_TEMP/bin/actionlint" \
+            -color \
+            -shellcheck="$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+
+      - name: Run shellcheck on tracked shell scripts
+        run: |
+          mapfile -t sh_files < <(git ls-files '*.sh')
+          if [ "${#sh_files[@]}" -eq 0 ]; then
+            echo "workflow-lint: git ls-files '*.sh' returned no files; refusing to pass with zero checks" >&2
+            exit 1
+          fi
+          printf 'shellcheck files (%d):\n' "${#sh_files[@]}"
+          printf '  %s\n' "${sh_files[@]}"
+          "$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "${sh_files[@]}"

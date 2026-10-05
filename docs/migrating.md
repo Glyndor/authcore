@@ -18,7 +18,7 @@ func Login(email, submitted string) error {
         return ErrWrongPassword
     }
 
-    // 3. Password is correct — upgrade the hash transparently.
+    // 3. Password is correct. Upgrade the hash transparently.
     newHash, err := pwdMod.Hash(submitted)
     if err != nil {
         return err
@@ -34,5 +34,5 @@ in.
 
 > [!NOTE]
 > If your existing hashes are already in **PHC Argon2id format**
-> (`$argon2id$v=19$…`), no migration is needed — `pwdMod.Verify` reads all
+> (`$argon2id$v=19$…`), no migration is needed. `pwdMod.Verify` reads all
 > parameters from the stored hash, regardless of which library produced it.

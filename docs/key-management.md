@@ -30,7 +30,7 @@ purpose stays as-is, and a file authcore did not create is not its to rewrite.
 
 ## The layout marker
 
-`metadata.json` holds no key material — a format version, when the keys were
+`metadata.json` holds no key material: only a format version, when the keys were
 first written, and the id of the current signing key:
 
 ```json
@@ -44,7 +44,7 @@ first written, and the id of the current signing key:
 It exists so that a release which changes the on-disk format can **migrate what
 is already there** rather than regenerate it. Regenerating would invalidate
 every refresh-token and API-key hash you have stored, logging out all of your
-users — which authcore treats as a defect, not an acceptable breaking change.
+users, which authcore treats as a defect, not an acceptable breaking change.
 
 What that means in practice:
 
@@ -56,7 +56,7 @@ What that means in practice:
   directory.
 - A **corrupt** marker is also refused, because a loader that cannot tell what
   wrote the keys must not guess at them. The file holds no secret, so deleting
-  it is safe and makes the next start re-adopt the existing keys — the error
+  it is safe and makes the next start re-adopt the existing keys. The error
   says so.
 - If the marker **cannot be written** (a read-only mounted secret, for example)
   authcore logs a warning and carries on. It is bookkeeping; it never blocks
@@ -118,7 +118,7 @@ already covered.
 The zero-config default persists keys to `.authcore` in the working directory.
 That is fine on a host with a durable disk, but a container filesystem is
 **ephemeral** and a deployment usually runs **more than one replica**. With the
-default, two things break — silently:
+default, two things break, silently:
 
 > [!WARNING]
 > - **On a restart** of the same container the `.authcore` directory is kept,
@@ -142,12 +142,12 @@ cfg.KeysDir = os.Getenv("AUTHCORE_KEYS_DIR") // e.g. /run/secrets/authcore
 auth, err := authcore.New(cfg)
 ```
 
-1. **Pre-generate once** — run authcore in a one-shot job pointed at the volume,
+1. **Pre-generate once**: run authcore in a one-shot job pointed at the volume,
    or generate the three files (`ed25519_private.pem`, `ed25519_public.pem`,
    `refresh_secret.key`) with any Ed25519 tool, and store them as a Kubernetes
    Secret / Docker secret.
 2. **Mount the *same* set read-only** into every replica at `KeysDir`. Do **not**
-   give each pod a writable empty volume — each would generate its own keys and
+   give each pod a writable empty volume; each would generate its own keys and
    reintroduce the multi-replica break above.
 3. Keep the volume durable across restarts so the keys (and therefore live
    sessions) survive a redeploy.
@@ -163,8 +163,8 @@ auth, err := authcore.New(cfg)
 
 ## Sourcing keys without a volume (KeyStore)
 
-If mounting a volume is awkward — serverless, or keys that live only in a secret
-manager — set `Config.KeyStore` to source the material directly instead of from
+If mounting a volume is awkward (serverless, or keys that live only in a secret
+manager), set `Config.KeyStore` to source the material directly instead of from
 disk. `KeysDir` is then ignored.
 
 ```go

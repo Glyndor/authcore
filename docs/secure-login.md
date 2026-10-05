@@ -1,18 +1,55 @@
 # Secure login recipe
 
-authcore gives you the parts of authentication you only get wrong once — password
-hashing, token signing, timing-safe comparison, key management. It does **not**
-build the login flow around them. This page is the checklist for that flow: the
-things you, the consumer, still own so the result is login "a security auditor
-would accept."
-
-Read it once, wire it once. Each section says what authcore does for you and
-what you must add.
+authcore provides password hashing, token signing, timing-safe comparison and key
+management. It does **not** build the login flow around them. This page is the
+checklist for that flow: each section says what authcore does and what your
+application must add.
 
 > [!IMPORTANT]
 > authcore is a library, not an identity server. It has no database, no HTTP
-> layer, no rate limiter, no session store. Those are yours. The recipe below is
-> how to connect them without opening a hole.
+> server, no rate limiter and no session store. Your application supplies them.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App
+    participant authcore
+    participant Database
+
+    Note over Browser,App: 1. Register
+    Browser->>App: email + password
+    App->>authcore: pwdMod.Hash(password)
+    authcore-->>App: hash
+    App->>Database: store emailNorm + hash
+    Database-->>App: ok
+
+    Note over Browser,App: 2. Login
+    Browser->>App: email + password
+    App->>Database: find user by email
+    Database-->>App: user (or not found)
+    App->>authcore: pwdMod.Verify(password, hash)
+    authcore-->>App: ok
+    App->>authcore: jwtMod.CreateTokens(userID, claims)
+    authcore-->>App: pair (access, refresh, session)
+    App->>Database: store session + refresh hash
+    Database-->>App: ok
+
+    Note over Browser,App: 3. Authenticated request
+    Browser->>App: Authorization: Bearer accessToken
+    App->>authcore: jwtMod.VerifyAccessToken(accessToken)
+    authcore-->>App: claims (or error)
+
+    Note over Browser,App: 4. Refresh (with rotation)
+    Browser->>App: refreshToken
+    App->>Database: find session
+    Database-->>App: session
+    App->>authcore: jwtMod.VerifyRefreshTokenHash(refreshToken, storedHash)
+    authcore-->>App: true
+    App->>authcore: jwtMod.RotateTokens(refreshToken, claims)
+    authcore-->>App: newPair
+    App->>Database: UPDATE refresh_hash WHERE id AND old hash
+    Database-->>App: rows affected
+```
 
 ## At a glance
 
@@ -22,9 +59,9 @@ what you must add.
 | Password strength | length + composition policy | Decide your own extra rules if any |
 | Token signing | EdDSA, alg-confusion-proof, `iss`/`aud`/`exp` enforced | Send/store tokens correctly |
 | Refresh tokens | issue + hash + timing-safe compare | Persist the hash, rotate, delete on logout |
-| Brute force | — | Rate-limit and lock out |
+| Brute force | none | Rate-limit and lock out |
 | User enumeration | constant-time hash compare | Equalize responses **and** timing in your handler |
-| Transport | — | TLS, secure cookies, CSRF |
+| Transport | none | TLS, secure cookies, CSRF |
 | Instant revocation | short access TTL | Denylist by session id if you need it |
 
 ## 1. Registration
@@ -43,7 +80,7 @@ if err != nil { return serverError() }
 
 // Store the normalized identifier + hash. Never the plaintext.
 if err := db.CreateUser(emailNorm, hash); err != nil {
-    // Duplicate email? See enumeration (§3) — do not reveal "already registered"
+    // Duplicate email? See enumeration (§3). Do not reveal "already registered"
     // on a public endpoint; confirm via email instead.
 }
 ```
@@ -55,7 +92,7 @@ address already exists.
 
 ```go
 emailNorm, err := emailMod.ValidateAndNormalize(req.Email)
-if err != nil { return unauthorized() } // generic — see §3
+if err != nil { return unauthorized() } // generic. See §3
 
 user, err := db.FindUserByEmail(emailNorm)
 if err != nil {
@@ -70,7 +107,7 @@ if err != nil || !ok {
     return unauthorized() // same generic error as "user not found"
 }
 
-// Authenticated — issue tokens (§4).
+// Authenticated. Issue tokens (§4).
 ```
 
 `dummyHash` is one precomputed Argon2id hash of any throwaway password, stored as
@@ -90,7 +127,7 @@ Three leaks to close, all in your handler:
   (`unauthorized`), whether the user is missing or the password is wrong.
 - **Timing:** the not-found path must do the same Argon2id work as the found path
   (the `dummyHash` verify in §2). Without it, "no such user" returns in
-  microseconds and "wrong password" in ~50 ms — a trivial oracle.
+  microseconds and "wrong password" in ~50 ms. A trivial oracle.
 - **Side channels:** registration, password reset, and resend-verification must
   not reveal existence either. Prefer "if that address exists, we sent a link"
   over "no account with that email."
@@ -108,7 +145,7 @@ db.StoreSession(pair.SessionID, user.ID, pair.RefreshTokenHash, pair.RefreshToke
 Deliver tokens safely:
 
 - Send the **refresh token** in an `HttpOnly`, `Secure`, `SameSite=Strict` (or
-  `Lax`) cookie — never readable by JavaScript.
+  `Lax`) cookie, never readable by JavaScript.
 - Keep the **access token** in memory on the client where possible; if you must
   cookie it, same flags.
 - Serve everything over **TLS only**. A bearer token on plaintext HTTP is a
@@ -120,7 +157,7 @@ authcore: token issuance + the hash to store. You: cookie flags, TLS, CSRF.
 
 ## 5. Refresh & rotation
 
-Verify the presented refresh token against your stored hash **before** rotating —
+Verify the presented refresh token against your stored hash **before** rotating:
 this is what detects a stolen, replayed token.
 
 ```go
@@ -165,16 +202,16 @@ db.DeleteSession(session.ID) // stops renewal
 ```
 
 > [!WARNING]
-> Deleting the refresh hash stops the session from being **renewed** — it does
+> Deleting the refresh hash stops the session from being **renewed**. It does
 > **not** invalidate the access token the client already holds. A stateless
 > access token stays valid until its `exp` (the `AccessTokenTTL`, 15 min by
-> default). See [JWT — Revocation & logout](jwt.md#revocation--logout).
+> default). See [JWT: Revocation & logout](jwt.md#revocation--logout).
 
-- **Most apps:** the short access TTL is enough — the token dies on its own.
+- **Most apps:** the short access TTL is enough. The token dies on its own.
 - **Need instant kill** (logout-everywhere, account compromise): set a
-  `jwt.Denylist` on the config and add the `SessionID` to your store on logout —
+  `jwt.Denylist` on the config and add the `SessionID` to your store on logout.
   `VerifyAccessToken` then returns `ErrTokenRevoked`. See
-  [JWT — Revocation & logout](jwt.md#revocation--logout).
+  [JWT: Revocation & logout](jwt.md#revocation--logout).
 
 ## 7. Brute force & lockout
 

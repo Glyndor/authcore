@@ -1,0 +1,9 @@
+# actionlint v1.7.12 lists runner labels up to ubuntu-24.04. ubuntu-26.04 is
+# the GitHub-hosted image containers.yml needs for Podman 5.7.0 (measured
+# 2026-10-04); see the runs-on comment in that file. actionlint's runner-label
+# check accepts any label here regardless of whether it is actually
+# self-hosted, so this entry is the documented extension point and keeps every
+# other check active. Drop it once an actionlint release lists ubuntu-26.04.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
