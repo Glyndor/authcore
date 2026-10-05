@@ -2,7 +2,7 @@
 
 ## Do I need a database to use authcore?
 
-No — authcore never touches your database. It hashes passwords, signs tokens,
+No. authcore never touches your database. It hashes passwords, signs tokens,
 and validates input. *You* store hashes, usernames, and refresh-token hashes
 wherever your app already keeps data (Postgres, Redis, SQLite, even an in-memory
 `map` for a toy project).
@@ -11,7 +11,7 @@ wherever your app already keeps data (Postgres, Redis, SQLite, even an in-memory
 
 UUID v7 is a 128-bit identifier whose first 48 bits are a millisecond Unix
 timestamp (RFC 9562 §5.7). That means UUID v7 values **sort naturally by
-creation time** — ideal as a database primary key and as a stable session
+creation time**: ideal as a database primary key and as a stable session
 identifier. authcore requires v7 for the `sub` claim so your sessions always sort
 chronologically.
 
@@ -21,12 +21,12 @@ Libraries that generate UUID v7 in Go: `github.com/google/uuid` (≥ v1.6),
 ## Do I really need refresh token rotation?
 
 Short answer: yes, if your refresh token lives longer than a few minutes.
-Rotation limits the blast radius of a stolen refresh token — once the legitimate
+Rotation limits the blast radius of a stolen refresh token. Once the legitimate
 client rotates, the stolen copy is rejected. Combined with storing only the
 **hash** of refresh tokens on the server, an attacker who dumps your database
 still cannot forge new sessions.
 
-## My access token fails verification in a distributed system — is clock skew the issue?
+## My access token fails verification in a distributed system: is clock skew the issue?
 
 Yes. Different servers may have clocks that drift a few seconds apart, causing
 `ErrTokenExpired` on a brand-new token. Set `ClockSkewLeeway` in your JWT config:
@@ -64,7 +64,7 @@ verifier will select the right key automatically. See
 
 Yes. See [Migrating](migrating.md) for the re-hash-on-next-login pattern. If your
 hashes are already in PHC Argon2id format (`$argon2id$v=19$…`), no migration is
-needed at all — `pwdMod.Verify` reads parameters from the stored hash.
+needed at all. `pwdMod.Verify` reads parameters from the stored hash.
 
 ## Can I run authcore in Docker / Kubernetes?
 
@@ -81,7 +81,7 @@ volume), then mount them read-only into your app.
 
 ## The `Hash` call is slower than expected in tests. Is that normal?
 
-Yes — Argon2id deliberately takes ~100–300 ms and allocates 64 MiB of RAM per
+Yes. Argon2id deliberately takes ~100–300 ms and allocates 64 MiB of RAM per
 call. In tests, use a low-cost config to avoid slow suites:
 
 ```go
@@ -94,7 +94,7 @@ pwd, _ := password.New(auth, password.Config{
 
 ## Does authcore ship an HTTP server, middleware, or CSRF protection?
 
-No — authcore gives you the primitives (hash, sign, verify, rotate) and stays
+No. authcore gives you the primitives (hash, sign, verify, rotate) and stays
 framework-agnostic. See [`examples/fiber`](../examples/fiber/) and
 [`examples/gin`](../examples/gin/) for wiring into a real HTTP stack, including
 protected-route middleware.

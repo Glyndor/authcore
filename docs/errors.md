@@ -1,6 +1,6 @@
 # Error handling
 
-Always use `errors.Is` for error inspection — errors may be wrapped:
+Always use `errors.Is` for error inspection. Errors may be wrapped:
 
 ```go
 claims, err := jwtMod.VerifyAccessToken(token)
@@ -60,7 +60,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `apikey.ErrInvalidConfig` | ✗ No | `apikey.Config` validation failed (e.g. malformed prefix) — startup error |
+| `apikey.ErrInvalidConfig` | ✗ No | `apikey.Config` validation failed (e.g. malformed prefix): startup error |
 | `apikey.ErrInvalidKey` | ✗ No | Presented key is malformed (`ParseID`); return a generic unauthorized |
 | `apikey.ErrNotInitialised` | ✗ No | `Generate`/`Hash` called on a zero-value `APIKey` (a module that was never constructed by `New`) |
 
@@ -94,7 +94,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `oauth.ErrJWKS` | ✗ No | Provider signing keys could not be fetched or parsed |
 | `oauth.ErrJWKSStale` | ✗ No | The cached key set is past its TTL and could not be refreshed: the refresh failed, or the previous refresh failed less than the retry interval ago. It wraps `ErrJWKS`, so `errors.Is(err, oauth.ErrJWKS)` also matches |
 | `oauth.ErrUserInfo` | ✗ No | Userinfo call failed (transport, non-2xx, undecodable) |
-| `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL — programming error |
+| `oauth.ErrNoUserInfo` | ✗ No | `UserInfo` called on a provider with no userinfo URL: programming error |
 | `oauth.ErrDiscovery` | ✗ No | OIDC discovery failed (fetch/parse, or issuer mismatch) |
 
 ## `auth/totp` package

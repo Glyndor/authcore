@@ -1,7 +1,7 @@
 # Password hashing
 
 `auth/password` hashes and verifies passwords with Argon2id in self-describing
-PHC format — no algorithm choices, no boilerplate. See the
+PHC format. No algorithm choices, no boilerplate. See the
 [error reference](errors.md) and the [runnable example](../examples/password/).
 
 ## Setup
@@ -9,7 +9,7 @@ PHC format — no algorithm choices, no boilerplate. See the
 ```go
 auth, err := authcore.New(authcore.DefaultConfig())
 
-// Zero-config — OWASP-recommended Argon2id defaults applied automatically.
+// Zero-config. OWASP-recommended Argon2id defaults applied automatically.
 pwdMod, err := password.New(auth)
 ```
 
@@ -25,9 +25,9 @@ That's it. No config required.
 hash, err := pwdMod.Hash(userPassword)
 switch {
 case errors.Is(err, password.ErrWeakPassword):
-    // 400 — tell the user exactly what's missing (message is descriptive)
+    // 400: tell the user exactly what's missing (message is descriptive)
 case err != nil:
-    // 500 — unexpected error
+    // 500: unexpected error
 }
 if err != nil {
     return err // never store a failed hash
@@ -121,7 +121,7 @@ example), so the message you show the user always matches what you
 configured.
 
 Each call also generates a **fresh random salt**, so two hashes of the same
-password are always different strings — but both verify correctly.
+password are always different strings, but both verify correctly.
 
 The stored string is fully self-describing (**PHC format**):
 
@@ -135,13 +135,13 @@ $argon2id$v=19$m=65536,t=3,p=2$<base64-salt>$<base64-hash>
 ok, err := pwdMod.Verify(submittedPassword, storedHash)
 switch {
 case errors.Is(err, password.ErrInvalidHash):
-    // 500 — hash in the database is malformed
+    // 500: hash in the database is malformed
 case !ok:
-    // 401 — wrong password
+    // 401: wrong password
 }
 ```
 
-Comparison is **constant-time** (`crypto/subtle`) — timing attacks are not
+Comparison is **constant-time** (`crypto/subtle`). Timing attacks are not
 possible. Parameters are always read from the stored hash, never from the
 current module config, and **bounded to the same safe range** (`Memory` 8 MiB –
 4 GiB, `Iterations` ≤ 20, `Parallelism` ≥ 1) so a corrupted or malicious stored
@@ -156,7 +156,7 @@ hash cannot force `argon2.IDKey` into an unbounded memory allocation.
 ## Tuning work parameters (optional)
 
 The defaults are sized for 2 vCPUs / 4 GiB RAM. On more powerful hardware, crank
-them up — a hash should take roughly 200–500 ms:
+them up. A hash should take roughly 200–500 ms:
 
 ```go
 pwdMod, err := password.New(auth, password.Config{
@@ -173,7 +173,7 @@ pwdMod, err := password.New(auth, password.Config{
 | `Parallelism` | `2` | `1` |
 
 > **Old hashes stay valid.** All parameters live inside the hash string itself.
-> Changing the config only affects *new* hashes — existing users keep working.
+> Changing the config only affects *new* hashes. Existing users keep working.
 
 For migrating off bcrypt or another library without forcing a password reset,
 see [Migrating](migrating.md).

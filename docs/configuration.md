@@ -43,7 +43,7 @@ type Config struct {
 ```
 
 `KeyStore` lets you supply key material instead of using the disk under
-`KeysDir` — see [Key management](key-management.md) (`NewKeyStoreFromKeys`,
+`KeysDir`. See [Key management](key-management.md) (`NewKeyStoreFromKeys`,
 `NewKeyStoreFromPEM`). Leave it nil for the zero-config disk default.
 
 `RequireExistingKeys` makes the disk store load-only: `New` reads the three
