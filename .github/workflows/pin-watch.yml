@@ -18,17 +18,17 @@ name: Pin watch
 # - `schedule`, weekly Monday 05:17 UTC: a hand pin is the kind of
 #   thing that ages by a release at a time, and the report has to
 #   keep appearing whether or not anyone pushes. GitHub reads
-#   `schedule:` from the default branch only, so this cron is inert
-#   until the workflow is promoted to `main`; the push trigger
-#   covers the gap until then. The minute is off the hour and off
-#   the other weekly crons (audit 06:00 Mon, fuzz 07:00 Mon,
-#   containers 05:37 Tue) so the runs do not queue behind each
-#   other.
-# - `push` to `develop`: the watcher proves itself alive every time
-#   work lands, which stands in for a freshness watcher. A cron
-#   that stops firing emits nothing, and "no alert" reads as "all
-#   clear"; a run that appears on every merge into `develop` is the
-#   second fact that tells the two apart.
+#   `schedule:` from the default branch only, so this cron was
+#   inert until the workflow was promoted to `main` in v1.18.6;
+#   the push trigger covered the gap until then. The minute is
+#   off the hour and off the other weekly crons (audit 06:00 Mon,
+#   fuzz 07:00 Mon, containers 05:37 Tue) so the runs do not queue
+#   behind each other.
+# - `push` to `develop`: a run on every merge proves the job still
+#   works, which a cron alone would only show once a week. It does
+#   not prove the cron fires: schedule-freshness.yml watches that,
+#   and was added only after the cron first fired from `main` on
+#   2026-10-05, so it was not born red.
 # - `pull_request` on `[main, develop]`, with no `paths:` filter on
 #   purpose: a filter that omits this file would make a broken edit
 #   to the watcher merge without having been executed, and a filter
