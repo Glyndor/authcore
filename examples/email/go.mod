@@ -1,8 +1,8 @@
 module github.com/Glyndor/authcore/examples/email
 
-go 1.26.6
+go 1.26.9
 
-require github.com/Glyndor/authcore v1.18.2
+require github.com/Glyndor/authcore v1.18.8
 
 require (
 	golang.org/x/net v0.59.0 // indirect

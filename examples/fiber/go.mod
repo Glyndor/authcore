@@ -1,9 +1,9 @@
 module github.com/Glyndor/authcore/examples/fiber
 
-go 1.26.6
+go 1.26.9
 
 require (
-	github.com/Glyndor/authcore v1.18.2
+	github.com/Glyndor/authcore v1.18.8
 	github.com/gofiber/fiber/v3 v3.5.0
 )
 
