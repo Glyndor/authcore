@@ -129,12 +129,12 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 	// Collapse concurrent refreshes: a burst of tokens carrying distinct
 	// unknown kids must produce a single outbound JWKS fetch, not one per
 	// request.
-	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+	_, err, _ := c.group.Do(c.url, func() (any, error) { return nil, c.refreshUnlessDone(ctx, expires) })
 	if err != nil && errors.Is(err, context.Canceled) && ctx.Err() == nil {
 		// The shared fetch runs under the context of the caller that started
 		// it. When that caller went away, every caller that joined got its
 		// cancellation. This caller's context is live, so fetch again.
-		_, err, _ = c.group.Do(c.url, func() (any, error) { return nil, c.refresh(ctx) })
+		_, err, _ = c.group.Do(c.url, func() (any, error) { return nil, c.refreshUnlessDone(ctx, expires) })
 	}
 	if err != nil {
 		if ok {
@@ -160,6 +160,24 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 		}
 	}
 	return candidate.Pick(c.errs.Fetch, candidates, kid, alg)
+}
+
+// refreshUnlessDone is refresh for a caller that took its snapshot of the cache
+// at expiry seen. The snapshot and the join of the shared flight are not one
+// step: a caller can look, lose the processor while another caller's refresh
+// completes, and then open a flight of its own, one fetch more than the window
+// allows. A successful refresh always moves the expiry, so a changed expiry
+// means the set this caller is about to ask for was fetched after it looked and
+// it can use that one. A failed refresh does not move it, so a failure never
+// lets a caller carry on with a set it saw expire.
+func (c *Cache) refreshUnlessDone(ctx context.Context, seen time.Time) error {
+	c.mu.RLock()
+	done := !c.expiresAt.Equal(seen)
+	c.mu.RUnlock()
+	if done {
+		return nil
+	}
+	return c.refresh(ctx)
 }
 
 // refresh fetches the JWKS and replaces the cached key set. An HTTP 200 with
