@@ -20,6 +20,7 @@ import (
 var sha1AllowedIn = map[string]string{
 	"auth/totp/internal/verifier": "RFC 6238 TOTP is HMAC-SHA1; collision attacks do not apply to HMAC (fuzz oracle)",
 	"auth/totp/internal/hotp":     "RFC 6238 TOTP is HMAC-SHA1; collision attacks do not apply to HMAC",
+	"tests/hostile/totp":          "RFC 6238 TOTP is HMAC-SHA1; the hostile tests compute codes with their own RFC 4226 oracle",
 }
 
 // TestSHA1IsImportedOnlyWhereItIsJustified keeps the G505 exclusion in
