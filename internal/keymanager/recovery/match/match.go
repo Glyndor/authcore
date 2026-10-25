@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
+	"github.com/Glyndor/authcore/internal/keymanager/keyload"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 )
 
@@ -72,8 +73,10 @@ func sharesPrivateKey(dir, staging string) (same, published bool, err error) {
 }
 
 // FindStaging locates a .staging-* directory in KeysDir whose three
-// files are regular files and whose staged private key, if the published
-// private key exists, is byte-identical to it.
+// files are regular files, form a valid key set on their own (the public key
+// belongs to the private key and the refresh secret is well formed), and whose
+// staged private key, if the published private key exists, is byte-identical
+// to it.
 //
 // The first match wins. Two crashing publishers would be operator confusion,
 // not something to recover through.
@@ -88,6 +91,11 @@ func FindStaging(dir string) (string, error) {
 			return "", err
 		}
 		if published && !same {
+			continue
+		}
+		// Nothing of a staged set is linked into KeysDir before the set as a
+		// whole is known to be consistent.
+		if keyload.Check(staging) != nil {
 			continue
 		}
 		return staging, nil
