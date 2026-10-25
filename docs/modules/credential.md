@@ -150,6 +150,31 @@ forgetting any one of them ships a broken reset flow:
   `ErrInvalidCredential` or `ErrExpired` - the caller shows the same
   generic message for both.
 
+## Hashes share a key space with other modules
+
+The stored hash is `HMAC-SHA256(secret, framed fields)` and the secret is the
+library's managed refresh secret, which `auth/apikey`, `auth/jwt` and
+`auth/totp` also use as their HMAC key. None of the four puts a label in the
+message that says which module it belongs to. The length prefixes keep
+`(purpose, subject, token)` unambiguous inside this module, but they do not
+separate it from the others: `apikey.Hash` of a string shaped like the framing
+above returns the hash this module stores.
+
+Nothing in the library compares a hash across modules. Keep it that way in your
+code:
+
+- Store credential hashes in their own column or table, separate from API-key,
+  refresh-token and recovery-code hashes. Do not put two kinds in one column
+  with a type column to tell them apart and then query across it.
+- Never pass a stored hash from another module to `Verify`, and never look up a
+  credential in a table of another module's hashes.
+- Verify a credential only with `Verify`, which binds the purpose and subject you
+  pass, not with a bare hash comparison of your own.
+
+The hash is not changed, because every stored one would stop matching. A label
+per module belongs in a release that can say so and migrate. The behaviour is
+pinned by a test in `tests/hostile/credential`, so a change to it is deliberate.
+
 ## Footguns the caller must handle
 
 Beyond the three above, two smaller traps:

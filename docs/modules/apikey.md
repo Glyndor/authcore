@@ -56,6 +56,32 @@ if err != nil || !keyMod.Verify(presented, row.Hash) {
 > the server secret too. (Passwords are different: they are low-entropy and use
 > Argon2id; see [Password hashing](password.md).)
 
+## Hashes share a key space with other modules
+
+`apikey.Hash` is `HMAC-SHA256(secret, key)` with no label, and the secret is
+the library's managed refresh secret, the same one `auth/credential`,
+`auth/jwt` and `auth/totp` key their hashes with. A hash from one of these
+modules is therefore a valid HMAC for some input of another. For example, the
+hash `auth/credential` stores for a token is what `apikey.Hash` returns for a
+string shaped like that module's framing (each of purpose, subject and token
+preceded by its length as a big-endian `uint32`).
+
+Nothing in the library compares a hash across modules, so nothing breaks by
+itself. What you must not do is let your own code do it:
+
+- Keep API-key hashes in their own column or table. Never keep them in the same
+  column as credential, refresh-token or recovery-code hashes, and never look up
+  a value in one kind of table with a hash taken from another.
+- Do not call `Verify` with a stored hash that came from another module.
+  `Verify` takes any string as the key, so it cannot tell the difference.
+- Look a key up by the id in its text first, then verify against that row's
+  hash, as the example above does.
+
+The hash is not changed, because every stored hash would stop matching. Giving
+each module its own label belongs in a release that can say so and offer a
+migration. `tests/hostile/credential` pins the current behaviour so a change to
+it is deliberate.
+
 ## Revoking
 
 Delete the row (or flag it) and check on lookup. There is no token to expire:
