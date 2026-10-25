@@ -1,10 +1,11 @@
-package identity_test
+package domain
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/email"
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // A domain that is not valid UTF-8 is refused. IDNA reads each bad byte as
@@ -12,7 +13,7 @@ import (
 // which the next validation then refused: distinct inputs shared one canonical
 // form and the stored form was not a fixed point.
 func TestHostile_Email_invalidUTF8InTheDomainIsRefused(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for b := 0x80; b <= 0xff; b++ {
 		in := "a@" + string([]byte{byte(b)}) + ".com"
 		if got, err := m.ValidateAndNormalize(in); err == nil || !errors.Is(err, email.ErrInvalidEmail) {

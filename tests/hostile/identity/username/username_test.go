@@ -1,4 +1,6 @@
-package identity_test
+// Package username attacks username validation: reserved names, invisible and
+// look-alike characters, length bounds and configuration.
+package username
 
 import (
 	"errors"
@@ -7,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/username"
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // defaultReserved is the set of names an operator expects nobody to register
@@ -35,7 +38,7 @@ func mustBeReserved(t *testing.T, err error, input string) {
 // the ASCII letter. A name that merely contains an invisible or foreign
 // character is refused by the character set instead.
 func TestHostile_Username_reservedNamesCannotBeSpelledAround(t *testing.T) {
-	m := newUsername(t)
+	m := hostiletest.NewUsername(t)
 	for _, name := range defaultReserved {
 		for _, in := range []string{
 			name, strings.ToUpper(name), strings.ToUpper(name[:1]) + name[1:], "  " + name, name + "  ", "\t" + name + "\n",
@@ -61,7 +64,7 @@ func TestHostile_Username_reservedNamesCannotBeSpelledAround(t *testing.T) {
 // Evasions that hide a reserved name in characters the set does not allow are
 // refused as invalid, whichever way they are hidden.
 func TestHostile_Username_invisibleAndLookalikeCharactersAreRefused(t *testing.T) {
-	m := newUsername(t)
+	m := hostiletest.NewUsername(t)
 	for name, in := range map[string]string{
 		"zero width space":           "ad\u200bmin",
 		"zero width joiner":          "ad\u200dmin",
@@ -130,7 +133,7 @@ func TestHostile_Username_invisibleAndLookalikeCharactersAreRefused(t *testing.T
 // is made only of [a-z0-9_-]. If a Unicode update adds a third character with
 // that property this test names it.
 func TestHostile_Username_everyScalarEitherFailsOrFoldsToASCII(t *testing.T) {
-	m := newUsername(t)
+	m := hostiletest.NewUsername(t)
 	folded := map[rune]string{}
 	for r := rune(0); r <= 0x10ffff; r++ {
 		if r >= 0xd800 && r <= 0xdfff {
@@ -169,7 +172,7 @@ func TestHostile_Username_everyScalarEitherFailsOrFoldsToASCII(t *testing.T) {
 // underscore and hyphen are accepted and the rest, including every control
 // byte, are not.
 func TestHostile_Username_everyASCIIByteIsClassified(t *testing.T) {
-	m := newUsername(t)
+	m := hostiletest.NewUsername(t)
 	for c := 0; c < 128; c++ {
 		in := "ab" + string(rune(c)) + "cd"
 		got, err := m.ValidateAndNormalize(in)
@@ -186,7 +189,7 @@ func TestHostile_Username_everyASCIIByteIsClassified(t *testing.T) {
 // Length bounds are exact, in bytes, on the canonical form, and a huge input is
 // refused without cost.
 func TestHostile_Username_lengthBoundsAreExact(t *testing.T) {
-	m := newUsername(t)
+	m := hostiletest.NewUsername(t)
 	for n, ok := range map[int]bool{0: false, 1: false, 2: false, 3: true, 32: true, 33: false, 255: false} {
 		got, err := m.ValidateAndNormalize(strings.Repeat("a", n))
 		if (err == nil) != ok {
@@ -210,7 +213,7 @@ func TestHostile_Username_lengthBoundsAreExact(t *testing.T) {
 // Operator policy is normalised the same way input is, and cannot be defeated by
 // the spelling of the input.
 func TestHostile_Username_operatorReservedListsAreNormalised(t *testing.T) {
-	m := newUsername(t, username.Config{
+	m := hostiletest.NewUsername(t, username.Config{
 		ExtraReservedNames: []string{"  Billing ", "SALES", "", "   "},
 		AllowReservedNames: []string{" ADMIN"},
 	})
@@ -234,11 +237,11 @@ func TestHostile_Username_configurationBounds(t *testing.T) {
 		"max 256":       {MaxLength: 256},
 		"max huge":      {MaxLength: 1 << 30},
 	} {
-		if _, err := username.NewWithConfig(newProvider(t), cfg); !errors.Is(err, username.ErrInvalidConfig) {
+		if _, err := username.NewWithConfig(hostiletest.NewProvider(t), cfg); !errors.Is(err, username.ErrInvalidConfig) {
 			t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
 		}
 	}
-	m, err := username.NewWithConfig(newProvider(t), username.Config{MinLength: 1, MaxLength: 255})
+	m, err := username.NewWithConfig(hostiletest.NewProvider(t), username.Config{MinLength: 1, MaxLength: 255})
 	if err != nil {
 		t.Fatalf("control: the widest bounds were refused: %v", err)
 	}

@@ -1,6 +1,8 @@
-package identity_test
-
+// Package hostiletest holds the fixtures shared by the hostile email and
+// username suites, one package per attack class under tests/hostile/identity.
+//
 // Fixtures for the hostile email and username tests.
+package hostiletest
 
 import (
 	"crypto/ed25519"
@@ -34,7 +36,8 @@ func (provider) Config() authcore.Config { return authcore.DefaultConfig() }
 func (provider) Logger() authcore.Logger { return silentLogger{} }
 func (p provider) Keys() authcore.Keys   { return p.k }
 
-func newProvider(t testing.TB) provider {
+// NewProvider builds a provider with a throwaway key pair and a silent logger.
+func NewProvider(t testing.TB) authcore.Provider {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -43,16 +46,17 @@ func newProvider(t testing.TB) provider {
 	return provider{keys{pub: pub, priv: priv}}
 }
 
-func newEmail(t testing.TB, cfg ...email.Config) *email.Email {
+// NewEmail builds the email module over a fresh provider, with cfg when given.
+func NewEmail(t testing.TB, cfg ...email.Config) *email.Email {
 	t.Helper()
 	var (
 		m   *email.Email
 		err error
 	)
 	if len(cfg) > 0 {
-		m, err = email.NewWithConfig(newProvider(t), cfg[0])
+		m, err = email.NewWithConfig(NewProvider(t), cfg[0])
 	} else {
-		m, err = email.New(newProvider(t))
+		m, err = email.New(NewProvider(t))
 	}
 	if err != nil {
 		t.Fatalf("email.New: %v", err)
@@ -60,16 +64,17 @@ func newEmail(t testing.TB, cfg ...email.Config) *email.Email {
 	return m
 }
 
-func newUsername(t testing.TB, cfg ...username.Config) *username.Username {
+// NewUsername builds the username module over a fresh provider, with cfg when given.
+func NewUsername(t testing.TB, cfg ...username.Config) *username.Username {
 	t.Helper()
 	var (
 		m   *username.Username
 		err error
 	)
 	if len(cfg) > 0 {
-		m, err = username.NewWithConfig(newProvider(t), cfg[0])
+		m, err = username.NewWithConfig(NewProvider(t), cfg[0])
 	} else {
-		m, err = username.New(newProvider(t))
+		m, err = username.New(NewProvider(t))
 	}
 	if err != nil {
 		t.Fatalf("username.New: %v", err)

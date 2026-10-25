@@ -1,10 +1,12 @@
-package identity_test
+package email
 
 import (
 	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // The local part limit is 64 bytes of the canonical form: after NFC and after
@@ -13,7 +15,7 @@ import (
 // but short once canonical must be accepted, or the stored value could exceed
 // what the limit promises.
 func TestHostile_EmailLocal_limitIsBytesOfTheCanonicalForm(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for name, tc := range map[string]struct {
 		local string
 		ok    bool
@@ -47,7 +49,7 @@ func TestHostile_EmailLocal_limitIsBytesOfTheCanonicalForm(t *testing.T) {
 // default-ignorable code points) never survives in an accepted local part, so
 // an address cannot hide characters or reorder what a reader sees.
 func TestHostile_EmailLocal_noInvisibleOrDirectionalScalarSurvives(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	hidden := func(r rune) bool {
 		return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r)
 	}
@@ -74,7 +76,7 @@ func TestHostile_EmailLocal_noInvisibleOrDirectionalScalarSurvives(t *testing.T)
 // one: the canonical form of a base with many marks is bounded by the same 64
 // bytes and is stable.
 func TestHostile_EmailLocal_combiningMarksAreBoundedAndStable(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	zalgo := "a" + strings.Repeat("\u0301\u0323", 15) // 1 + 60 bytes
 	got, err := m.ValidateAndNormalize(zalgo + "@example.com")
 	if err != nil {

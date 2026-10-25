@@ -1,10 +1,12 @@
-package identity_test
+package domain
 
 import (
 	"testing"
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // The domain is mapped by UTS #46 and by nothing else. A character the standard
@@ -12,7 +14,7 @@ import (
 // above) is not the ASCII letter "i", and the capital Georgian letters and
 // U+04C0 are not valid input that happens to lower-case to something valid.
 func TestHostile_Email_domainMappingIsTheStandardsNotGosLowerCase(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 
 	got, err := m.ValidateAndNormalize("a@İx.com")
 	if err != nil || got != "a@xn--ix-rub.com" {
@@ -33,7 +35,7 @@ func TestHostile_Email_domainMappingIsTheStandardsNotGosLowerCase(t *testing.T) 
 // (here via golang.org/x/net/idna, called directly on the character as typed).
 // The module adds only its own structural checks, which these domains meet.
 func TestHostile_Email_everyBMPDomainCharacterAgreesWithUTS46(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for r := rune(0x80); r <= 0xffff; r++ {
 		if !utf8.ValidRune(r) {
 			continue

@@ -1,10 +1,14 @@
-package identity_test
+// Package domain attacks the domain half of an email address: IDNA mapping,
+// Punycode forms and invalid encodings.
+package domain
 
 import (
 	"strings"
 	"testing"
 
 	"golang.org/x/net/idna"
+
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // Domain vectors in the style of the UTS #46 conformance suite (the suite's
@@ -13,7 +17,7 @@ import (
 // bidi rule, hyphens, separators and invalid punycode). Accepted inputs are
 // written out in their ASCII form.
 func TestHostile_IDNA_acceptedDomainsHaveTheirASCIIForm(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for name, tc := range map[string]struct{ in, want string }{
 		"sharp s kept (non-transitional)":  {"a@faß.de", "a@xn--fa-hia.de"},
 		"final sigma kept":                 {"a@ς.com", "a@xn--3xa.com"},
@@ -42,7 +46,7 @@ func TestHostile_IDNA_acceptedDomainsHaveTheirASCIIForm(t *testing.T) {
 }
 
 func TestHostile_IDNA_refusedDomains(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for name, in := range map[string]string{
 		"ZWJ with no virama":             "a@a\u200db.com",
 		"ZWNJ with no virama":            "a@a\u200cb.com",
@@ -82,7 +86,7 @@ func TestHostile_IDNA_refusedDomains(t *testing.T) {
 // the grown form. The longest label that fits is accepted and one character
 // more is not, and nothing that survives is over the limit in total.
 func TestHostile_IDNA_limitsApplyToThePunycodeForm(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	fits := func(n int) bool {
 		a, err := idna.Lookup.ToASCII(strings.Repeat("ü", n))
 		return err == nil && len(a) <= 63

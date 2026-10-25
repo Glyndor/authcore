@@ -1,4 +1,6 @@
-package identity_test
+// Package email attacks email canonicalisation: structural attacks, local part
+// limits, look-alikes and agreement with the specification.
+package email
 
 import (
 	"errors"
@@ -8,13 +10,14 @@ import (
 	"unicode"
 
 	"github.com/Glyndor/authcore/auth/email"
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // An address is a local part, one at sign and a dotted domain. Every other
 // structure that mail parsers know (display names, comments, quoted local parts,
 // groups, literals) and every structural defect is refused with ErrInvalidEmail.
 func TestHostile_Email_structuralAttacksAreRefused(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	if got, err := m.ValidateAndNormalize("alice@example.com"); err != nil || got != "alice@example.com" {
 		t.Fatalf("control: %q, %v", got, err)
 	}
@@ -129,7 +132,7 @@ func addrOfLength(n int) string {
 // Limits are exact: the longest legal address is accepted, one more byte is
 // not.
 func TestHostile_Email_lengthLimitsAreExact(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	label := strings.Repeat("a", 63)
 	for name, addr := range map[string]string{
 		"local of 64":  strings.Repeat("a", 64) + "@example.com",
@@ -150,7 +153,7 @@ func TestHostile_Email_lengthLimitsAreExact(t *testing.T) {
 // versus decomposed accents, compatibility forms in the domain, the ideographic
 // full stop and an invisible soft hyphen in the domain all fold.
 func TestHostile_Email_spellingsOfOneAddressFoldToOneCanonicalForm(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	groups := map[string][]string{
 		"alice@example.com": {
 			"alice@example.com", "Alice@Example.COM", "ALICE@EXAMPLE.COM", "  alice@example.com  ", "\talice@example.com\n",
@@ -174,7 +177,7 @@ func TestHostile_Email_spellingsOfOneAddressFoldToOneCanonicalForm(t *testing.T)
 // Distinct mailboxes stay distinct. The module folds spellings, not people:
 // plus-tags, other domains, and characters that merely look alike do not merge.
 func TestHostile_Email_distinctAddressesDoNotMerge(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	base, _ := m.ValidateAndNormalize("alice@example.com")
 	for name, other := range map[string]string{
 		"plus tag":        "alice+tag@example.com",
@@ -199,7 +202,7 @@ func TestHostile_Email_distinctAddressesDoNotMerge(t *testing.T) {
 // A lookalike domain is delivered as its ASCII punycode, so a UI that shows
 // the stored form shows the difference, and the stored form is plain ASCII.
 func TestHostile_Email_homographDomainsBecomePunycode(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for name, domain := range map[string]string{
 		"cyrillic a":      "\u0430pple.com",
 		"cyrillic o":      "g\u043e\u043egle.com",
@@ -234,7 +237,7 @@ func TestHostile_Email_homographDomainsBecomePunycode(t *testing.T) {
 // characters, upper case in the ASCII range, a non-ASCII domain, or an
 // over-long part.
 func TestHostile_Email_acceptedOutputIsCanonicalAndStable(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	corpus := []string{
 		"a@b.c", "A@B.C", "x@xn--bcher-kva.de", "user.name+tag@example.co.uk", "u_s-e%r@sub.example.com",
 		"\u00e9@\u00fcber.example", "a@\u65e5\u672c.jp", "a@b.c1", "!#$%&'*+-/=?^_`{|}~@example.com",
@@ -270,8 +273,8 @@ func TestHostile_Email_acceptedOutputIsCanonicalAndStable(t *testing.T) {
 // The plus-addressing policy is applied to the canonical form, so no spelling
 // of the tag gets past it.
 func TestHostile_Email_plusAddressingPolicyCannotBeSpelledAround(t *testing.T) {
-	strict := newEmail(t, email.Config{RejectPlusAddressing: true})
-	open := newEmail(t)
+	strict := hostiletest.NewEmail(t, email.Config{RejectPlusAddressing: true})
+	open := hostiletest.NewEmail(t)
 	for _, s := range []string{"a+b@example.com", "A+B@EXAMPLE.COM", " a+b@example.com ", "a+@example.com", "+a@example.com", "a++b@example.com", "a+b+c@example.com"} {
 		if _, err := strict.ValidateAndNormalize(s); !errors.Is(err, email.ErrInvalidEmail) {
 			t.Errorf("strict %q: %v, want ErrInvalidEmail", s, err)
@@ -289,7 +292,7 @@ func TestHostile_Email_plusAddressingPolicyCannotBeSpelledAround(t *testing.T) {
 // network, and VerifyDomain with an address that has no domain is answered
 // locally.
 func TestHostile_Email_verifyDomainRefusesWithoutNetwork(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	for addr, want := range map[string]error{
 		"nodomain": email.ErrDomainNoMX,
 		"":         email.ErrDomainNoMX,

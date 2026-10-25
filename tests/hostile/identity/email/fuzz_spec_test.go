@@ -1,4 +1,4 @@
-package identity_test
+package email
 
 import (
 	"regexp"
@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
 // FuzzEmailCanonicalFixedPoint requires of every address the module accepts
@@ -16,7 +18,7 @@ import (
 // the verdict or the result, and that the output obeys the limits of the
 // format and carries no character that could hide or reorder text.
 func FuzzEmailCanonicalFixedPoint(f *testing.F) {
-	m := newEmail(f)
+	m := hostiletest.NewEmail(f)
 	for _, s := range []string{
 		"alice@example.com", "Alice@Example.COM", "a@xn--mnchen-3ya.de", "e\u0301lise@münchen.de", "ÉLISE@EXAMPLE.COM",
 		"a+b@example.co.uk", "a@İ.com", "a@faß.de", "Kevin@example.com", "a@אב.com", "x@日本.jp",
@@ -84,7 +86,7 @@ var usernameShape = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$`)
 // row. Whatever matches is accepted unless the name is reserved, and nothing
 // else is accepted.
 func FuzzUsernameMatchesSpec(f *testing.F) {
-	m := newUsername(f)
+	m := hostiletest.NewUsername(f)
 	for _, s := range []string{"alice", "Alice_99", " bob-smith ", "a--b", "-a-", "ab", strings.Repeat("a", 33), "admin", "ROOT", "Kevin", "İstanbul", "café", "x_y-z", "a.b", "a b", "ab_", "a-_b"} {
 		f.Add(s)
 	}

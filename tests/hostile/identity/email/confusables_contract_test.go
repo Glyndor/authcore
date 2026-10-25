@@ -1,6 +1,10 @@
-package identity_test
+package email
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
+)
 
 // CONTRACT, not a defect: the local part of an email address is opaque
 // (RFC 5321), so the module applies NFC and lowercasing and refuses invisible
@@ -12,7 +16,7 @@ import "testing"
 // failing because the module began folding, that is a behaviour change to
 // document in docs/guides/validation.md and release as such, not a quiet fix.
 func TestContract_Email_lookAlikeLocalPartsStayDistinct(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	latin, err := m.ValidateAndNormalize("alice@example.com")
 	if err != nil {
 		t.Fatalf("Latin address refused: %v", err)
@@ -38,7 +42,7 @@ func TestContract_Email_lookAlikeLocalPartsStayDistinct(t *testing.T) {
 // The domain is the opposite case and is a contract too: a look-alike domain is
 // converted to punycode, so it is stored as a name that is not the real one.
 func TestContract_Email_lookAlikeDomainBecomesPunycode(t *testing.T) {
-	m := newEmail(t)
+	m := hostiletest.NewEmail(t)
 	real, err := m.ValidateAndNormalize("alice@apple.com")
 	if err != nil {
 		t.Fatal(err)
