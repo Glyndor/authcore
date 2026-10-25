@@ -5,7 +5,6 @@ package fetch
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,7 +49,11 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 		// failure. Return the context error without recording lastAttempt, so
 		// the next caller with a live context can try again immediately
 		// instead of being blocked by a minute-long cooldown.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		//
+		// The test is the caller's context, not the error: the HTTP client's
+		// own timeout also satisfies errors.Is(err, context.DeadlineExceeded),
+		// and that one says the provider did not answer, which must count.
+		if ctx.Err() != nil {
 			return Set{}, err
 		}
 		failed()

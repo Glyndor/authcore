@@ -7,7 +7,28 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
+
+// The HTTP client's own timeout satisfies errors.Is(err, context.DeadlineExceeded)
+// although the caller's context is alive. It says the provider did not answer,
+// so it is a refresh failure: counted, and wrapped in the fetch sentinel.
+func TestGetCountsTheClientTimeoutAsAProviderFailure(t *testing.T) {
+	t.Parallel()
+	stall := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	h := &http.Client{Transport: stall, Timeout: 20 * time.Millisecond}
+	failed := 0
+	_, err := Get(context.Background(), h, "https://keys.example/jwks", errFetch, func() { failed++ })
+	if !errors.Is(err, errFetch) {
+		t.Fatalf("a client timeout: err = %v, want errFetch", err)
+	}
+	if failed != 1 {
+		t.Fatalf("a client timeout recorded %d attempts, want 1", failed)
+	}
+}
 
 var errFetch = errors.New("oauth: cannot obtain provider signing keys")
 

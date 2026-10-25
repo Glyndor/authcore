@@ -33,6 +33,16 @@ const exchangeErrorMaxLen = 512
 // RFC 6749 defines are a few words long.
 const exchangeCodeMaxLen = 128
 
+// authCodeMaxLen caps the authorization code Do forwards. Real providers issue
+// codes of a few hundred bytes at most; the bound only keeps an unbounded
+// callback parameter from being copied to the token endpoint.
+const authCodeMaxLen = 8 << 10
+
+// expiresInMax caps the lifetime Do reports: ten years in seconds. No real
+// token lives that long, and the cap keeps a caller's seconds-to-Duration
+// conversion from overflowing.
+const expiresInMax = 10 * 365 * 24 * 3600
+
 // Errors carries the sentinel errors Do wraps its failures with. They are
 // owned by the public oauth package (ErrExchange and ErrNoIDToken).
 type Errors struct {
@@ -65,6 +75,9 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 	// the caller (forgot to read the cookie, swapped two variables).
 	if code == "" {
 		return nil, fmt.Errorf("%w: code must not be empty", p.Errs.Exchange)
+	}
+	if len(code) > authCodeMaxLen {
+		return nil, fmt.Errorf("%w: code is longer than %d bytes", p.Errs.Exchange, authCodeMaxLen)
 	}
 	if verifier == "" {
 		return nil, fmt.Errorf("%w: code_verifier must not be empty", p.Errs.Exchange)
@@ -196,9 +209,13 @@ func decode(p Params, body []byte) (*Tokens, error) {
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %w", p.Errs.Exchange, err)
 	}
-	if tok.AccessToken == "" || tok.TokenType == "" {
+	if strings.TrimSpace(tok.AccessToken) == "" || tok.TokenType == "" {
 		return nil, fmt.Errorf("%w: response missing access_token or token_type", p.Errs.Exchange)
 	}
+	if tok.ExpiresIn < 0 {
+		return nil, fmt.Errorf("%w: response carries a negative expires_in", p.Errs.Exchange)
+	}
+	tok.ExpiresIn = min(tok.ExpiresIn, expiresInMax)
 	// An ID token is required only for an OIDC provider (one that has a JWKS
 	// and an issuer check to validate it against). A plain-OAuth2 provider
 	// (GitHub, Discord) returns no id_token, since identity comes from UserInfo,

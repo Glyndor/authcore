@@ -3,7 +3,20 @@ name: Fuzz
 on:
   schedule:
     - cron: "0 7 * * 1"  # Every Monday at 07:00 UTC
+  # A manual run can spend longer per target than the weekly smoke does. The
+  # weekly cron has no inputs, so it still gets the 60s default below. A fixed
+  # list of choices keeps free text out of the fuzztime flag.
   workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: How long to fuzz each target (go test -fuzztime)
+        type: choice
+        default: "60s"
+        options:
+          - "60s"
+          - "5m"
+          - "15m"
+          - "30m"
 
 permissions:
   contents: read
@@ -12,7 +25,7 @@ jobs:
   fuzz:
     uses: Glyndor/.github/.github/workflows/go-fuzz.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
-      fuzztime: "60s"
+      fuzztime: ${{ inputs.fuzztime || '60s' }}
       targets: >-
         [
           {"package":"./auth/email","func":"FuzzValidateAndNormalize"},
@@ -56,5 +69,10 @@ jobs:
           {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"},
           {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"},
           {"package":"./tests/hostile/identity","func":"FuzzEmailCanonicalFixedPoint"},
-          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"}
+          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"},
+          {"package":"./auth/oauth","func":"FuzzAuthCodeURL"},
+          {"package":"./auth/oauth/internal/exchange","func":"FuzzRequestFidelity"},
+          {"package":"./auth/oauth/internal/issuer","func":"FuzzIssuerPredicates"},
+          {"package":"./auth/oauth/internal/jwks/candidate","func":"FuzzPick"},
+          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"}
         ]
