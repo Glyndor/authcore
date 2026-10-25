@@ -1,6 +1,7 @@
 package keyload
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Glyndor/authcore/internal/keymanager/keyload/keyloadtest"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
+	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
 
 // replaceSet swaps a freshly generated set into dir, file by file, each by
@@ -24,12 +26,26 @@ func replaceSet(t *testing.T, dir string) keyloadtest.KeySet {
 	return set
 }
 
-// hooks installs a test hook for one test and removes it, with no pause.
-func hooks(t *testing.T, f func(attempt int)) {
+// hooks installs a test hook for one test and removes it, with no pause. The
+// hook is called after every file read; lastFile is the call that follows the
+// third file, after which nothing is left to read.
+func hooks(t *testing.T, f func(attempt, file int)) {
 	t.Helper()
-	oldPause, oldHook := retryPause, afterRead
-	retryPause, afterRead = 0, f
-	t.Cleanup(func() { retryPause, afterRead = oldPause, oldHook })
+	oldPause, oldHook := retryPause, seams.AfterKeyRead
+	retryPause, seams.AfterKeyRead = 0, f
+	t.Cleanup(func() { retryPause, seams.AfterKeyRead = oldPause, oldHook })
+}
+
+// lastFile is the index of the refresh secret, the last file read.
+const lastFile = 2
+
+// afterAllRead adapts f to run once per attempt, when all three files are read.
+func afterAllRead(f func(attempt int)) func(attempt, file int) {
+	return func(attempt, file int) {
+		if file == lastFile && f != nil {
+			f(attempt)
+		}
+	}
 }
 
 func TestFiles_repeatsTheReadWhenTheSetIsReplacedDuringIt(t *testing.T) {
@@ -37,12 +53,12 @@ func TestFiles_repeatsTheReadWhenTheSetIsReplacedDuringIt(t *testing.T) {
 	keyloadtest.WriteSet(t, dir)
 	var current keyloadtest.KeySet
 	attempts := 0
-	hooks(t, func(attempt int) {
+	hooks(t, afterAllRead(func(attempt int) {
 		attempts++
 		if attempt == 0 {
 			current = replaceSet(t, dir)
 		}
-	})
+	}))
 
 	priv, pub, secret, err := Files(dir, keyloadtest.SilentLog{})
 	if err != nil {
@@ -60,7 +76,7 @@ func TestFiles_refusesASetThatNeverSettles(t *testing.T) {
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
 	attempts := 0
-	hooks(t, func(int) { attempts++; replaceSet(t, dir) })
+	hooks(t, afterAllRead(func(int) { attempts++; replaceSet(t, dir) }))
 
 	_, _, _, err := Files(dir, keyloadtest.SilentLog{})
 	if err == nil || !strings.Contains(err.Error(), "changed while they were being read") {
@@ -79,13 +95,28 @@ func TestFiles_aFailureOfTheReadItselfIsNotRepeatedWhenNothingChanged(t *testing
 	keyloadtest.WriteSet(t, dir)
 	keyloadtest.Put(t, dir, layout.FileRefreshSecret, []byte("not hex\n"), 0600)
 	attempts := 0
-	hooks(t, func(int) { attempts++ })
+	hooks(t, afterAllRead(func(int) { attempts++ }))
 
 	if _, _, _, err := Files(dir, keyloadtest.SilentLog{}); err == nil || !strings.Contains(err.Error(), "not hex encoded") {
 		t.Fatalf("Files = %v, want the not-hex refusal", err)
 	}
 	if attempts != 1 {
 		t.Errorf("read %d times, want 1", attempts)
+	}
+}
+
+func TestFiles_anOversizedFileIsRefusedWithoutRepeating(t *testing.T) {
+	dir := t.TempDir()
+	keyloadtest.WriteSet(t, dir)
+	keyloadtest.Put(t, dir, layout.FilePublicKey, make([]byte, layout.MaxKeyFileSize+1), 0600)
+	reads := 0
+	hooks(t, func(int, int) { reads++ })
+
+	if _, _, _, err := Files(dir, keyloadtest.SilentLog{}); err == nil || !strings.Contains(err.Error(), "cap") {
+		t.Fatalf("Files = %v, want the size refusal", err)
+	}
+	if reads != 1 {
+		t.Errorf("read %d files, want only the private key before the refusal", reads)
 	}
 }
 
@@ -106,25 +137,23 @@ func TestFiles_aMissingFileKeepsItsOwnError(t *testing.T) {
 func TestFiles_aFileThatVanishesAfterTheReadIsNotVouchedFor(t *testing.T) {
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
-	hooks(t, func(int) { _ = os.Remove(filepath.Join(dir, layout.FileRefreshSecret)) })
+	hooks(t, afterAllRead(func(int) { _ = os.Remove(filepath.Join(dir, layout.FileRefreshSecret)) }))
 
 	if _, _, _, err := Files(dir, keyloadtest.SilentLog{}); err == nil {
 		t.Fatal("Files accepted a set it could not inspect after reading")
 	}
 }
 
-func TestSame(t *testing.T) {
-	a := []fileID{{ino: 1}, {ino: 2}}
-	if !same(a, []fileID{{ino: 1}, {ino: 2}}) {
-		t.Error("equal snapshots differ")
-	}
-	if same(a, []fileID{{ino: 1}, {ino: 3}}) {
-		t.Error("different inodes are the same")
-	}
-	if same(a, a[:1]) {
-		t.Error("different lengths are the same")
-	}
-	if same([]fileID{{size: 1}}, []fileID{{size: 2}}) || same([]fileID{{mtime: 1}}, []fileID{{mtime: 2}}) {
-		t.Error("size and modification time must count")
+func TestFiles_aFileThatVanishesAfterTheReadIsReadAgainWhenItComesBack(t *testing.T) {
+	dir := t.TempDir()
+	set := keyloadtest.WriteSet(t, dir)
+	hooks(t, afterAllRead(func(attempt int) {
+		if attempt == 0 {
+			keyloadtest.Put(t, dir, layout.FileRefreshSecret, []byte(hex.EncodeToString(set.Secret)+"\n"), 0600)
+		}
+	}))
+
+	if _, _, secret, err := Files(dir, keyloadtest.SilentLog{}); err != nil || string(secret) != string(set.Secret) {
+		t.Fatalf("Files = %v, want the settled set", err)
 	}
 }

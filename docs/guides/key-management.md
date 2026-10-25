@@ -133,13 +133,15 @@ by `authcore-keygen` and recorded in `metadata.json`).
 
 A start reads the three files one after another. To keep a replacement that
 lands in the middle of a start from pairing the signing key of one set with the
-refresh secret of another, the start looks at the identity of the files (device,
-inode, size and modification time, after following links) before and after
-reading them. If any of them changed, the read is thrown away and repeated, up
+refresh secret of another, the start reads the three files through open file
+descriptors and, once all are read, checks that each path still leads to the
+very file its descriptor holds (same device and inode, after following links).
+If any path leads somewhere else, the read is thrown away and repeated, up
 to three times with a short pause; a set that is still changing after that is
 refused with an error that says nothing was written, and the next start loads
-whatever has settled. Nothing is written by this check, so it is the same in
-load-only mode.
+whatever has settled. This also catches a volume that goes from one set to
+another and back while the files are read, which two looks at the paths alone
+cannot. Nothing is written by this check, so it is the same in load-only mode.
 
 This covers a replacement that is atomic from the reader's side, such as a
 mounted secret volume that retargets one link to refresh all its files. It

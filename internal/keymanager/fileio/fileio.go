@@ -21,12 +21,18 @@ import (
 // It never waits: an entry that is not a regular file, such as a pipe that took
 // the place of a key file after the caller checked it, is an error, not a hang.
 func ReadCapped(path string) ([]byte, error) {
-	f, err := openRegular(path)
+	f, err := OpenRegular(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
+	return ReadCappedFile(f, path)
+}
 
+// ReadCappedFile reads the already open f under the same cap as ReadCapped.
+// path is only used in messages. It does not close f: the caller keeps the
+// descriptor, for instance to ask later whether a path still leads to it.
+func ReadCappedFile(f *os.File, path string) ([]byte, error) {
 	// Stat first so an obviously oversized file is rejected before any read.
 	if fi, err := f.Stat(); err == nil && fi.Size() > layout.MaxKeyFileSize {
 		return nil, fmt.Errorf("file %q is %d bytes, exceeds %d-byte cap", path, fi.Size(), layout.MaxKeyFileSize)

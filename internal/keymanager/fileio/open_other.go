@@ -7,10 +7,10 @@ import (
 	"os"
 )
 
-// openRegular opens path for reading after checking that it is a regular file.
+// OpenRegular opens path for reading after checking that it is a regular file.
 // Platforms without a non-blocking open cannot close the gap between the check
 // and the open, but the type is checked again on the open descriptor.
-func openRegular(path string) (*os.File, error) {
+func OpenRegular(path string) (*os.File, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, err
