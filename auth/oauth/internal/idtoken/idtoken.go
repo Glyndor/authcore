@@ -11,6 +11,7 @@ import (
 	gjwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/claimread"
+	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/jwsheader"
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/keyissuer"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
 )
@@ -76,6 +77,10 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	// deduplicates or blocklists tokens by string must not see two.
 	if i := strings.IndexFunc(idToken, notCompactJWS); i >= 0 {
 		return nil, fmt.Errorf("%w: byte %d is outside the base64url alphabet", p.Invalid, i)
+	}
+
+	if err := jwsheader.RejectCritical(idToken); err != nil {
+		return nil, fmt.Errorf("%w: %w", p.Invalid, err)
 	}
 
 	opts := []gjwt.ParserOption{
