@@ -1,5 +1,5 @@
 // Package keyload reads a key set back from disk: the Ed25519 pair, checked
-// for consistency, and the hex-encoded refresh secret, checked for length. Every
+// for consistency, and the hex-encoded refresh secret, checked for length and for the patterns no random value has. Every
 // read is size-capped and nothing here ever writes.
 package keyload
 
@@ -12,6 +12,7 @@ import (
 
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
+	"github.com/Glyndor/authcore/internal/keymanager/material"
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
 	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
 )
@@ -22,6 +23,9 @@ import (
 func loadEd25519(privPath, pubPath string) (ed25519.PrivateKey, ed25519.PublicKey, error) {
 	priv, err := readPrivateKey(privPath)
 	if err != nil {
+		return nil, nil, fmt.Errorf("load private key: %w", err)
+	}
+	if err := material.CheckSeed(priv); err != nil {
 		return nil, nil, fmt.Errorf("load private key: %w", err)
 	}
 	pub, err := readPublicKey(pubPath)
@@ -77,6 +81,9 @@ func loadRefreshSecret(path string) ([]byte, error) {
 			"refresh secret in %q has wrong length: got %d bytes, want %d",
 			path, len(secret), layout.RefreshSecretLen,
 		)
+	}
+	if err := material.CheckSecret(secret); err != nil {
+		return nil, err
 	}
 	return secret, nil
 }

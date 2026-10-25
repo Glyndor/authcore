@@ -13,7 +13,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/recovery/recoverytest"
 )
 
-var otherSecret = []byte(strings.Repeat("ab", layout.RefreshSecretLen) + "\n")
+var otherSecret = []byte("9f2c7a41d83be5106ac9347fe20b6d58c14a97e3b05d28f6710ec4a93b8d5f26\n")
 
 // A secret that is not the recorded one is refused, and nothing is rewritten.
 func TestOpen_refusesASecretThatIsNotTheRecordedOne(t *testing.T) {

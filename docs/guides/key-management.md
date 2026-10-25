@@ -136,6 +136,36 @@ reads the three files one after another, and an operator who rotates them in
 the same moment can leave a process with files from two sets. Stop the process,
 replace the set as a whole, then start it.
 
+## The key material must look random
+
+The refresh secret and the signing key's 32-byte seed are refused, wherever
+they come from (the key directory, `NewKeyStoreFromKeys`, `NewKeyStoreFromPEM`
+or a custom `KeyStore`), when they match a pattern no random generator
+produces:
+
+- every byte the same (all zeros, all `0xff`);
+- a constant step from one byte to the next, such as `00 01 02 ...` or
+  `1f 1e 1d ...`;
+- one block of bytes repeated through the whole value (at least two copies,
+  the last possibly cut short);
+- fewer than 12 different byte values.
+
+The last threshold is a calculation, not a taste. Thirty-two uniformly random
+bytes hold about 30 different values, and the probability that they hold 11 or
+fewer is about 6e-26, below 2^-80. A secret produced by authcore itself, or by
+any sound generator (`openssl rand -hex 32`, `crypto/rand`), is never refused.
+
+The check exists because a provisioning script that writes a placeholder, or a
+file zeroed by mistake, would otherwise give every hash and encrypted column a
+publicly known key without a single warning. The error names the rule and never
+contains the bytes. Replace the value with 32 bytes from a cryptographic random
+source. If the refused value is already in use, what depends on it (stored
+refresh-token and API-key hashes, `auth/field` columns) has to be migrated or
+reissued; see the section on the refresh secret below.
+
+This is a minor breaking change: a key directory that holds such a value, and
+that started before, now fails to start with this error.
+
 ## Load-only in production
 
 Set `Config.RequireExistingKeys = true` to make the disk store load-only.
