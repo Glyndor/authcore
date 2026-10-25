@@ -53,5 +53,7 @@ jobs:
           {"package":"./tests/hostile/jwt","func":"FuzzVerifyAccessTokenAgreesWithReference"},
           {"package":"./tests/hostile/password","func":"FuzzVerifyMatchesReferenceArgon2"},
           {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"},
-          {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"}
+          {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"},
+          {"package":"./tests/hostile/identity","func":"FuzzEmailCanonicalFixedPoint"},
+          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"}
         ]
