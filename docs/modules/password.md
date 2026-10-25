@@ -143,9 +143,27 @@ case !ok:
 
 Comparison is **constant-time** (`crypto/subtle`). Timing attacks are not
 possible. Parameters are always read from the stored hash, never from the
-current module config, and **bounded to the same safe range** (`Memory` 8 MiB –
-4 GiB, `Iterations` ≤ 20, `Parallelism` ≥ 1) so a corrupted or malicious stored
-hash cannot force `argon2.IDKey` into an unbounded memory allocation.
+current module config, and **bounded** so a corrupted or malicious stored
+hash cannot choose what a login costs. `Verify` returns `ErrInvalidHash`,
+before it derives any key, for a hash that:
+
+- is outside the format range (`Memory` 8 MiB to 4 GiB, `Iterations` 1 to 20,
+  `Parallelism` 1 to 255), or
+- asks for more than the module accepts, which is a ceiling derived from the
+  module's own `Config`:
+
+| Parameter | Ceiling |
+|---|---|
+| `Memory` | 128 times the configured `Memory`, and never above 1 GiB (1048576 KiB) |
+| `Iterations` | 8 times the configured `Iterations`, and never above 20 |
+| `Parallelism` | 8 times the configured `Parallelism`, and never above 255 |
+
+The multiples leave room for hashes made with a stronger work factor than
+today's configuration, for example after lowering `Memory` on a smaller host.
+The absolute 1 GiB limit applies whatever the configuration, so a hash cannot
+ask for more than that even when `Memory` is set high. A hash made with a
+work factor above the ceiling must be rehashed outside `Verify`, or the
+module configured with a higher `Memory`, `Iterations` or `Parallelism`.
 
 > [!NOTE]
 > Both `Hash` and `Verify` normalise plaintext to **Unicode NFC** before
