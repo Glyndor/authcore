@@ -2,11 +2,7 @@
 // provider advertises, and builds the form body for the post method.
 package clientauth
 
-import (
-	"io"
-	"net/url"
-	"strings"
-)
+import "strings"
 
 // Method is the way Exchange authenticates the client at the token
 // endpoint. RFC 6749 section 2.3.1 names Basic as the method a provider must
@@ -65,12 +61,4 @@ func Choose(advertised []string, hasSecret bool) Method {
 	default:
 		return None
 	}
-}
-
-// FormBody wraps an encoded url.Values into the request-body pair
-// http.Request wants. Used when Exchange switches to Post mode after the
-// request was first built for Basic.
-func FormBody(form url.Values) (io.ReadCloser, int64, error) {
-	s := form.Encode()
-	return io.NopCloser(strings.NewReader(s)), int64(len(s)), nil
 }

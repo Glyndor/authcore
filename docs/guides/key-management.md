@@ -31,13 +31,15 @@ purpose stays as-is, and a file authcore did not create is not its to rewrite.
 ## The layout marker
 
 `metadata.json` holds no key material: only a format version, when the keys were
-first written, and the id of the current signing key:
+first written, the id of the current signing key and a binding of the refresh
+secret to that key (described below):
 
 ```json
 {
   "format": 1,
   "created": "2026-07-27T02:41:09Z",
-  "key_id": "3f9a1c07d5b2e846"
+  "key_id": "3f9a1c07d5b2e846",
+  "secret_binding": "9c1e…64 hex digits…"
 }
 ```
 
@@ -64,6 +66,40 @@ What that means in practice:
 
 The recorded `key_id` follows the keys: rotate them by replacing the PEM files
 and the marker is updated on the next start.
+
+### The refresh secret is bound to its key pair
+
+`secret_binding` is `HMAC-SHA256(key = refresh secret, data = a fixed label plus
+the public key)`. It lets authcore notice a `refresh_secret.key` that was
+generated with a different key pair, for example one file restored from the
+wrong backup. Without it that mix starts silently, and every stored
+refresh-token hash, API-key hash and `auth/field` column that was made with the
+real secret stops verifying. The value is a one-way hash keyed with a 256-bit
+secret, so it reveals nothing about the secret.
+
+- When the recorded `key_id` is the loaded key's and a binding is recorded, a
+  secret that does not match it is **refused** (`New` and the load-only path
+  alike), keys untouched. The error says to restore the `refresh_secret.key`
+  generated with these keys.
+- To adopt a different secret **on purpose**, remove the `secret_binding` line
+  from `metadata.json`; the next start records the binding of the secret that is
+  there. Replacing the signing key itself (a new `key_id`) rebinds as part of
+  the same step.
+- **Upgrading needs nothing from you.** A directory written by an earlier
+  release has no `secret_binding`. It loads exactly as before, with the same
+  keys and the same secret, so no token or stored hash is invalidated, and the
+  first start of the new release records the binding in place and logs
+  `recorded the refresh secret binding in metadata.json`. The format number
+  stays `1`: the field is additive, and a release that predates it ignores it.
+  Running it again changes nothing. A directory that was already mixed before
+  the upgrade is bound as it stands, because there is nothing to compare it
+  with.
+- A load-only start (`RequireExistingKeys`) never writes, so it does not record
+  the binding on a directory that lacks one; it checks the binding when one is
+  there. Run one writable start (or the init step) after upgrading to migrate.
+- The binding protects against mistakes and partial overwrites. Someone who can
+  rewrite both the key files and `metadata.json` already controls the
+  directory, and no marker can defend against that.
 
 ## Load-only in production
 

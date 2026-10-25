@@ -1,0 +1,176 @@
+package jwt_test
+
+import (
+	"errors"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/Glyndor/authcore/auth/jwt"
+)
+
+// Every registered claim is checked against the shape the module issues. A
+// signed token whose claim has the wrong JSON type is refused, never coerced
+// into something that passes.
+func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
+	e := newEnv(t)
+	m := e.module(t, jwt.Config{})
+
+	if _, err := m.VerifyAccessToken(e.signEdDSA(t, nil, claimsFor("access"))); err != nil {
+		t.Fatalf("control token refused: %v", err)
+	}
+
+	cases := map[string]struct {
+		key string
+		v   any
+	}{
+		"exp object":           {"exp", map[string]any{"$date": 9999999999}},
+		"exp array":            {"exp", []any{9999999999}},
+		"exp bool":             {"exp", true},
+		"exp null":             {"exp", nil},
+		"iat object":           {"iat", map[string]any{}},
+		"aud object":           {"aud", map[string]any{"a": jwt.DefaultConfig().Audience[0]}},
+		"aud number":           {"aud", 7},
+		"aud empty string":     {"aud", ""},
+		"aud empty array":      {"aud", []any{}},
+		"aud array of numbers": {"aud", []any{1, 2}},
+		"aud other service":    {"aud", "https://other.example"},
+		"aud near miss":        {"aud", jwt.DefaultConfig().Audience[0] + " "},
+		"aud nested array":     {"aud", []any{[]any{jwt.DefaultConfig().Audience[0]}}},
+		"aud missing":          {"aud", nil},
+		"iss array":            {"iss", []any{jwt.DefaultConfig().Issuer}},
+		"iss number":           {"iss", 1},
+		"iss other issuer":     {"iss", "https://attacker.example"},
+		"iss near miss":        {"iss", jwt.DefaultConfig().Issuer + "/"},
+		"iss missing":          {"iss", nil},
+		"sub number":           {"sub", 12345},
+		"sub array":            {"sub", []any{subject}},
+		"sub missing":          {"sub", nil},
+		"sub not a uuid":       {"sub", "admin"},
+		"sub uuid v4":          {"sub", "0191b432-b5a7-4c4f-b2e6-7a3f1d2e0001"},
+		"sub trailing newline": {"sub", subject + "\n"},
+		"sub with NUL":         {"sub", subject[:35] + "\x00"},
+		"sub uuid in braces":   {"sub", "{" + subject + "}"},
+		"sub urn form":         {"sub", "urn:uuid:" + subject},
+		"sub bad variant":      {"sub", "0191b432-b5a7-7c4f-c2e6-7a3f1d2e0001"},
+		"jti number":           {"jti", 1},
+		"jti object":           {"jti", map[string]any{}},
+		"jti missing":          {"jti", nil},
+		"jti not a uuid":       {"jti", "session-1"},
+		"jti uppercase v4":     {"jti", "0191B432-B5A7-4C4F-B2E6-7A3F1D2E0002"},
+		"jti unicode digits":   {"jti", "0191b432-b5a7-7c4f-b2e6-7a3f1d2e000\u0661"},
+		"type object":          {"type", map[string]any{}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			token := e.signEdDSA(t, nil, with(claimsFor("access"), tc.key, tc.v))
+			c, err := m.VerifyAccessToken(token)
+			if c != nil || err == nil {
+				t.Fatalf("accepted %s=%v: %+v", tc.key, tc.v, c)
+			}
+		})
+	}
+}
+
+// golang-jwt reads a numeric date written as a JSON string ("exp":"123") as the
+// number 123. That leniency is harmless only while the value is honoured at
+// face value: a string date that is in the past or the future must act like the
+// number would, never be dropped as if the claim were absent.
+func TestHostile_ClaimTypes_stringDatesAreHonouredNotIgnored(t *testing.T) {
+	e := newEnv(t)
+	m := e.module(t, jwt.Config{})
+	now := time.Now()
+	cases := map[string]struct {
+		key  string
+		v    string
+		want error
+	}{
+		"exp string in the past": {"exp", "1", jwt.ErrTokenExpired},
+		"iat string in future":   {"iat", strconv.FormatInt(now.Add(time.Hour).Unix(), 10), jwt.ErrTokenInvalid},
+		"nbf string in future":   {"nbf", strconv.FormatInt(now.Add(time.Hour).Unix(), 10), jwt.ErrTokenInvalid},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			token := e.signEdDSA(t, nil, with(claimsFor("access"), tc.key, tc.v))
+			if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, tc.want) {
+				t.Fatalf("VerifyAccessToken = %+v, %v; want %v", c, err, tc.want)
+			}
+		})
+	}
+}
+
+// The audience claim may legitimately be an array. The module is one of the
+// audiences it names, and one match is enough; a list that does not name it
+// is not.
+func TestHostile_ClaimTypes_audienceArrayNeedsOurAudience(t *testing.T) {
+	e := newEnv(t)
+	m := e.module(t, jwt.Config{Audience: []string{"https://api.example", "https://other.example"}})
+	cfgAud := "https://api.example"
+
+	accept := []any{cfgAud, []any{cfgAud}, []any{"https://elsewhere.example", cfgAud}}
+	for i, aud := range accept {
+		token := e.signEdDSA(t, nil, with(claimsFor("access"), "aud", aud))
+		if _, err := m.VerifyAccessToken(token); err != nil {
+			t.Errorf("accept case %d (%v): %v", i, aud, err)
+		}
+	}
+
+	// Only Audience[0] is the audience this module checks: a token for the
+	// second configured audience alone is refused.
+	token := e.signEdDSA(t, nil, with(claimsFor("access"), "aud", "https://other.example"))
+	if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
+		t.Fatalf("a token for the secondary audience only was accepted: %+v", c)
+	}
+}
+
+// The extra payload has a fixed shape. A signed token whose extra holds the
+// wrong JSON type is refused instead of yielding a half-filled struct.
+func TestHostile_ClaimTypes_extraWithWrongShape(t *testing.T) {
+	e := newEnv(t)
+	m := e.module(t, jwt.Config{})
+
+	if c, err := m.VerifyAccessToken(e.signEdDSA(t, nil, with(claimsFor("access"), "extra", map[string]any{"role": "admin"}))); err != nil || c.Extra.Role != "admin" {
+		t.Fatalf("control: %+v, %v", c, err)
+	}
+	for name, ex := range map[string]any{
+		"role number":  map[string]any{"role": 5},
+		"role array":   map[string]any{"role": []any{"admin"}},
+		"role object":  map[string]any{"role": map[string]any{"a": 1}},
+		"extra array":  []any{"admin"},
+		"extra string": "admin",
+		"extra number": 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			token := e.signEdDSA(t, nil, with(claimsFor("access"), "extra", ex))
+			if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
+				t.Fatalf("accepted extra=%v: %+v", ex, c)
+			}
+		})
+	}
+}
+
+// Extra cannot reach the registered claims: a field that carries the name of
+// a registered claim inside "extra" stays inside it.
+func TestHostile_ClaimTypes_extraCannotOverrideRegisteredClaims(t *testing.T) {
+	e := newEnv(t)
+	type loud struct {
+		Sub  string `json:"sub"`
+		Exp  int64  `json:"exp"`
+		Type string `json:"type"`
+	}
+	m, err := jwt.New[loud](e.prov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := m.CreateTokens(subject, loud{Sub: "attacker", Exp: 1, Type: "refresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := m.VerifyAccessToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("a payload named like registered claims broke a valid token: %v", err)
+	}
+	if c.Subject != subject || c.Extra.Sub != "attacker" {
+		t.Fatalf("subject = %q, extra.sub = %q; the payload leaked into the registered claims", c.Subject, c.Extra.Sub)
+	}
+}

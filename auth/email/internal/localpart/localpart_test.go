@@ -63,3 +63,15 @@ func TestCanonical_refusesInvisibleAndControlCharacters(t *testing.T) {
 		t.Fatalf("a plain local part: %q, %v", got, err)
 	}
 }
+
+func TestCanonical_refusesBytesThatAreNotUTF8(t *testing.T) {
+	for _, in := range []string{"al\xffice", "al\xfeice", "\xff", "alice\xc3"} {
+		_, err := localpart.Canonical(in)
+		if !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("%q: %v, want ErrInvalidEmail", in, err)
+		}
+	}
+	if got, err := localpart.Canonical("al\u00efce"); err != nil || got != "al\u00efce" {
+		t.Errorf("valid multibyte: %q, %v", got, err)
+	}
+}

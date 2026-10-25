@@ -18,8 +18,10 @@ func TwoInits(dir, name string) error {
 	return fmt.Errorf(
 		"key directory %q holds %s from two different initialisations; "+
 			"the published bytes do not match the staged bytes; "+
-			"refusing to write or delete any further files in this directory",
-		dir, name)
+			"refusing to write or delete any further files in this directory; "+
+			"the .staging-* directory next to them holds the set that was being "+
+			"published, so decide which %s is the genuine one before removing either",
+		dir, name, name)
 }
 
 // Inconsistent is the message returned when a partial set has no
@@ -47,6 +49,21 @@ func Regeneration(dir, keyID string) error {
 			"every stored refresh-token and API-key hash and every auth/field encrypted column; "+
 			"to start over with new keys on purpose, delete metadata.json",
 		dir, keyID)
+}
+
+// SecretMismatch reports a refresh secret that is not the one recorded for the
+// key pair in the directory. The advice never asks for a key file to be
+// deleted: the secret that belongs to these keys is in a backup, and replacing
+// it on purpose is a one-line edit of the descriptor.
+func SecretMismatch(dir string) error {
+	return fmt.Errorf(
+		"key directory %q holds a refresh_secret.key that does not belong to its key pair "+
+			"(metadata.json records a different binding); restore the refresh_secret.key "+
+			"that was generated with these keys. Starting with another secret would leave every "+
+			"stored refresh-token and API-key hash unverifiable and every auth/field encrypted "+
+			"column unreadable; to adopt the current secret on purpose, remove the "+
+			"secret_binding line from metadata.json",
+		dir)
 }
 
 // WaitTimeout builds the message the spec calls for: another initialiser

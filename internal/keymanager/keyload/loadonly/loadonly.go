@@ -24,6 +24,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/metadata"
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
+	"github.com/Glyndor/authcore/internal/keymanager/recovery"
 	"github.com/Glyndor/authcore/internal/keymanager/recovery/leftovers"
 	"github.com/Glyndor/authcore/internal/keymanager/refusals"
 )
@@ -78,7 +79,8 @@ func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 	}
 
 	// Load reads metadata only to surface read errors; it never writes it.
-	if _, err := metadata.Read(dir); err != nil {
+	meta, err := metadata.Read(dir)
+	if err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -91,6 +93,10 @@ func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 		return nil, nil, nil, refusals.IncompleteLoad(dir, present, missing)
 	}
 
+	if err := recovery.RefuseConflict(dir); err != nil {
+		return nil, nil, nil, err
+	}
+
 	priv, pub, secret, err := keyload.Files(dir, log)
 	if err != nil {
 		return nil, nil, nil, err
@@ -98,6 +104,10 @@ func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 
 	// The load-only path also reports a key directory others can write to; New
 	// tightens it instead.
+	if err := metadata.CheckSecret(dir, meta, pub, secret); err != nil {
+		return nil, nil, nil, err
+	}
+
 	modecheck.WarnIfDirWritableByOthers(dir, log)
 
 	leftovers.Report(dir, log)

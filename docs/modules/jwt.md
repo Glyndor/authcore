@@ -78,6 +78,11 @@ fmt.Println(claims.ExpiresAt)  // time.Time
 > different service is rejected with `ErrTokenInvalid`. This is the defense
 > against accidental key reuse across services.
 
+> [!NOTE]
+> `iat`, `nbf` and `exp` must lie between 1970-01-01 and 9999-12-31 (UTC). A
+> signed token with a date outside that range, or a number too large to be a
+> date, is rejected with `ErrTokenInvalid`.
+
 ## Rotating tokens
 
 Each refresh token carries a random `rid` claim, so two tokens of one session

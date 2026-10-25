@@ -40,18 +40,24 @@ func Hash(plaintext string, p phc.Params) (string, error) {
 }
 
 // Verify reports whether plaintext matches the Argon2id hash in phcHash. The
-// cost parameters are read from phcHash itself, bounded by phc.Parse, so a
-// stored hash cannot force an unbounded allocation. The returned error wraps
-// phc.ErrInvalid when phcHash is malformed or out of range.
+// cost parameters are read from phcHash itself, bounded by phc.Parse and then
+// by ceiling, so a stored hash cannot force an unbounded allocation or run
+// time. The returned error wraps phc.ErrInvalid when phcHash is malformed or
+// out of range, and when any of its parameters is above ceiling; in that case
+// no key is derived.
 //
 // plaintext must already be NFC-normalised.
-func Verify(plaintext, phcHash string) (bool, error) {
+func Verify(plaintext, phcHash string, ceiling phc.Params) (bool, error) {
 	// Extract the Argon2id parameters and salt embedded in the stored hash.
 	// Using the stored parameters — not the current module config — means old
 	// hashes remain valid even after the work factors are tuned upward.
 	params, salt, storedKey, err := phc.Parse(phcHash)
 	if err != nil {
 		return false, err
+	}
+
+	if params.Memory > ceiling.Memory || params.Iterations > ceiling.Iterations || params.Parallelism > ceiling.Parallelism {
+		return false, fmt.Errorf("%w: cost parameters exceed the ceiling the module accepts", phc.ErrInvalid)
 	}
 
 	// Recompute the derived key with the same parameters and salt as the original.

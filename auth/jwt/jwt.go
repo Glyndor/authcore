@@ -317,12 +317,12 @@ func accessClaimsToClaims[T any](c *claims.Access[T]) *Claims[T] {
 //	if err != nil { return http.StatusUnauthorized }
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
 //
-// HashRefreshToken returns ErrNotInitialised on a zero-value JWT[T].
+// HashRefreshToken returns ErrNotInitialised on a zero-value or nil JWT[T].
 // The signature changed from `string` to `(string, error)` so a module
 // that was never constructed by New cannot emit a hash under an empty
 // HMAC secret.
 func (j *JWT[T]) HashRefreshToken(token string) (string, error) {
-	if !j.initialised {
+	if j == nil || !j.initialised {
 		return "", ErrNotInitialised
 	}
 	return refreshhash.Compute(token, j.secret), nil
@@ -339,11 +339,11 @@ func (j *JWT[T]) HashRefreshToken(token string) (string, error) {
 //	}
 //	newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
 //
-// VerifyRefreshTokenHash returns false on a zero-value JWT[T]: a module
+// VerifyRefreshTokenHash returns false on a zero-value or nil JWT[T]: a module
 // with no HMAC secret cannot verify anything, and answering true would
 // let a caller mistake "no key was used" for "the key matched".
 func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
-	if !j.initialised {
+	if j == nil || !j.initialised {
 		return false
 	}
 	return refreshhash.Equal(token, storedHash, j.secret)

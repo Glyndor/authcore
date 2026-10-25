@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	gjwt "github.com/golang-jwt/jwt/v5"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // Check enforces the JWK "issuer" member of the key that signed the
@@ -22,12 +24,12 @@ func Check(invalid error, keyIssuer string, claims gjwt.MapClaims) error {
 	if strings.Contains(keyIssuer, "{tenantid}") {
 		tid, _ := claims["tid"].(string)
 		if tid == "" {
-			return fmt.Errorf("%w: the signing key is restricted to %q and the token has no tid", invalid, keyIssuer)
+			return fmt.Errorf("%w: the signing key is restricted to %s and the token has no tid", invalid, safetext.Quote(keyIssuer))
 		}
 		want = strings.ReplaceAll(keyIssuer, "{tenantid}", tid)
 	}
 	if iss, _ := claims["iss"].(string); iss != want {
-		return fmt.Errorf("%w: issuer %q is not the %q the signing key is restricted to", invalid, iss, want)
+		return fmt.Errorf("%w: issuer %s is not the %s the signing key is restricted to", invalid, safetext.Quote(iss), safetext.Quote(want))
 	}
 	return nil
 }

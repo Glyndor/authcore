@@ -226,7 +226,7 @@ func (p *Password) Hash(plaintext string) (string, error) {
 // Supported parameter ranges (mirroring Config validation):
 //   - Memory:      8 MiB – 4 GiB (8192 – 4194304 KiB)
 //   - Iterations:  1 – 20
-//   - Parallelism: ≥ 1
+//   - Parallelism: 1 – 255
 //   - Salt:        exactly 16 bytes
 //   - Key:         exactly 32 bytes
 //
@@ -234,7 +234,10 @@ func (p *Password) Hash(plaintext string) (string, error) {
 //
 // Returns ErrInvalidHash when phcHash is malformed, uses a non-Argon2id
 // algorithm, or carries parameters or salt/key lengths outside the ranges
-// above. A truncated hash never reaches the KDF, so it can neither verify
+// above, or when any of Memory, Iterations and Parallelism is higher than the
+// module accepts: 128 times the configured Memory (at most 1 GiB), and 8 times
+// the configured Iterations and Parallelism. A hash above that is refused
+// before any key is derived. A truncated hash never reaches the KDF, so it can neither verify
 // true nor crash the process.
 //
 //	ok, err := pwdMod.Verify(submittedPassword, storedHash)
@@ -246,7 +249,7 @@ func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
 	// to their account.
 	plaintext = norm.NFC.String(plaintext)
 
-	ok, err := kdf.Verify(plaintext, phcHash)
+	ok, err := kdf.Verify(plaintext, phcHash, p.cfg.verifyCeiling())
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrInvalidHash, invalidHash{cause: err})
 	}

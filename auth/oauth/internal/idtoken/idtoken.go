@@ -11,8 +11,10 @@ import (
 	gjwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/claimread"
+	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/jwsheader"
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/keyissuer"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // Algs are the asymmetric signing algorithms an ID token may use. HMAC
@@ -78,6 +80,10 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 		return nil, fmt.Errorf("%w: byte %d is outside the base64url alphabet", p.Invalid, i)
 	}
 
+	if err := jwsheader.RejectCritical(idToken); err != nil {
+		return nil, fmt.Errorf("%w: %w", p.Invalid, err)
+	}
+
 	opts := []gjwt.ParserOption{
 		gjwt.WithStrictDecoding(),
 		gjwt.WithValidMethods(Algs),
@@ -129,7 +135,7 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	if validator != nil {
 		iss, _ := claims["iss"].(string)
 		if iss == "" || !validator(iss) {
-			return nil, fmt.Errorf("%w: issuer %q rejected", p.Invalid, iss)
+			return nil, fmt.Errorf("%w: issuer %s rejected", p.Invalid, safetext.Quote(iss))
 		}
 	}
 

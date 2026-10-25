@@ -6,6 +6,8 @@ package candidate
 import (
 	"crypto"
 	"fmt"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // Candidate is a parsed JWK paired with the metadata needed to enforce the
@@ -36,9 +38,9 @@ func Pick(errFetch error, candidates []Candidate, kid, alg string) (Candidate, e
 		return cand, nil
 	}
 	if kid == "" {
-		return Candidate{}, fmt.Errorf("%w: no candidate matches alg %q", errFetch, alg)
+		return Candidate{}, fmt.Errorf("%w: no candidate matches alg %s", errFetch, safetext.Quote(alg))
 	}
-	return Candidate{}, fmt.Errorf("%w: no candidate for kid %q matches alg %q", errFetch, kid, alg)
+	return Candidate{}, fmt.Errorf("%w: no candidate for kid %s matches alg %s", errFetch, safetext.Quote(kid), safetext.Quote(alg))
 }
 
 // Matches reports whether the Candidate may verify a token signed with alg,

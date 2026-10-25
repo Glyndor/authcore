@@ -15,6 +15,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/refusals"
 	"github.com/Glyndor/authcore/internal/keymanager/seams"
+	"github.com/Glyndor/authcore/internal/keymanager/staging/createset"
 )
 
 // ErrWaitAndLoad is the sentinel Link returns when the private key link
@@ -47,6 +48,15 @@ func linkLanded(src, dst string) bool {
 		return false
 	}
 	return os.SameFile(s1, s2)
+}
+
+// discard removes the caller's own staging directory when the publish gave
+// way to another initialiser or stopped before anything was published. A
+// removal that fails is reported: what stays holds unpublished key material.
+func discard(staging string, log layout.Logger) {
+	if err := createset.Discard(staging); err != nil {
+		log.Warn("authcore/keymanager: %v", err)
+	}
 }
 
 // Link hard-links the three staged files into KeysDir in the fixed order
@@ -104,7 +114,7 @@ func Link(dir, staging string, log layout.Logger) error {
 			}
 			if lst.Mode()&os.ModeSymlink != 0 {
 				if i == 0 {
-					_ = os.RemoveAll(staging)
+					discard(staging, log)
 					return refusals.SymlinkTarget(dst, err)
 				}
 				// Private key already published: keep the staging directory
@@ -113,7 +123,7 @@ func Link(dir, staging string, log layout.Logger) error {
 				return refusals.SymlinkTarget(dst, err)
 			}
 			if i == 0 {
-				_ = os.RemoveAll(staging)
+				discard(staging, log)
 				return ErrWaitAndLoad
 			}
 			// Someone completed this publish for us. Compare bytes.
@@ -124,7 +134,7 @@ func Link(dir, staging string, log layout.Logger) error {
 			staged, rerr := fileio.ReadCapped(src)
 			if rerr != nil {
 				if errors.Is(rerr, fs.ErrNotExist) {
-					_ = os.RemoveAll(staging)
+					discard(staging, log)
 					return ErrWaitAndLoad
 				}
 				return fmt.Errorf("link %s: read staged: %w", dst, rerr)
@@ -139,7 +149,7 @@ func Link(dir, staging string, log layout.Logger) error {
 		}
 
 		if !publishedPrivate {
-			_ = os.RemoveAll(staging)
+			discard(staging, log)
 			return refusals.NoHardLinks(dir, l.name, false, err)
 		}
 		return refusals.NoHardLinks(dir, l.name, true, err)

@@ -81,6 +81,20 @@ func loadRefreshSecret(path string) ([]byte, error) {
 	return secret, nil
 }
 
+// Check reports whether dir holds a consistent key set: a private key, the
+// public key that belongs to it and a well-formed refresh secret. It reads the
+// files and warns about nothing, so a staged set can be judged before any of it
+// is linked into KeysDir.
+func Check(dir string) error {
+	if _, _, err := loadEd25519(filepath.Join(dir, layout.FilePrivateKey), filepath.Join(dir, layout.FilePublicKey)); err != nil {
+		return fmt.Errorf("ed25519 key pair: %w", err)
+	}
+	if _, err := loadRefreshSecret(filepath.Join(dir, layout.FileRefreshSecret)); err != nil {
+		return fmt.Errorf("refresh secret: %w", err)
+	}
+	return nil
+}
+
 // Files loads the three key files from dir through the validators above:
 // size cap, PEM parse, pair consistency and secret length all apply. It warns,
 // without ever refusing or changing a mode, when the private key or the refresh

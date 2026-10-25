@@ -205,11 +205,24 @@ func (c *Client) isOIDC() bool {
 // A supplied client is copied, with the library's redirect rule applied before
 // the caller's CheckRedirect. The original client is not modified.
 //
+// The endpoints in the document must be https and must not sit on an internal
+// address (private, link-local, unspecified, cloud metadata), and neither may
+// anything the fetches are redirected to or resolve to; a loopback issuer, a
+// local development provider, may use loopback endpoints. A document that
+// carries credentials in a URL is refused. An on-premises provider whose
+// endpoints really are internal needs the AllowPrivateNetwork option. See
+// Config.AllowPrivateNetwork for how the connection check treats a client you
+// supply.
+//
 //	p, err := oauth.Discover(ctx, "https://accounts.google.com", nil)
 //	if err != nil { ... }
 //	mod, _ := oauth.New(auth, oauth.Config{ClientID: id, RedirectURL: cb, Provider: p})
-func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Provider, error) {
-	doc, err := discovery.Fetch(ctx, issuer, httpClient, ErrDiscovery)
+func Discover(ctx context.Context, issuer string, httpClient *http.Client, opts ...DiscoverOption) (Provider, error) {
+	var o discoverOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	doc, err := discovery.FetchWith(ctx, issuer, httpClient, ErrDiscovery, o.allowPrivate)
 	if err != nil {
 		return Provider{}, err
 	}

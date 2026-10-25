@@ -7,7 +7,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -35,18 +37,47 @@ func stagingDirName() (string, error) {
 	return layout.StagingPrefix + hex.EncodeToString(b[:]), nil
 }
 
+// Discard removes a staging directory and the key files in it. It removes the
+// entries one by one instead of calling os.RemoveAll, which has to open the
+// parent directory for reading and so fails inside a KeysDir that can be
+// written and searched but not read; that is exactly the directory in which
+// the generation just failed. A failure is returned, never swallowed: what is
+// left holds key material that was never published.
+func Discard(staging string) error {
+	var errs []error
+	for _, name := range layout.KeyFileNames() {
+		if err := os.Remove(filepath.Join(staging, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	if err := os.Remove(staging); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("could not remove staging directory %q, which may hold key material that was never published; delete it: %w",
+			staging, errors.Join(errs...))
+	}
+	return nil
+}
+
 // Create allocates a private staging directory inside KeysDir and
 // writes the three key files into it with their final names and modes.
 //
-// The directory is created with os.Mkdir (not MkdirAll) at mode 0700; a name
-// collision is an error rather than something to overwrite. A failure at any
-// point removes the staging directory before returning so the caller never
-// leaves a half-populated staging behind. On success the caller publishes the
-// three files by hard-linking them into KeysDir.
-func Create(dir string) (string, ed25519.PrivateKey, ed25519.PublicKey, []byte, error) {
+// KeysDir is synced before anything is created, so a directory that cannot be
+// synced fails while there is nothing to clean up. The staging directory is
+// created with os.Mkdir (not MkdirAll) at mode 0700; a name collision is an
+// error rather than something to overwrite. A failure at any point removes the
+// staging directory before returning so the caller never leaves a
+// half-populated staging behind; if that removal fails too, the returned error
+// says so and names the directory. On success the caller publishes the three
+// files by hard-linking them into KeysDir.
+func Create(dir string) (_ string, priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte, err error) {
 	suffix, err := stagingDirName()
 	if err != nil {
 		return "", nil, nil, nil, err
+	}
+	if err := fileio.SyncDir(dir); err != nil {
+		return "", nil, nil, nil, fmt.Errorf("sync keys directory: %w", err)
 	}
 	staging := filepath.Join(dir, suffix)
 	if err := os.Mkdir(staging, 0700); err != nil {
@@ -55,7 +86,9 @@ func Create(dir string) (string, ed25519.PrivateKey, ed25519.PublicKey, []byte, 
 	success := false
 	defer func() {
 		if !success {
-			_ = os.RemoveAll(staging)
+			if derr := Discard(staging); derr != nil {
+				err = errors.Join(err, derr)
+			}
 		}
 	}()
 
