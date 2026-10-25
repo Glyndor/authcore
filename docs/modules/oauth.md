@@ -265,6 +265,9 @@ RFC 6749 section 3.2 requires of a token endpoint request.
 - `Exchange` refuses an authorization code longer than 8 KiB with `ErrExchange`
   before any request is made. Real providers issue codes of a few hundred bytes.
   This is a change from earlier versions, which forwarded a code of any length.
+- A token response whose `access_token` is only whitespace is refused with
+  `ErrExchange`, like a missing one. A valid token is returned exactly as the
+  provider sent it, never trimmed.
 
 ## What it guarantees
 

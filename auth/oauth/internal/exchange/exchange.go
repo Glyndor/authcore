@@ -204,7 +204,7 @@ func decode(p Params, body []byte) (*Tokens, error) {
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %w", p.Errs.Exchange, err)
 	}
-	if tok.AccessToken == "" || tok.TokenType == "" {
+	if strings.TrimSpace(tok.AccessToken) == "" || tok.TokenType == "" {
 		return nil, fmt.Errorf("%w: response missing access_token or token_type", p.Errs.Exchange)
 	}
 	// An ID token is required only for an OIDC provider (one that has a JWKS
