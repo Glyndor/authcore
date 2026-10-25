@@ -170,6 +170,8 @@ bytes hold about 30 different values, and the probability that they hold 11 or
 fewer is about 6e-26, below 2^-80. A secret produced by authcore itself, or by
 any sound generator (`openssl rand -hex 32`, `crypto/rand`), is never refused.
 
+The check runs where authcore receives key material: the built-in stores and any `KeyStore` handed to `authcore.New`. A hand-written `authcore.Provider` that is passed straight to a module bypasses it, so a Provider that returns a fixed or placeholder secret is the Provider's own responsibility (a unit-test double may do so). The modules that hold the secret (`jwt` and `totp`, like `apikey`, `credential` and `field`) keep their own copy of it, so clearing the buffer the Provider handed over changes nothing.
+
 The check exists because a provisioning script that writes a placeholder, or a
 file zeroed by mistake, would otherwise give every hash and encrypted column a
 publicly known key without a single warning. The error names the rule and never
