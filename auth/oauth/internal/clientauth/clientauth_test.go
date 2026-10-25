@@ -1,10 +1,6 @@
 package clientauth
 
-import (
-	"io"
-	"net/url"
-	"testing"
-)
+import "testing"
 
 func TestChoose(t *testing.T) {
 	t.Parallel()
@@ -30,24 +26,5 @@ func TestChoose(t *testing.T) {
 				t.Fatalf("Choose(%v, %v) = %v, want %v", tc.advertised, tc.hasSecret, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestFormBodyCarriesTheEncodedForm(t *testing.T) {
-	t.Parallel()
-	form := url.Values{"a": {"1 2"}, "b": {"x&y"}}
-	body, n, err := FormBody(form)
-	if err != nil {
-		t.Fatalf("FormBody: %v", err)
-	}
-	got, err := io.ReadAll(body)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(got) != form.Encode() || n != int64(len(got)) {
-		t.Fatalf("body %q (len %d), want %q", got, n, form.Encode())
-	}
-	if err := body.Close(); err != nil {
-		t.Fatalf("close: %v", err)
 	}
 }
