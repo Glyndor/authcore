@@ -73,7 +73,10 @@ four `Require*` fields off:
 
 Variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF and U+180B to U+180D)
 are accepted: they follow emoji and some CJK characters, so refusing them would
-reject passwords typed with an emoji keyboard.
+reject passwords typed with an emoji keyboard. This is by design: a password
+is secret input, not an identifier, so two passwords that render alike but
+differ in bytes are different passwords, and the module does not fold them.
+The behaviour is pinned by a test in `tests/hostile/password`.
 
 Validation checks length first, after NFC normalization. An input below
 `MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length

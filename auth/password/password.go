@@ -23,7 +23,10 @@
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
 //   - Printable input only: Hash refuses control, format and other
-//     default-ignorable characters, and the blank braille pattern
+//     default-ignorable characters, and the blank braille pattern. Variation
+//     selectors are accepted on purpose (emoji and some CJK characters carry
+//     them) and are not folded: two passwords that render the same but differ
+//     in a variation selector are different passwords.
 //
 // # What is tunable
 //

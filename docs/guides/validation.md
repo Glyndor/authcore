@@ -81,6 +81,24 @@ unaffected.
 >
 > Store the ASCII form so DNS lookups and database comparisons are deterministic.
 
+### Look-alike characters in the local part
+
+The local part is opaque. `ValidateAndNormalize` brings it to NFC and
+lowercases it, and refuses invisible and control characters, but it does **not**
+fold characters that only look alike. `аlice@example.com` (Cyrillic `а`,
+U+0430) and `alice@example.com` (Latin `a`) are two different addresses and
+both are accepted. This is by design: the local part is opaque (RFC 5321) and
+only the receiving server knows which spellings reach the same mailbox, so the
+library has no sound folding rule to apply.
+
+If you need robust uniqueness, or must stop an attacker from registering a
+look-alike of an existing address, apply your own policy before you store it.
+For example, restrict the local part to ASCII, or reject a local part that mixes
+scripts. The domain does not have this problem: it is converted to punycode, so
+a look-alike domain is stored as its `xn--` form and is not equal to the real
+one. The behaviour is pinned by a test in `tests/hostile/identity`, so a change
+to it is a deliberate, visible one.
+
 ### Verifying a domain can receive email
 
 `VerifyDomain` performs an optional DNS MX lookup to confirm the domain is
