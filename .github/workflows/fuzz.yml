@@ -69,5 +69,10 @@ jobs:
           {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"},
           {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"},
           {"package":"./tests/hostile/identity","func":"FuzzEmailCanonicalFixedPoint"},
-          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"}
+          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"},
+          {"package":"./auth/oauth","func":"FuzzAuthCodeURL"},
+          {"package":"./auth/oauth/internal/exchange","func":"FuzzRequestFidelity"},
+          {"package":"./auth/oauth/internal/issuer","func":"FuzzIssuerPredicates"},
+          {"package":"./auth/oauth/internal/jwks/candidate","func":"FuzzPick"},
+          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"}
         ]
