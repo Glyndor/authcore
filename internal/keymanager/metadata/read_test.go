@@ -29,7 +29,7 @@ func seedDir(t *testing.T) (string, *Metadata) {
 	if err := os.WriteFile(filepath.Join(dir, layout.FilePrivateKey), []byte("k"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Sync(dir, nil, "0123456789abcdef", &captureLogger{}); err != nil {
+	if err := Sync(dir, nil, "0123456789abcdef", "", &captureLogger{}); err != nil {
 		t.Fatalf("seed Sync: %v", err)
 	}
 	m, err := Read(dir)
@@ -168,7 +168,7 @@ func TestRead_unreadableDescriptorFailsClosed(t *testing.T) {
 func TestSync_writesADescriptorForAnAdoptedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	log := &captureLogger{}
-	if err := Sync(dir, nil, "0123456789abcdef", log); err != nil {
+	if err := Sync(dir, nil, "0123456789abcdef", "", log); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	m, err := Read(dir)
@@ -188,7 +188,7 @@ func TestSync_writesADescriptorForAnAdoptedDirectory(t *testing.T) {
 
 func TestSync_followsARotatedKey(t *testing.T) {
 	dir, old := seedDir(t)
-	if err := Sync(dir, old, "ffffffffffffffff", &captureLogger{}); err != nil {
+	if err := Sync(dir, old, "ffffffffffffffff", "", &captureLogger{}); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	m, err := Read(dir)
@@ -213,11 +213,11 @@ func TestSync_faultAtIsReturnedNotDowngraded(t *testing.T) {
 		return nil
 	})
 
-	if err := Sync(t.TempDir(), nil, "0123456789abcdef", &captureLogger{}); !errors.Is(err, sentinel) {
+	if err := Sync(t.TempDir(), nil, "0123456789abcdef", "", &captureLogger{}); !errors.Is(err, sentinel) {
 		t.Errorf("adopting a directory: got %v, want the sentinel", err)
 	}
 
-	if err := Sync(dir, old, "ffffffffffffffff", &captureLogger{}); !errors.Is(err, sentinel) {
+	if err := Sync(dir, old, "ffffffffffffffff", "", &captureLogger{}); !errors.Is(err, sentinel) {
 		t.Errorf("rotating a key: got %v, want the sentinel", err)
 	}
 }

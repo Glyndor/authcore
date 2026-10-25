@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"path/filepath"
 
+	"github.com/Glyndor/authcore/internal/keymanager/binding"
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap/load"
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
@@ -61,7 +62,7 @@ func Fresh(dir string, meta *metadata.Metadata, log layout.Logger) (ed25519.Priv
 		return nil, nil, nil, err
 	}
 	keyID := material.KeyID(pub)
-	if err := metadata.Sync(dir, meta, keyID, log); err != nil {
+	if err := metadata.Sync(dir, meta, keyID, binding.Compute(pub, secret), log); err != nil {
 		return nil, nil, nil, err
 	}
 	leftovers.Report(dir, log)

@@ -5,6 +5,7 @@ package load
 import (
 	"crypto/ed25519"
 
+	"github.com/Glyndor/authcore/internal/keymanager/binding"
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
 	"github.com/Glyndor/authcore/internal/keymanager/keyload"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
@@ -26,8 +27,12 @@ func FromKeysDir(dir string, meta *metadata.Metadata, log layout.Logger) (ed2551
 		return nil, nil, nil, err
 	}
 
+	if err := metadata.CheckSecret(dir, meta, pub, secret); err != nil {
+		return nil, nil, nil, err
+	}
+
 	keyID := material.KeyID(pub)
-	if err := metadata.Sync(dir, meta, keyID, log); err != nil {
+	if err := metadata.Sync(dir, meta, keyID, binding.Compute(pub, secret), log); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := fileio.SyncDir(dir); err != nil {

@@ -208,7 +208,11 @@ func TestRefreshSecretErrorDoesNotEchoTheFile(t *testing.T) {
 		}
 	}
 	// A well-formed file of the same length still loads, so the refusal is
-	// about the encoding and not the length.
+	// about the encoding and not the length. The secret is a different one, so
+	// the descriptor's binding is dropped first, as the operator would.
+	if err := os.Remove(filepath.Join(dir, layout.FileMetadata)); err != nil {
+		t.Fatal(err)
+	}
 	good := hex.EncodeToString([]byte(strings.Repeat("k", 32))) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, layout.FileRefreshSecret), []byte(good), 0o600); err != nil {
 		t.Fatal(err)
