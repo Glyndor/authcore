@@ -92,8 +92,8 @@ func TestHostile_Recovery_spellingsOfOneCode(t *testing.T) {
 			}
 			return r
 		}, code),
-		"zero width space inside": plain[:5] + "​" + plain[5:],
-		"no-break space inside":   plain[:5] + " " + plain[5:],
+		"zero width space inside": plain[:5] + "\u200b" + plain[5:],
+		"no-break space inside":   plain[:5] + "\u00a0" + plain[5:],
 		"tab inside":              plain[:5] + "\t" + plain[5:],
 		"digit for letter":        plain[:1] + "0" + plain[2:],
 		"empty":                   "",

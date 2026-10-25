@@ -69,6 +69,11 @@ func refVerify(token string, p refPolicy) error {
 	if err := d.Decode(&c); err != nil {
 		return fmt.Errorf("claims json: %w", err)
 	}
+	return refClaims(c, p)
+}
+
+// refClaims applies the claim rules to an already authenticated payload.
+func refClaims(c map[string]any, p refPolicy) error {
 	if c["iss"] != p.issuer {
 		return fmt.Errorf("iss %v", c["iss"])
 	}
@@ -91,22 +96,17 @@ func refVerify(token string, p refPolicy) error {
 	if !p.now.Before(exp) {
 		return errors.New("expired")
 	}
-	if iat, present := c["iat"]; present {
-		v, ok := numericDate(iat)
+	for _, name := range []string{"iat", "nbf"} {
+		raw, present := c[name]
+		if !present {
+			continue
+		}
+		v, ok := numericDate(raw)
 		if !ok {
-			return fmt.Errorf("iat %v", iat)
+			return fmt.Errorf("%s %v", name, raw)
 		}
 		if v.After(p.now) {
-			return errors.New("issued in the future")
-		}
-	}
-	if nbf, present := c["nbf"]; present {
-		v, ok := numericDate(nbf)
-		if !ok {
-			return fmt.Errorf("nbf %v", nbf)
-		}
-		if v.After(p.now) {
-			return errors.New("not valid yet")
+			return fmt.Errorf("%s is in the future", name)
 		}
 	}
 	return nil

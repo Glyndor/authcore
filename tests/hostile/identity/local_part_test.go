@@ -24,8 +24,8 @@ func TestHostile_EmailLocal_limitIsBytesOfTheCanonicalForm(t *testing.T) {
 		"22 chars that grow by one byte lower-cased": {strings.Repeat("Ⱥ", 22), false}, // 44 bytes typed, 66 canonical
 		"32 chars that shrink when lower-cased":      {strings.Repeat("Ɐ", 32), true},  // 96 bytes typed, 64 canonical
 		"33 chars that shrink when lower-cased":      {strings.Repeat("Ɐ", 33), false}, // 99 bytes typed, 66 canonical
-		"32 decomposed pairs (96 typed, 64 NFC)":     {strings.Repeat("é", 32), true},
-		"33 decomposed pairs (99 typed, 66 NFC)":     {strings.Repeat("é", 33), false},
+		"32 decomposed pairs (96 typed, 64 NFC)":     {strings.Repeat("e\u0301", 32), true},
+		"33 decomposed pairs (99 typed, 66 NFC)":     {strings.Repeat("e\u0301", 33), false},
 		"64 ASCII":                                   {strings.Repeat("a", 64), true},
 		"65 ASCII":                                   {strings.Repeat("a", 65), false},
 	} {
@@ -75,7 +75,7 @@ func TestHostile_EmailLocal_noInvisibleOrDirectionalScalarSurvives(t *testing.T)
 // bytes and is stable.
 func TestHostile_EmailLocal_combiningMarksAreBoundedAndStable(t *testing.T) {
 	m := newEmail(t)
-	zalgo := "a" + strings.Repeat("̣́", 15) // 1 + 60 bytes
+	zalgo := "a" + strings.Repeat("\u0301\u0323", 15) // 1 + 60 bytes
 	got, err := m.ValidateAndNormalize(zalgo + "@example.com")
 	if err != nil {
 		t.Fatalf("a base with 30 marks within the limit: %v", err)
@@ -84,12 +84,12 @@ func TestHostile_EmailLocal_combiningMarksAreBoundedAndStable(t *testing.T) {
 	if err != nil || again != got {
 		t.Errorf("not stable: %q then %q, %v", got, again, err)
 	}
-	if _, err := m.ValidateAndNormalize("a" + strings.Repeat("̣́", 40) + "@example.com"); err == nil {
+	if _, err := m.ValidateAndNormalize("a" + strings.Repeat("\u0301\u0323", 40) + "@example.com"); err == nil {
 		t.Error("a base with 80 marks (161 bytes) was accepted")
 	}
 	// Marks in either order are one canonical sequence.
-	x, _ := m.ValidateAndNormalize("ậ@example.com")
-	y, _ := m.ValidateAndNormalize("ậ@example.com")
+	x, _ := m.ValidateAndNormalize("a\u0323\u0302@example.com")
+	y, _ := m.ValidateAndNormalize("a\u0302\u0323@example.com")
 	if x == "" || x != y {
 		t.Errorf("the two orders of two marks gave %q and %q", x, y)
 	}

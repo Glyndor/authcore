@@ -122,8 +122,9 @@ func TestHostile_ClaimExtremes_audienceArraySizeIsBounded(t *testing.T) {
 		t.Errorf("a 400-entry audience naming us last was refused: %v", err)
 	}
 	for _, n := range []int{5000, 200000} {
+		token := build(n)
 		start := time.Now()
-		c, err := m.VerifyAccessToken(build(n))
+		c, err := m.VerifyAccessToken(token)
 		if c != nil || !errors.Is(err, jwt.ErrTokenOversized) {
 			t.Errorf("%d-entry audience = %+v, %v; want ErrTokenOversized", n, c, err)
 		}

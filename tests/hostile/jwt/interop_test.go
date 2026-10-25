@@ -143,7 +143,7 @@ func TestHostile_Interop_moduleAndReferenceAgreeOnClaimBoundaries(t *testing.T) 
 		"type uppercase":        with(claimsFor("access"), "type", "ACCESS"),
 		"type missing":          with(claimsFor("access"), "type", nil),
 		"unknown claim":         with(claimsFor("access"), "admin", true),
-		"unicode extra":         with(claimsFor("access"), "extra", map[string]any{"role": "‮\u0000\U0001f600"}),
+		"unicode extra":         with(claimsFor("access"), "extra", map[string]any{"role": "\u202e\u0000\U0001f600"}),
 		"extra with empty role": with(claimsFor("access"), "extra", map[string]any{}),
 	}
 	for name, claims := range cases {

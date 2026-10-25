@@ -40,8 +40,8 @@ func TestHostile_URI_issuerAndAccountSurviveTheRoundTrip(t *testing.T) {
 	names := []string{
 		"alice", "alice@example.com", "alice smith", "alice+tag@example.com", "a:b", "a:b:c", ":", "::a", "a::",
 		"100%", "%3A", "%253A", "a%20b", "a b+c d", "a&b=c", "a?b#c", "a/b\\c", "a;b,c", "\"q\" 'q' <t>",
-		"Señor López", "日本語", "\U0001f600", "é", "العربية",
-		"left‮right", "zero​width", "tab\there", "line\nbreak", "nul\x00byte", strings.Repeat("x", 1000),
+		"Señor López", "日本語", "\U0001f600", "e\u0301", "العربية",
+		"left\u202eright", "zero\u200bwidth", "tab\there", "line\nbreak", "nul\x00byte", strings.Repeat("x", 1000),
 	}
 	for _, issuer := range append([]string{"Acme", "Acme Co", "Acme:Co"}, names...) {
 		if !utf8.ValidString(issuer) {

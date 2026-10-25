@@ -28,7 +28,7 @@ func TestHostile_RefreshHash_matchesAnIndependentHMACForEveryInput(t *testing.T)
 		"NUL":              "\x00",
 		"NUL padded":       "abc\x00\x00",
 		"unicode":          "tóken-日本-\U0001f600",
-		"combining":        "é",
+		"combining":        "e\u0301",
 		"invalid UTF-8":    "\xff\xfe\xfd",
 		"block size":       strings.Repeat("b", 64),
 		"block size + 1":   strings.Repeat("b", 65),

@@ -14,7 +14,7 @@ import (
 // applies no policy, so any bytes are a legal plaintext, valid UTF-8 or not.
 func FuzzVerifyMatchesReferenceArgon2(f *testing.F) {
 	m := newModule(f, password.Config{Memory: 8 * 1024, Iterations: 1, Parallelism: 1})
-	for _, s := range []string{"", "a", strong, "Café", "Café", "\x00", "\xff\xfe", "\U0001f600", "Å", "ﬁ"} {
+	for _, s := range []string{"", "a", strong, "Café", "Cafe\u0301", "\x00", "\xff\xfe", "\U0001f600", "Å", "ﬁ"} {
 		f.Add(s, uint8(0), uint8(0))
 	}
 	f.Add(strong, uint8(2), uint8(3))
@@ -47,7 +47,7 @@ func FuzzNormalisationEquivalence(f *testing.F) {
 	for _, s := range normalizationSamples {
 		f.Add(s, uint8(0), uint8(1))
 	}
-	f.Add("Café pass 12", uint8(1), uint8(0))
+	f.Add("Cafe\u0301 pass 12", uint8(1), uint8(0))
 	f.Add("각 pass 123", uint8(0), uint8(2))
 
 	forms := []norm.Form{norm.NFC, norm.NFD, norm.NFKC, norm.NFKD}

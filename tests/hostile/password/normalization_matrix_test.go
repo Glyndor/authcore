@@ -9,20 +9,20 @@ import (
 // Passwords where the four Unicode forms differ, or where composition has
 // exceptions. Each is hashed in one form and verified in every form.
 var normalizationSamples = []string{
-	"Café Muñoz 99",        // precomposed accents
-	"Café Muñoz 99",      // the same, decomposed
-	"Ångström Å 12",        // letter A-ring and ANGSTROM SIGN
-	"Ohm Ω and omega Ω 34", // OHM SIGN, a singleton decomposition
-	"ﬁne ﬂour ﬃx 56",       // ligatures: only compatibility forms fold them
-	"Ｐａｓｓｗｏｒｄ 78",          // fullwidth letters
-	"x² + y³ = z⁴ 90",      // superscripts
-	"각 각 hangul 12",      // conjoining jamo and the syllable they compose to
-	"क़क क़ 34",             // composition exclusion: U+0958 does not recompose
-	"ẛ̣ and ẛ 56",          // long s with dot, canonical reordering of marks
-	"ậ vs ậ 78",        // marks in two orders, one canonical order
-	"½ cup ⅕ cup 90",       // vulgar fractions
-	"① ❶ circled 12",       // circled digits
-	"㎒ mhz ㎯ rad 34",       // squared CJK compatibility
+	"Café Muñoz 99",                     // precomposed accents
+	"Cafe\u0301 Mun\u0303oz 99",         // the same, decomposed
+	"Ångström Å 12",                     // letter A-ring and ANGSTROM SIGN
+	"Ohm Ω and omega Ω 34",              // OHM SIGN, a singleton decomposition
+	"ﬁne ﬂour ﬃx 56",                    // ligatures: only compatibility forms fold them
+	"Ｐａｓｓｗｏｒｄ 78",                       // fullwidth letters
+	"x² + y³ = z⁴ 90",                   // superscripts
+	"각 각 hangul 12",                   // conjoining jamo and the syllable they compose to
+	"क़क क\u093c 34",                     // composition exclusion: U+0958 does not recompose
+	"ẛ\u0323 and ẛ 56",                  // long s with dot, canonical reordering of marks
+	"a\u0323\u0302 vs a\u0302\u0323 78", // marks in two orders, one canonical order
+	"½ cup ⅕ cup 90",                    // vulgar fractions
+	"① ❶ circled 12",                    // circled digits
+	"㎒ mhz ㎯ rad 34",                    // squared CJK compatibility
 }
 
 // Two spellings of a password are one password exactly when their NFC forms are
@@ -82,11 +82,11 @@ func TestHostile_NormalizationMatrix_verifyAgreesWithNFCEquality(t *testing.T) {
 func TestHostile_NormalizationMatrix_knownPairs(t *testing.T) {
 	m := newModule(t, relaxed(64))
 	same := [][2]string{
-		{"Café pass 12", "Café pass 12"},
+		{"Café pass 12", "Cafe\u0301 pass 12"},
 		{"Ångstrom 123", "Ångstrom 123"},
 		{"Omega Ω pass1", "Omega Ω pass1"},
 		{"각 pass123", "각 pass123"},
-		{"ậ pass12", "ậ pass12"},
+		{"a\u0323\u0302 pass12", "a\u0302\u0323 pass12"},
 	}
 	different := [][2]string{
 		{"ﬁne passw0rd", "fine passw0rd"},

@@ -18,8 +18,8 @@ func TestHostile_IDNA_acceptedDomainsHaveTheirASCIIForm(t *testing.T) {
 		"sharp s kept (non-transitional)":  {"a@faß.de", "a@xn--fa-hia.de"},
 		"final sigma kept":                 {"a@ς.com", "a@xn--3xa.com"},
 		"sigma and final sigma kept":       {"a@σς.com", "a@xn--3xab.com"},
-		"ZWJ after a virama":               {"a@क्‍ष.com", "a@xn--11b2ezcw70k.com"},
-		"ZWNJ after a virama":              {"a@क्‌ष.com", "a@xn--11b2ezcs70k.com"},
+		"ZWJ after a virama":               {"a@क\u094d\u200dष.com", "a@xn--11b2ezcw70k.com"},
+		"ZWNJ after a virama":              {"a@क\u094d\u200cष.com", "a@xn--11b2ezcs70k.com"},
 		"right to left label":              {"a@אב.com", "a@xn--4dbc.com"},
 		"right to left then digit":         {"a@א1.com", "a@xn--1-zhc.com"},
 		"two right to left labels":         {"a@אב.ג.com", "a@xn--4dbc.xn--6db.com"},
@@ -27,10 +27,10 @@ func TestHostile_IDNA_acceptedDomainsHaveTheirASCIIForm(t *testing.T) {
 		"ideographic full stop":            {"a@a。b.com", "a@a.b.com"},
 		"fullwidth full stop":              {"a@a．b.com", "a@a.b.com"},
 		"halfwidth ideographic full stop":  {"a@a｡b.com", "a@a.b.com"},
-		"soft hyphen is ignored":           {"a@a­b.com", "a@ab.com"},
+		"soft hyphen is ignored":           {"a@a\u00adb.com", "a@ab.com"},
 		"upper case punycode":              {"a@XN--MNCHEN-3YA.DE", "a@xn--mnchen-3ya.de"},
 		"punycode passes through":          {"a@xn--bcher-kva.xn--bcher-kva", "a@xn--bcher-kva.xn--bcher-kva"},
-		"precomposed and decomposed agree": {"a@é.com", "a@xn--9ca.com"},
+		"precomposed and decomposed agree": {"a@e\u0301.com", "a@xn--9ca.com"},
 		"emoji label":                      {"a@\U0001f600.com", "a@xn--e28h.com"},
 		"ligature mapped":                  {"a@ﬁ.com", "a@fi.com"},
 	} {
@@ -44,9 +44,9 @@ func TestHostile_IDNA_acceptedDomainsHaveTheirASCIIForm(t *testing.T) {
 func TestHostile_IDNA_refusedDomains(t *testing.T) {
 	m := newEmail(t)
 	for name, in := range map[string]string{
-		"ZWJ with no virama":             "a@a‍b.com",
-		"ZWNJ with no virama":            "a@a‌b.com",
-		"leading combining mark":         "a@́a.com",
+		"ZWJ with no virama":             "a@a\u200db.com",
+		"ZWNJ with no virama":            "a@a\u200cb.com",
+		"leading combining mark":         "a@\u0301a.com",
 		"bidi: right to left then Latin": "a@אa.com",
 		"bidi: digit then right to left": "a@1א.com",
 		"arabic-indic digit alone":       "a@٠.com",

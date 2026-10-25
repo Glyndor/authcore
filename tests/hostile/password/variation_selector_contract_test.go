@@ -14,10 +14,10 @@ import "testing"
 func TestContract_Password_variationSelectorsAreAcceptedAndNotFolded(t *testing.T) {
 	m := newModule(t, lowCost())
 	for name, sel := range map[string]string{
-		"VS16 emoji presentation": "️",
-		"VS1 text presentation":   "︀",
+		"VS16 emoji presentation": "\ufe0f",
+		"VS1 text presentation":   "\ufe00",
 		"supplementary VS17":      "\U000e0100",
-		"Mongolian FVS1":          "᠋",
+		"Mongolian FVS1":          "\u180b",
 	} {
 		withSel := strong + sel
 		if err := m.ValidatePolicy(withSel); err != nil {

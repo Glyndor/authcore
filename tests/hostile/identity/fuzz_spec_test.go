@@ -18,7 +18,7 @@ import (
 func FuzzEmailCanonicalFixedPoint(f *testing.F) {
 	m := newEmail(f)
 	for _, s := range []string{
-		"alice@example.com", "Alice@Example.COM", "a@xn--mnchen-3ya.de", "élise@münchen.de", "ÉLISE@EXAMPLE.COM",
+		"alice@example.com", "Alice@Example.COM", "a@xn--mnchen-3ya.de", "e\u0301lise@münchen.de", "ÉLISE@EXAMPLE.COM",
 		"a+b@example.co.uk", "a@İ.com", "a@faß.de", "Kevin@example.com", "a@אב.com", "x@日本.jp",
 		"a@a。b.com", "\"quoted\"@example.com", "a@[127.0.0.1]", "  a@b.cc  ",
 	} {
@@ -33,26 +33,7 @@ func FuzzEmailCanonicalFixedPoint(f *testing.F) {
 		if err != nil || again != got {
 			t.Fatalf("%q -> %q, and again -> %q, %v", s, got, again, err)
 		}
-		at := strings.LastIndexByte(got, '@')
-		local, domain := got[:at], got[at+1:]
-		if len(got) > 254 || len(local) > 64 || len(local) == 0 {
-			t.Fatalf("%q -> %q breaks the length limits", s, got)
-		}
-		for _, label := range strings.Split(domain, ".") {
-			if len(label) == 0 || len(label) > 63 {
-				t.Fatalf("%q -> %q has a label of %d bytes", s, got, len(label))
-			}
-		}
-		for _, r := range domain {
-			if r > unicode.MaxASCII {
-				t.Fatalf("%q -> %q: the domain is not ASCII", s, got)
-			}
-		}
-		for _, r := range local {
-			if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {
-				t.Fatalf("%q -> %q keeps U+%04X", s, got, r)
-			}
-		}
+		assertCanonicalLimits(t, s, got)
 		// Other spellings of the same input.
 		upper := strings.Map(func(r rune) rune {
 			if r >= 'a' && r <= 'z' {
@@ -67,6 +48,32 @@ func FuzzEmailCanonicalFixedPoint(f *testing.F) {
 			t.Fatalf("NFD of %q gave %q, %v; want %q", s, other, err, got)
 		}
 	})
+}
+
+// assertCanonicalLimits fails the test when an accepted address, got, breaks
+// the limits of the format or keeps a character that hides or reorders text.
+func assertCanonicalLimits(t *testing.T, input, got string) {
+	t.Helper()
+	at := strings.LastIndexByte(got, '@')
+	local, domain := got[:at], got[at+1:]
+	if len(got) > 254 || len(local) > 64 || len(local) == 0 {
+		t.Fatalf("%q -> %q breaks the length limits", input, got)
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			t.Fatalf("%q -> %q has a label of %d bytes", input, got, len(label))
+		}
+	}
+	for _, r := range domain {
+		if r > unicode.MaxASCII {
+			t.Fatalf("%q -> %q: the domain is not ASCII", input, got)
+		}
+	}
+	for _, r := range local {
+		if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {
+			t.Fatalf("%q -> %q keeps U+%04X", input, got, r)
+		}
+	}
 }
 
 var usernameShape = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$`)

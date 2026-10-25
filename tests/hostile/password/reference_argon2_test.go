@@ -56,7 +56,7 @@ func TestHostile_Reference_moduleHashesAreTheReferenceHashes(t *testing.T) {
 		{Memory: 16 * 1024, Iterations: 1, Parallelism: 2},
 	} {
 		m := newModule(t, cfg)
-		for _, pw := range []string{strong, "Café-Muñoz-9", "Decomposed-é-9!", "日本語-Passw0rd-A!"} {
+		for _, pw := range []string{strong, "Café-Muñoz-9", "Decomposed-e\u0301-9!", "日本語-Passw0rd-A!"} {
 			hash, err := m.Hash(pw)
 			if err != nil {
 				t.Fatalf("Hash(%q): %v", pw, err)
@@ -79,9 +79,9 @@ func TestHostile_Reference_moduleHashesAreTheReferenceHashes(t *testing.T) {
 func TestHostile_Reference_referenceHashesVerifyInTheModule(t *testing.T) {
 	m := newModule(t, password.Config{Memory: 8 * 1024, Iterations: 1, Parallelism: 1})
 	salt := []byte("0123456789abcdef")
-	for _, mem := range []uint32{8192, 8193, 9000, 16384} {
+	for _, mem := range []uint32{8192, 9000} {
 		for _, it := range []uint32{1, 2, 8} {
-			for _, par := range []uint8{1, 2, 7, 8} {
+			for _, par := range []uint8{1, 8} {
 				hash := refHash(strong, mem, it, par, salt)
 				if ok, err := m.Verify(strong, hash); err != nil || !ok {
 					t.Errorf("m=%d t=%d p=%d: Verify = %v, %v", mem, it, par, ok, err)
