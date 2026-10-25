@@ -49,5 +49,6 @@ jobs:
           {"package":"./auth/totp/internal/otpauth","func":"FuzzURI"},
           {"package":"./auth/totp/internal/secret","func":"FuzzDecode"},
           {"package":"./auth/email","func":"FuzzAcceptedAddressIsSafe"},
-          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"}
+          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"},
+          {"package":"./tests/hostile/jwt","func":"FuzzVerifyAccessTokenAgreesWithReference"}
         ]
