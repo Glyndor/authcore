@@ -138,7 +138,7 @@ func (v *Verifier) Verify(ctx context.Context, encodedSecret, code string, rec R
 // an interface holding a typed nil is itself non-nil, so a caller that passes
 // "var r *myRecorder" would slip past the guard and reach RecordIfNewer,
 // where every method call panics. The same shape is used by the root
-// package's isNilValue in internal/keystore.
+// package's isNilValue in internal/keystore/contract.
 func isNilRecorderValue(rec Recorder) bool {
 	if rec == nil {
 		return true

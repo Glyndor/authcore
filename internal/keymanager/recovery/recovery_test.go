@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Glyndor/authcore/internal/keymanager/recovery/recoverytest"
+
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 )
 
@@ -30,20 +32,20 @@ func TestRecoverPartialLoadsWhenSetCompletesBetweenChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := filepath.Join(base, "owner")
-	if _, err := seedKeys(owner, silentLog{}); err != nil {
+	if err := recoverytest.SeedKeys(owner); err != nil {
 		t.Fatal(err)
 	}
 
-	copyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
-	copyFile(t, filepath.Join(owner, layout.FilePublicKey), filepath.Join(dir, layout.FilePublicKey))
+	recoverytest.CopyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
+	recoverytest.CopyFile(t, filepath.Join(owner, layout.FilePublicKey), filepath.Join(dir, layout.FilePublicKey))
 
 	prev := recoverPartialBetweenChecksHook
 	t.Cleanup(func() { recoverPartialBetweenChecksHook = prev })
 	recoverPartialBetweenChecksHook = func() {
-		copyFile(t, filepath.Join(owner, layout.FileRefreshSecret), filepath.Join(dir, layout.FileRefreshSecret))
+		recoverytest.CopyFile(t, filepath.Join(owner, layout.FileRefreshSecret), filepath.Join(dir, layout.FileRefreshSecret))
 	}
 
-	if err := RecoverPartial(dir, silentLog{}); err != nil {
+	if err := RecoverPartial(dir, recoverytest.SilentLog{}); err != nil {
 		t.Fatalf("RecoverPartial refused a set completed between checks: %v", err)
 	}
 	for _, name := range layout.KeyFileNames() {
@@ -62,7 +64,7 @@ func TestTryRecover_inspectErrorIsReturned(t *testing.T) {
 		t.Skip("symlink loops are POSIX-specific")
 	}
 	dir := t.TempDir()
-	if _, err := seedKeys(dir, silentLog{}); err != nil {
+	if err := recoverytest.SeedKeys(dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(dir, layout.FilePublicKey)); err != nil {
@@ -76,7 +78,7 @@ func TestTryRecover_inspectErrorIsReturned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := TryRecover(dir, silentLog{})
+	err := TryRecover(dir, recoverytest.SilentLog{})
 	if err == nil {
 		t.Fatal("TryRecover succeeded despite a hostile entry")
 	}
@@ -101,11 +103,11 @@ func TestRecoverPartial_inspectErrorAfterHookIsSurfaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := filepath.Join(base, "owner")
-	if _, err := seedKeys(owner, silentLog{}); err != nil {
+	if err := recoverytest.SeedKeys(owner); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{layout.FilePrivateKey, layout.FilePublicKey} {
-		copyFile(t, filepath.Join(owner, name), filepath.Join(dir, name))
+		recoverytest.CopyFile(t, filepath.Join(owner, name), filepath.Join(dir, name))
 	}
 
 	prev := recoverPartialBetweenChecksHook
@@ -117,7 +119,7 @@ func TestRecoverPartial_inspectErrorAfterHookIsSurfaced(t *testing.T) {
 		}
 	}
 
-	err := RecoverPartial(dir, silentLog{})
+	err := RecoverPartial(dir, recoverytest.SilentLog{})
 	if err == nil {
 		t.Fatal("RecoverPartial succeeded despite a hostile entry after the hook")
 	}
@@ -132,7 +134,7 @@ func TestRecoverPartial_rejectsSymlinkLoopInPartialSet(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if _, err := seedKeys(dir, silentLog{}); err != nil {
+	if err := recoverytest.SeedKeys(dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(dir, layout.FilePublicKey)); err != nil {
@@ -146,7 +148,7 @@ func TestRecoverPartial_rejectsSymlinkLoopInPartialSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := RecoverPartial(dir, silentLog{})
+	err := RecoverPartial(dir, recoverytest.SilentLog{})
 	if err == nil {
 		t.Fatal("RecoverPartial succeeded with a partial set containing an inspect error")
 	}

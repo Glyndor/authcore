@@ -68,51 +68,22 @@
 package field
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hkdf" //nolint:gosec // standard-library HKDF; sha256 below is per the protocol
-	"crypto/hmac"
-	"crypto/rand" //nolint:gosec // CSPRNG draws for nonces
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	"hash"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/field/internal/blind"
+	"github.com/Glyndor/authcore/auth/field/internal/kdf"
+	"github.com/Glyndor/authcore/auth/field/internal/seal"
 )
 
 // Compile-time assertion: *Field must satisfy authcore.Module.
 var _ authcore.Module = (*Field)(nil)
 
-const (
-	// nonceLen is the GCM standard nonce length. 12 bytes is the value
-	// the GCM spec is optimised for and the one the standard library's
-	// AES-GCM implementation expects by default.
-	nonceLen = 12
-	// keyLen is the AES-256 key size in bytes. 32 bytes is the size
-	// AES-256 requires and the one the derivation produces.
-	keyLen = 32
-	// aeadTagLen is the size of the GCM authentication tag in bytes
-	// (the standard library's default). It is appended to the sealed
-	// payload and verified on Decrypt.
-	aeadTagLen = 16
-	// refreshSecretLen is the byte length New demands from
-	// Keys().RefreshSecret(). HKDF-SHA256 reads the input secret as a
-	// single message; a short or absent secret would weaken every key
-	// derived from it, so New refuses anything other than 32 bytes.
-	refreshSecretLen = 32
-)
-
-// HKDF info labels. The version suffix is deliberate: if the
-// derivation ever has to change, the old label stays available so
-// existing rows remain decryptable. A new label for the new
-// construction can sit alongside it in the same code.
-const (
-	encKeyInfo = "authcore/field/aes-256-gcm/v1"
-	idxKeyInfo = "authcore/field/blind-index/v1"
-)
+// refreshSecretLen is the byte length New demands from
+// Keys().RefreshSecret(). HKDF-SHA256 reads the input secret as a
+// single message; a short or absent secret would weaken every key
+// derived from it, so New refuses anything other than 32 bytes.
+const refreshSecretLen = 32
 
 // Field is the field-level encryption module.
 //
@@ -131,10 +102,10 @@ const (
 type Field struct {
 	cfg         Config
 	log         authcore.Logger
-	aead        cipher.AEAD // AES-256-GCM bound to the derived encKey
-	idxKey      []byte      // HMAC-SHA256 key for BlindIndex
-	context     []byte      // bound Context as bytes, captured once for both AAD and the index
-	initialised bool        // set by New; zero-value methods refuse to produce output
+	sealer      *seal.Sealer // AES-256-GCM bound to the derived encKey and the Context
+	idxKey      []byte       // HMAC-SHA256 key for BlindIndex
+	context     []byte       // bound Context as bytes, captured once for both AAD and the index
+	initialised bool         // set by New; zero-value methods refuse to produce output
 }
 
 // New creates a Field module.
@@ -188,28 +159,24 @@ func New(p authcore.Provider, cfg ...Config) (*Field, error) {
 			ErrInvalidConfig, l, refreshSecretLen)
 	}
 
-	encKey, err := deriveKey(secret, encKeyInfo)
+	encKey, err := kdf.Key(secret, kdf.EncryptionInfo)
 	if err != nil {
 		return nil, fmt.Errorf("field: derive encryption key: %w", err)
 	}
-	idxKey, err := deriveKey(secret, idxKeyInfo)
+	idxKey, err := kdf.Key(secret, kdf.IndexInfo)
 	if err != nil {
 		return nil, fmt.Errorf("field: derive index key: %w", err)
 	}
 
-	block, err := aes.NewCipher(encKey)
+	sealer, err := seal.New(encKey, []byte(resolved.Context))
 	if err != nil {
-		return nil, fmt.Errorf("field: new AES cipher: %w", err)
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("field: new GCM AEAD: %w", err)
+		return nil, err
 	}
 
 	f := &Field{
 		cfg:         resolved,
 		log:         logger,
-		aead:        aead,
+		sealer:      sealer,
 		idxKey:      idxKey,
 		context:     []byte(resolved.Context),
 		initialised: true,
@@ -245,15 +212,7 @@ func (f *Field) Encrypt(plaintext string) (string, error) {
 	if !f.initialised {
 		return "", ErrNotInitialised
 	}
-	nonce := make([]byte, nonceLen)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("field: generate nonce: %w", err)
-	}
-
-	aad := buildAAD(f.context)
-	sealed := f.aead.Seal(nonce, nonce, []byte(plaintext), aad)
-
-	return base64.RawStdEncoding.EncodeToString(sealed), nil
+	return f.sealer.Seal(plaintext)
 }
 
 // Decrypt reverses Encrypt for a ciphertext that was produced under
@@ -275,34 +234,11 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 	if !f.initialised {
 		return "", ErrNotInitialised
 	}
-	raw, err := base64.RawStdEncoding.DecodeString(ciphertext)
+	plain, err := f.sealer.Open(ciphertext)
 	if err != nil {
 		return "", ErrDecrypt
 	}
-	// Accept only the spelling Encrypt writes. The decoder skips "\r" and
-	// "\n" and ignores the unused bits of the last character, so one stored
-	// value had several spellings that all decrypted (measured 2026-09-25).
-	if base64.RawStdEncoding.EncodeToString(raw) != ciphertext {
-		return "", ErrDecrypt
-	}
-	if len(raw) < nonceLen+aeadTagLen {
-		// Must contain at least nonce + GCM tag; anything shorter
-		// cannot possibly be a valid sealed payload. Returning
-		// ErrDecrypt (not panicking) is the whole point of the
-		// test "Truncating the ciphertext to shorter than a nonce
-		// gives ErrDecrypt, not a panic or an index out of range".
-		return "", ErrDecrypt
-	}
-
-	nonce := raw[:nonceLen]
-	sealed := raw[nonceLen:]
-
-	aad := buildAAD(f.context)
-	plain, err := f.aead.Open(nil, nonce, sealed, aad)
-	if err != nil {
-		return "", ErrDecrypt
-	}
-	return string(plain), nil
+	return plain, nil
 }
 
 // BlindIndex returns a deterministic, fixed-size hex string for value
@@ -329,46 +265,5 @@ func (f *Field) BlindIndex(value string) (string, error) {
 	if !f.initialised {
 		return "", ErrNotInitialised
 	}
-	mac := hmac.New(sha256.New, f.idxKey)
-	writeLengthPrefixed(mac, f.context)
-	writeLengthPrefixed(mac, []byte(value))
-	return hex.EncodeToString(mac.Sum(nil)), nil
-}
-
-// deriveKey runs HKDF-SHA256 over the library-managed refresh secret
-// with the given info label and returns 32 bytes. Two different
-// info labels produce two independent keys, so the encryption key
-// and the index key cannot share a weakness even though they are
-// both derived from the same 32-byte secret.
-func deriveKey(secret []byte, info string) ([]byte, error) {
-	r, err := hkdf.Key(sha256.New, secret, nil, info, keyLen)
-	if err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-// buildAAD returns the additional authenticated data: the bound
-// Context length-prefixed with a big-endian uint32. AAD is the
-// part of the input GCM authenticates but does not encrypt; the
-// length prefix makes the encoding unambiguous no matter what
-// bytes the Context contains.
-func buildAAD(context []byte) []byte {
-	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(context)))
-	aad := make([]byte, 0, 4+len(context))
-	aad = append(aad, n[:]...)
-	aad = append(aad, context...)
-	return aad
-}
-
-// writeLengthPrefixed writes b to h prefixed by its length as a
-// big-endian uint32. The length prefix is what makes the
-// concatenation unambiguous; a separator byte would only hold while
-// no field contained it, and a Go string can contain any byte.
-func writeLengthPrefixed(h hash.Hash, b []byte) {
-	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(b)))
-	_, _ = h.Write(n[:])
-	_, _ = h.Write(b)
+	return blind.Index(f.idxKey, f.context, value), nil
 }

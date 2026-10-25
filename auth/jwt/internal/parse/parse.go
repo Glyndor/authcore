@@ -24,6 +24,8 @@ import (
 
 	"github.com/Glyndor/authcore/auth/jwt/internal/claims"
 	"github.com/Glyndor/authcore/auth/jwt/internal/jwterr"
+	"github.com/Glyndor/authcore/auth/jwt/internal/parse/errmap"
+	"github.com/Glyndor/authcore/auth/jwt/internal/parse/keyfunc"
 	"github.com/Glyndor/authcore/auth/jwt/internal/tokenid"
 )
 
@@ -41,11 +43,11 @@ func Access[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.
 	var c claims.Access[T]
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
-		eddsaKeyFunc(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
+		keyfunc.EdDSA(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
 		parserOptions(now, issuer, audience, leeway)...,
 	)
 	if err != nil {
-		return nil, mapJWTError(err)
+		return nil, errmap.Map(err)
 	}
 	if !tokenid.IsUUIDv7(c.Subject) {
 		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", jwterr.ErrTokenInvalid)
@@ -69,11 +71,11 @@ func Refresh(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, 
 	var c claims.Refresh
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
-		eddsaKeyFunc(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
+		keyfunc.EdDSA(keys), // enforce EdDSA alg + select pub by kid; rejects HS256/RS256 confusion attacks and unknown key IDs
 		parserOptions(now, issuer, audience, leeway)...,
 	)
 	if err != nil {
-		return nil, mapJWTError(err)
+		return nil, errmap.Map(err)
 	}
 	if !tokenid.IsUUIDv7(c.Subject) {
 		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", jwterr.ErrTokenInvalid)

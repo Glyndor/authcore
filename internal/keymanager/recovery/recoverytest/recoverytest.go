@@ -19,6 +19,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/fsguard"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
+	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
 
 // SilentLog discards everything it is given.
@@ -156,4 +157,34 @@ func Complete(t testing.TB, dir string) bool {
 		t.Fatal(err)
 	}
 	return state == fsguard.SetComplete
+}
+
+// ListStagingDirs lists the staging directories inside dir: real directories
+// carrying the staging prefix, never symlinks.
+func ListStagingDirs(t testing.TB, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir) // #nosec G304 -- test fixture
+	if err != nil {
+		t.Fatalf("readdir %s: %v", dir, err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), layout.StagingPrefix) {
+			continue
+		}
+		lst, err := os.Lstat(filepath.Join(dir, e.Name())) // #nosec G304 -- test fixture
+		if err != nil || !lst.IsDir() || lst.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+// WithLinkFile replaces the hard-link seam for the duration of the test.
+func WithLinkFile(t testing.TB, fn func(string, string) error) {
+	t.Helper()
+	prev := seams.LinkFile
+	seams.LinkFile = fn
+	t.Cleanup(func() { seams.LinkFile = prev })
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
 	"github.com/Glyndor/authcore/internal/keymanager/recovery"
 	"github.com/Glyndor/authcore/internal/keymanager/refusals"
-	"github.com/Glyndor/authcore/internal/keymanager/staging"
+	"github.com/Glyndor/authcore/internal/keymanager/staging/preflight"
 )
 
 // Open initialises the key directory and returns the key set it holds.
@@ -90,7 +90,7 @@ func Open(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 		if meta != nil {
 			return nil, nil, nil, refusals.Regeneration(dir, meta.KeyID)
 		}
-		if err := staging.SymlinkPreflight(dir); err != nil {
+		if err := preflight.Symlinks(dir); err != nil {
 			return nil, nil, nil, err
 		}
 		return generate.Fresh(dir, meta, log)

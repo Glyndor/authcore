@@ -3,7 +3,7 @@ package authcore
 import (
 	"time"
 
-	"github.com/Glyndor/authcore/internal/keystore"
+	"github.com/Glyndor/authcore/internal/keystore/keysdir"
 )
 
 // Config holds the top-level configuration for an AuthCore instance.
@@ -124,11 +124,11 @@ func validateConfig(cfg Config) error {
 		return nil
 	}
 	if cfg.RequireExistingKeys {
-		// Load-only mode. Do not call keystore.CheckDir: it runs MkdirAll and
+		// Load-only mode. Do not call keysdir.CheckDir: it runs MkdirAll and
 		// would create the directory the operator meant to refuse to start
 		// without. A stat-only check is enough: production deployments mount
 		// a Secret volume that resolves through symlinks, so follow them.
-		return keystore.CheckLoadOnlyDir(cfg.KeysDir)
+		return keysdir.CheckLoadOnlyDir(cfg.KeysDir)
 	}
-	return keystore.CheckDir(cfg.KeysDir)
+	return keysdir.CheckDir(cfg.KeysDir)
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
-	"github.com/Glyndor/authcore/internal/keystore"
+	"github.com/Glyndor/authcore/internal/keystore/disk"
 )
 
 // KeyStore sources authcore's cryptographic key material (the Ed25519 signing
@@ -59,7 +59,7 @@ type diskKeyStore struct {
 }
 
 func (d diskKeyStore) Load() (Keys, error) {
-	km, err := keystore.LoadDisk(d.dir, d.log, d.requireExisting)
+	km, err := disk.LoadDisk(d.dir, d.log, d.requireExisting)
 	if err != nil {
 		return nil, err
 	}

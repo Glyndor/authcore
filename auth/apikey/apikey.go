@@ -41,20 +41,17 @@
 package apikey
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
-	"strings"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/apikey/internal/digest"
+	"github.com/Glyndor/authcore/auth/apikey/internal/format"
 )
 
 const (
-	idLen     = 16 // bytes — 128-bit public identifier, hex-encoded (32 chars)
-	secretLen = 32 // bytes — 256-bit secret, hex-encoded (64 chars)
 	// refreshSecretLen is the byte length New demands from
 	// Keys().RefreshSecret(). The HMAC-SHA256 pepper must match across
 	// all servers that share an installation; a short or absent secret
@@ -160,20 +157,20 @@ func (a *APIKey) Generate() (*GeneratedKey, error) {
 	if !a.initialised {
 		return nil, ErrNotInitialised
 	}
-	idBytes := make([]byte, idLen)
+	idBytes := make([]byte, format.IDLen)
 	if _, err := rand.Read(idBytes); err != nil {
 		return nil, fmt.Errorf("apikey: generate id: %w", err)
 	}
-	secretBytes := make([]byte, secretLen)
+	secretBytes := make([]byte, format.SecretLen)
 	if _, err := rand.Read(secretBytes); err != nil {
 		return nil, fmt.Errorf("apikey: generate secret: %w", err)
 	}
 
 	id := hex.EncodeToString(idBytes)
 	secret := hex.EncodeToString(secretBytes)
-	full := a.cfg.Prefix + "_" + id + "_" + secret
+	full := format.Join(a.cfg.Prefix, id, secret)
 
-	return &GeneratedKey{Key: full, ID: id, Hash: a.hash(full)}, nil
+	return &GeneratedKey{Key: full, ID: id, Hash: digest.Hash(a.secret, full)}, nil
 }
 
 // Hash returns the keyed HMAC-SHA256 digest of key. Use it to recompute the
@@ -186,7 +183,7 @@ func (a *APIKey) Hash(key string) (string, error) {
 	if !a.initialised {
 		return "", ErrNotInitialised
 	}
-	return a.hash(key), nil
+	return digest.Hash(a.secret, key), nil
 }
 
 // Verify reports whether key matches storedHash, comparing in constant time to
@@ -199,7 +196,7 @@ func (a *APIKey) Verify(key, storedHash string) bool {
 	if !a.initialised {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(a.hash(key)), []byte(storedHash)) == 1
+	return subtle.ConstantTimeCompare([]byte(digest.Hash(a.secret, key)), []byte(storedHash)) == 1
 }
 
 // ParseID extracts the public identifier from a presented key without verifying
@@ -222,42 +219,9 @@ func (a *APIKey) ParseID(key string) (string, error) {
 	if a == nil || !a.initialised {
 		return "", ErrNotInitialised
 	}
-	prefix := a.cfg.Prefix + "_"
-	rest, ok := strings.CutPrefix(key, prefix)
+	id, ok := format.ParseID(a.cfg.Prefix, key)
 	if !ok {
 		return "", ErrInvalidKey
 	}
-	id, secretAndTail, ok := strings.Cut(rest, "_")
-	if !ok || id == "" {
-		return "", ErrInvalidKey
-	}
-	// A key from Generate has exactly three fields. Anything after the secret
-	// leaves secretAndTail longer than an encoded secret, so the shape check
-	// below rejects it; there is no separate extra-field rule to keep in step.
-	secret := secretAndTail
-	if len(id) != hex.EncodedLen(idLen) || !isHex(id) {
-		return "", ErrInvalidKey
-	}
-	if len(secret) != hex.EncodedLen(secretLen) || !isHex(secret) {
-		return "", ErrInvalidKey
-	}
 	return id, nil
-}
-
-// hash computes the keyed HMAC-SHA256 hex digest of key.
-func (a *APIKey) hash(key string) string {
-	mac := hmac.New(sha256.New, a.secret)
-	mac.Write([]byte(key))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// isHex reports whether s is all lowercase hexadecimal digits.
-func isHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
 }

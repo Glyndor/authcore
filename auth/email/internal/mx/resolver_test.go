@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
 )
 
 // TestVerifyDomain_rejectsNullMX covers RFC 7505 section 3: a domain that
@@ -187,9 +188,7 @@ func TestVerifyDomain_dnsFailureIsServedFromCache(t *testing.T) {
 func TestVerifyDomain_expiredCacheHitsDNS(t *testing.T) {
 	m := newVerifier()
 	// Write an expired positive entry — it must NOT be used.
-	m.cache.mu.Lock()
-	m.cache.entries["example.com"] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(-time.Second)}
-	m.cache.mu.Unlock()
+	m.cache.Store("example.com", cache.Entry{HasMX: true, ExpiresAt: time.Now().Add(-time.Second)})
 
 	// DNS will fail (no real network in unit tests using a broken resolver).
 	m.resolver = &net.Resolver{
@@ -201,5 +200,29 @@ func TestVerifyDomain_expiredCacheHitsDNS(t *testing.T) {
 	err := m.Verify(context.Background(), "user@example.com")
 	if !errors.Is(err, errs.ErrDomainUnresolvable) {
 		t.Errorf("expected errs.ErrDomainUnresolvable after cache miss + DNS failure, got %v", err)
+	}
+}
+
+func TestVerifyDomain_dnsFailureCachesNegativeBriefly(t *testing.T) {
+	m := newVerifier()
+	m.resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return nil, errors.New("no network")
+		},
+	}
+	_ = m.Verify(context.Background(), "user@unreachable.example")
+
+	// Second call must hit the cache (no second DNS attempt).
+	// We verify by reading the cache directly.
+	entry, ok := m.cache.Cached("unreachable.example")
+	if !ok {
+		t.Fatal("expected a cache entry after DNS failure")
+	}
+	if entry.HasMX {
+		t.Error("failed DNS lookup must cache hasMX=false")
+	}
+	if time.Until(entry.ExpiresAt) > 31*time.Second {
+		t.Errorf("negative DNS failure TTL should be ≤30 s, got %v", time.Until(entry.ExpiresAt))
 	}
 }

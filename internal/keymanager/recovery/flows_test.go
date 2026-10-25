@@ -15,7 +15,7 @@ var (
 	posixOnly   = recoverytest.PosixOnly
 	mustSeed    = recoverytest.MustSeed
 	stagingFrom = recoverytest.StagingFrom
-	complete    = recoverytest.Complete
+	isComplete  = recoverytest.Complete
 )
 
 // A publisher that died after linking the private key leaves a partial set and
@@ -29,12 +29,12 @@ func TestRecoverPartial_completesTheSetFromTheMatchingStaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	stagingFrom(t, dir, "0123456789abcdef", owner)
-	copyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
+	recoverytest.CopyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
 
-	if err := RecoverPartial(dir, silentLog{}); err != nil {
+	if err := RecoverPartial(dir, recoverytest.SilentLog{}); err != nil {
 		t.Fatalf("RecoverPartial: %v", err)
 	}
-	if !complete(t, dir) {
+	if !isComplete(t, dir) {
 		t.Fatal("the set is still partial after recovery")
 	}
 	for _, f := range layout.KeyFileNames() {
@@ -44,7 +44,7 @@ func TestRecoverPartial_completesTheSetFromTheMatchingStaging(t *testing.T) {
 			t.Errorf("%s differs from the staged copy", f)
 		}
 	}
-	if len(listStagingDirs(t, dir)) != 1 {
+	if len(recoverytest.ListStagingDirs(t, dir)) != 1 {
 		t.Error("recovery must leave the staging directory in place: its owner may still be running")
 	}
 }
@@ -64,9 +64,9 @@ func TestRecoverPartial_picksTheStagingThatMatchesEvenWhenItSortsLast(t *testing
 	}
 	stagingFrom(t, dir, "0000000000000000", unrelated)
 	stagingFrom(t, dir, "ffffffffffffffff", matching)
-	copyFile(t, filepath.Join(matching, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
+	recoverytest.CopyFile(t, filepath.Join(matching, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
 
-	if err := RecoverPartial(dir, silentLog{}); err != nil {
+	if err := RecoverPartial(dir, recoverytest.SilentLog{}); err != nil {
 		t.Fatalf("RecoverPartial: %v, want it recovered from the matching staging", err)
 	}
 	want, _ := os.ReadFile(filepath.Join(matching, layout.FilePublicKey)) // #nosec G304 -- test fixture
@@ -79,9 +79,9 @@ func TestRecoverPartial_picksTheStagingThatMatchesEvenWhenItSortsLast(t *testing
 func TestRecoverPartial_withoutAMatchingStagingRefusesWithSafeAdvice(t *testing.T) {
 	dir := t.TempDir()
 	owner := mustSeed(t, filepath.Join(t.TempDir(), "owner"))
-	copyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
+	recoverytest.CopyFile(t, filepath.Join(owner, layout.FilePrivateKey), filepath.Join(dir, layout.FilePrivateKey))
 
-	err := RecoverPartial(dir, silentLog{})
+	err := RecoverPartial(dir, recoverytest.SilentLog{})
 	if err == nil {
 		t.Fatal("a partial set with nothing to recover from was accepted")
 	}
@@ -97,7 +97,7 @@ func TestRecoverPartial_withoutAMatchingStagingRefusesWithSafeAdvice(t *testing.
 
 func TestTryRecover_aCompleteSetNeedsNothing(t *testing.T) {
 	dir := mustSeed(t, t.TempDir())
-	if err := TryRecover(dir, silentLog{}); err != nil {
+	if err := TryRecover(dir, recoverytest.SilentLog{}); err != nil {
 		t.Fatalf("TryRecover on a complete set: %v", err)
 	}
 }

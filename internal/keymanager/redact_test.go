@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/Glyndor/authcore/internal/keymanager/redact"
 )
 
 // sentinelKeys builds key material whose bytes are recognisable, so a test can
@@ -91,7 +93,7 @@ func TestFormattingStillIdentifiesTheManager(t *testing.T) {
 		if !strings.Contains(out, "sentinel") {
 			t.Errorf("%s does not name the key id: %s", verb, out)
 		}
-		if !strings.Contains(out, redacted) {
+		if !strings.Contains(out, redact.Placeholder) {
 			t.Errorf("%s does not say the secrets were redacted: %s", verb, out)
 		}
 	}
