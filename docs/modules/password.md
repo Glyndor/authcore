@@ -71,6 +71,10 @@ four `Require*` fields off:
 - unassigned and private-use code points
 - bytes that are not valid UTF-8, and the replacement character U+FFFD
 
+Variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF and U+180B to U+180D)
+are accepted: they follow emoji and some CJK characters, so refusing them would
+reject passwords typed with an emoji keyboard.
+
 Validation checks length first, after NFC normalization. An input below
 `MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length
 reason, even if it also contains a non-printable character. Once length passes,
