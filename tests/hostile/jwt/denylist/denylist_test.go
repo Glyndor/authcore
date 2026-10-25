@@ -1,4 +1,6 @@
-package jwt_test
+// Package denylist attacks revocation: a revoked session or token must stay
+// dead on every path and the denylist must fail closed.
+package denylist
 
 import (
 	"context"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // stubDenylist is a revocation store the test controls: it can revoke, fail,
@@ -50,10 +53,10 @@ func (d *stubDenylist) revoke(jti string) {
 // A revoked session id kills the access token and the refresh token of that
 // session, and the pair a rotation would have produced.
 func TestHostile_Denylist_revokedSessionIsDeadOnEveryPath(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	dl := &stubDenylist{}
-	m := e.module(t, jwt.Config{Denylist: dl})
-	pair, err := m.CreateTokens(subject, extra{})
+	m := e.Module(t, jwt.Config{Denylist: dl})
+	pair, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +69,7 @@ func TestHostile_Denylist_revokedSessionIsDeadOnEveryPath(t *testing.T) {
 	if c, err := m.VerifyAccessToken(pair.AccessToken); c != nil || !errors.Is(err, jwt.ErrTokenRevoked) {
 		t.Fatalf("revoked access token = %+v, %v; want ErrTokenRevoked", c, err)
 	}
-	if p, err := m.RotateTokens(pair.RefreshToken, extra{}); p != nil || !errors.Is(err, jwt.ErrTokenRevoked) {
+	if p, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrTokenRevoked) {
 		t.Fatalf("revoked refresh token = %+v, %v; want ErrTokenRevoked", p, err)
 	}
 }
@@ -75,12 +78,12 @@ func TestHostile_Denylist_revokedSessionIsDeadOnEveryPath(t *testing.T) {
 // answer must not become "not revoked": a backend error, a stall that outlasts
 // the caller's deadline, and an already-cancelled context all end in a refusal.
 func TestHostile_Denylist_failsClosed(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	backendDown := errors.New("redis: connection refused")
 
 	t.Run("backend error", func(t *testing.T) {
-		m := e.module(t, jwt.Config{Denylist: &stubDenylist{err: backendDown}})
-		pair, err := e.module(t, jwt.Config{}).CreateTokens(subject, extra{})
+		m := e.Module(t, jwt.Config{Denylist: &stubDenylist{err: backendDown}})
+		pair, err := e.Module(t, jwt.Config{}).CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,15 +94,15 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 		if errors.Is(err, jwt.ErrTokenRevoked) {
 			t.Fatal("a backend failure was reported as a revocation")
 		}
-		if p, err := m.RotateTokens(pair.RefreshToken, extra{}); p != nil || !errors.Is(err, backendDown) {
+		if p, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); p != nil || !errors.Is(err, backendDown) {
 			t.Fatalf("RotateTokens = %+v, %v; want the backend error and no pair", p, err)
 		}
 	})
 
 	t.Run("backend error alongside a not-revoked answer", func(t *testing.T) {
 		// A store that returns (false, err) must not be read as "false".
-		m := e.module(t, jwt.Config{Denylist: &stubDenylist{err: backendDown, revoked: map[string]bool{}}})
-		pair, _ := e.module(t, jwt.Config{}).CreateTokens(subject, extra{})
+		m := e.Module(t, jwt.Config{Denylist: &stubDenylist{err: backendDown, revoked: map[string]bool{}}})
+		pair, _ := e.Module(t, jwt.Config{}).CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 		if c, err := m.VerifyAccessToken(pair.AccessToken); c != nil || err == nil {
 			t.Fatalf("accepted with a failing denylist: %+v", c)
 		}
@@ -107,8 +110,8 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 
 	t.Run("stall outlasts the deadline", func(t *testing.T) {
 		dl := &stubDenylist{stall: true}
-		m := e.module(t, jwt.Config{Denylist: dl})
-		pair, _ := e.module(t, jwt.Config{}).CreateTokens(subject, extra{})
+		m := e.Module(t, jwt.Config{Denylist: dl})
+		pair, _ := e.Module(t, jwt.Config{}).CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 		defer cancel()
 		start := time.Now()
@@ -119,15 +122,15 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 		if d := time.Since(start); d > 2*time.Second {
 			t.Fatalf("returned after %v, the deadline was 30ms", d)
 		}
-		if p, err := m.RotateTokensContext(ctx, pair.RefreshToken, extra{}); p != nil || err == nil {
+		if p, err := m.RotateTokensContext(ctx, pair.RefreshToken, hostiletest.Extra{}); p != nil || err == nil {
 			t.Fatalf("RotateTokensContext under an expired deadline = %+v, %v", p, err)
 		}
 	})
 
 	t.Run("cancelled context", func(t *testing.T) {
 		dl := &stubDenylist{stall: true}
-		m := e.module(t, jwt.Config{Denylist: dl})
-		pair, _ := e.module(t, jwt.Config{}).CreateTokens(subject, extra{})
+		m := e.Module(t, jwt.Config{Denylist: dl})
+		pair, _ := e.Module(t, jwt.Config{}).CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		if c, err := m.VerifyAccessTokenContext(ctx, pair.AccessToken); c != nil || !errors.Is(err, context.Canceled) {
@@ -139,10 +142,10 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 // The context-less methods bound the revocation lookup themselves, so a stalled
 // store cannot hold a request goroutine forever.
 func TestHostile_Denylist_contextlessMethodsCarryADeadline(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	dl := &stubDenylist{}
-	m := e.module(t, jwt.Config{Denylist: dl})
-	pair, _ := m.CreateTokens(subject, extra{})
+	m := e.Module(t, jwt.Config{Denylist: dl})
+	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 
 	before := time.Now()
 	if _, err := m.VerifyAccessToken(pair.AccessToken); err != nil {
@@ -156,7 +159,7 @@ func TestHostile_Denylist_contextlessMethodsCarryADeadline(t *testing.T) {
 	}
 
 	dl.hasDL = false
-	if _, err := m.RotateTokens(pair.RefreshToken, extra{}); err != nil {
+	if _, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); err != nil {
 		t.Fatal(err)
 	}
 	if !dl.hasDL {
@@ -168,19 +171,19 @@ func TestHostile_Denylist_contextlessMethodsCarryADeadline(t *testing.T) {
 // could turn the revocation backend into an amplifier by sending garbage with
 // a chosen jti.
 func TestHostile_Denylist_isNotQueriedForTokensThatFailEarlier(t *testing.T) {
-	e := newEnv(t)
-	attacker := newEnv(t)
+	e := hostiletest.NewEnv(t)
+	attacker := hostiletest.NewEnv(t)
 	dl := &stubDenylist{}
-	m := e.module(t, jwt.Config{Denylist: dl})
-	pair, _ := m.CreateTokens(subject, extra{})
+	m := e.Module(t, jwt.Config{Denylist: dl})
+	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	dl.calls.Store(0)
 
 	hostile := []string{
 		"",
 		"not-a-token",
-		e.signEdDSA(t, nil, with(claimsFor("access"), "exp", 1)),
-		attacker.signEdDSA(t, map[string]any{"kid": e.kid}, claimsFor("access")),
-		e.signEdDSA(t, nil, with(claimsFor("access"), "aud", "https://other.example")),
+		e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", 1)),
+		attacker.SignEdDSA(t, map[string]any{"kid": e.Kid}, hostiletest.ClaimsFor("access")),
+		e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", "https://other.example")),
 		pair.RefreshToken, // right signature, wrong kind for VerifyAccessToken
 	}
 	for _, tok := range hostile {
@@ -198,10 +201,10 @@ func TestHostile_Denylist_isNotQueriedForTokensThatFailEarlier(t *testing.T) {
 // of a captured token is refused no matter how many times it is sent, and the
 // store sees the jti the token carries, not one the adversary chose elsewhere.
 func TestHostile_Replay_revokedJTIStaysRefusedUnderRepetition(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	dl := &stubDenylist{}
-	m := e.module(t, jwt.Config{Denylist: dl})
-	pair, _ := m.CreateTokens(subject, extra{})
+	m := e.Module(t, jwt.Config{Denylist: dl})
+	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	dl.revoke(pair.SessionID)
 	for i := 0; i < 200; i++ {
 		if _, err := m.VerifyAccessToken(pair.AccessToken); !errors.Is(err, jwt.ErrTokenRevoked) {

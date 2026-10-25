@@ -1,4 +1,4 @@
-package jwt_test
+package refresh
 
 import (
 	"crypto/hmac"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // referenceHash is HMAC-SHA256 in lower-case hex, computed directly.
@@ -20,8 +21,8 @@ func referenceHash(secret []byte, token string) string {
 // HashRefreshToken is HMAC-SHA256 of the exact token bytes under the refresh
 // secret, whatever the token holds, at one fixed length.
 func TestHostile_RefreshHash_matchesAnIndependentHMACForEveryInput(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	for name, token := range map[string]string{
 		"empty":            "",
 		"one byte":         "a",
@@ -43,7 +44,7 @@ func TestHostile_RefreshHash_matchesAnIndependentHMACForEveryInput(t *testing.T)
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		if want := referenceHash(e.secret, token); got != want {
+		if want := referenceHash(e.Secret, token); got != want {
 			t.Errorf("%s: HashRefreshToken = %s, want %s", name, got, want)
 		}
 		if len(got) != 64 || got != strings.ToLower(got) {
@@ -56,8 +57,8 @@ func TestHostile_RefreshHash_matchesAnIndependentHMACForEveryInput(t *testing.T)
 // trailing NUL, a case change, an equal-length swap. A collision here would let
 // one stored hash stand for two refresh tokens.
 func TestHostile_RefreshHash_nearbyTokensNeverCollide(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	base := "eyJhbGciOiJFZERTQSJ9.eyJ0eXBlIjoicmVmcmVzaCJ9.c2ln"
 	variants := []string{base, base + "\x00", base + " ", base + ".", strings.ToUpper(base), base[:len(base)-1], base[1:],
 		"x" + base, strings.Replace(base, "a", "b", 1), strings.Repeat(base, 2), "", "\x00"}
@@ -76,8 +77,8 @@ func TestHostile_RefreshHash_nearbyTokensNeverCollide(t *testing.T) {
 // upper case, a "0x" prefix, surrounding space, a truncated digest, a digest
 // with a suffix, the empty string.
 func TestHostile_RefreshHash_verifyIsExactOverTheDigestSpelling(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	token := "some-refresh-token"
 	good, _ := m.HashRefreshToken(token)
 	if !m.VerifyRefreshTokenHash(token, good) {
@@ -94,7 +95,7 @@ func TestHostile_RefreshHash_verifyIsExactOverTheDigestSpelling(t *testing.T) {
 		"first half":       good[:32],
 		"doubled":          good + good,
 		"empty":            "",
-		"other token":      referenceHash(e.secret, token+"x"),
+		"other token":      referenceHash(e.Secret, token+"x"),
 		"unkeyed SHA-256":  hex.EncodeToString(sha256Sum(token)),
 		"all zero":         strings.Repeat("0", 64),
 	} {

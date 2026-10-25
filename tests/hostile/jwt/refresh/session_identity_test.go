@@ -1,10 +1,11 @@
-package jwt_test
+package refresh
 
 import (
 	"sync"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // Many goroutines issue tokens at once, as a login spike does. Every session
@@ -12,8 +13,8 @@ import (
 // must be unique, and every pair must verify. Two sessions sharing a jti would
 // share a revocation entry: revoking one would log out the other.
 func TestHostile_SessionIdentity_jtiIsUniqueUnderConcurrentIssuing(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	const workers, perWorker = 24, 150
 
 	type issued struct{ jti, refresh, hash string }
@@ -24,7 +25,7 @@ func TestHostile_SessionIdentity_jtiIsUniqueUnderConcurrentIssuing(t *testing.T)
 		go func() {
 			defer wg.Done()
 			for i := 0; i < perWorker; i++ {
-				p, err := m.CreateTokens(subject, extra{})
+				p, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 				if err != nil {
 					t.Errorf("CreateTokens: %v", err)
 					return
@@ -61,9 +62,9 @@ func TestHostile_SessionIdentity_jtiIsUniqueUnderConcurrentIssuing(t *testing.T)
 // never repeats a refresh token: the app's compare-and-swap on the hash relies
 // on every rotation producing a hash nobody has stored before.
 func TestHostile_SessionIdentity_rotationsKeepTheJTIAndNeverRepeatATokenUnderLoad(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	first, err := m.CreateTokens(subject, extra{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	first, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestHostile_SessionIdentity_rotationsKeepTheJTIAndNeverRepeatATokenUnderLoa
 		go func() {
 			defer wg.Done()
 			for i := 0; i < perWorker; i++ {
-				p, err := m.RotateTokens(first.RefreshToken, extra{Role: "r"})
+				p, err := m.RotateTokens(first.RefreshToken, hostiletest.Extra{Role: "r"})
 				if err != nil {
 					t.Errorf("RotateTokens: %v", err)
 					return

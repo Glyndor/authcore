@@ -1,10 +1,10 @@
-package jwt_test
-
-// Fixtures shared by the hostile JWT tests. Every test here goes through the
+// Package hostiletest holds the fixtures shared by the hostile JWT tests,
+// one package per attack class under tests/hostile/jwt. Every test here goes through the
 // public jwt API. A token the module did not issue is minted with golang-jwt
 // and, where the attack needs it, the module's own signing key. That models an
 // adversary who controls every byte of the token except the one thing they
 // cannot make: a valid Ed25519 signature under a key the verifier trusts.
+package hostiletest
 
 import (
 	"crypto/ed25519"
@@ -22,27 +22,29 @@ import (
 	"github.com/Glyndor/authcore/auth/jwt"
 )
 
+// Fixed identifiers every token minted here carries.
 const (
-	subject = "0191b432-b5a7-7c4f-b2e6-7a3f1d2e0001"
-	jtiA    = "0191b432-b5a7-7c4f-b2e6-7a3f1d2e0002"
+	Subject = "0191b432-b5a7-7c4f-b2e6-7a3f1d2e0001"
+	JtiA    = "0191b432-b5a7-7c4f-b2e6-7a3f1d2e0002"
 )
 
-// extra is the application payload carried under the "extra" claim.
-type extra struct {
+// Extra is the application payload carried under the "extra" claim.
+type Extra struct {
 	Role string `json:"role"`
 }
 
-// env is one authcore instance with its key material kept visible to the
+// Env is one authcore instance with its key material kept visible to the
 // test, so the test can sign what the module would never sign.
-type env struct {
-	prov   authcore.Provider
-	priv   ed25519.PrivateKey
-	pub    ed25519.PublicKey
-	secret []byte
-	kid    string
+type Env struct {
+	Prov   authcore.Provider
+	Priv   ed25519.PrivateKey
+	Pub    ed25519.PublicKey
+	Secret []byte
+	Kid    string
 }
 
-func newEnv(t testing.TB) *env {
+// NewEnv builds an Env with a fresh Ed25519 key pair and a provider holding it.
+func NewEnv(t testing.TB) *Env {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -60,28 +62,30 @@ func newEnv(t testing.TB) *env {
 	if err != nil {
 		t.Fatalf("authcore.New: %v", err)
 	}
-	e := &env{prov: prov, priv: priv, pub: pub, secret: secret}
-	pair, err := e.module(t, jwt.Config{}).CreateTokens(subject, extra{})
+	e := &Env{Prov: prov, Priv: priv, Pub: pub, Secret: secret}
+	pair, err := e.Module(t, jwt.Config{}).CreateTokens(Subject, Extra{})
 	if err != nil {
 		t.Fatalf("create tokens: %v", err)
 	}
-	e.kid, _ = decodeHeader(t, pair.AccessToken)["kid"].(string)
-	if e.kid == "" {
+	e.Kid, _ = DecodeHeader(t, pair.AccessToken)["kid"].(string)
+	if e.Kid == "" {
 		t.Fatal("issued token carries no kid")
 	}
 	return e
 }
 
-func (e *env) module(t testing.TB, cfg jwt.Config) *jwt.JWT[extra] {
+// Module builds the jwt module of the Env with cfg.
+func (e *Env) Module(t testing.TB, cfg jwt.Config) *jwt.JWT[Extra] {
 	t.Helper()
-	m, err := jwt.New[extra](e.prov, cfg)
+	m, err := jwt.New[Extra](e.Prov, cfg)
 	if err != nil {
 		t.Fatalf("jwt.New: %v", err)
 	}
 	return m
 }
 
-func decodeHeader(t testing.TB, token string) map[string]any {
+// DecodeHeader returns the decoded JOSE header of token.
+func DecodeHeader(t testing.TB, token string) map[string]any {
 	t.Helper()
 	seg, _, _ := strings.Cut(token, ".")
 	raw, err := base64.RawURLEncoding.DecodeString(seg)
@@ -95,9 +99,9 @@ func decodeHeader(t testing.TB, token string) map[string]any {
 	return h
 }
 
-// rebuildHeader swaps the header segment of token for the encoding of h and
+// RebuildHeader swaps the header segment of token for the encoding of h and
 // keeps payload and signature untouched.
-func rebuildHeader(t testing.TB, token string, h map[string]any) string {
+func RebuildHeader(t testing.TB, token string, h map[string]any) string {
 	t.Helper()
 	raw, err := json.Marshal(h)
 	if err != nil {
@@ -107,23 +111,23 @@ func rebuildHeader(t testing.TB, token string, h map[string]any) string {
 	return base64.RawURLEncoding.EncodeToString(raw) + "." + rest
 }
 
-// claimsFor returns the claim set of a token this module accepts at this
+// ClaimsFor returns the claim set of a token this module accepts at this
 // instant. A test overrides or deletes the field it attacks.
-func claimsFor(typ string) map[string]any {
+func ClaimsFor(typ string) map[string]any {
 	now := time.Now()
 	return map[string]any{
 		"iss":  jwt.DefaultConfig().Issuer,
 		"aud":  jwt.DefaultConfig().Audience,
-		"sub":  subject,
-		"jti":  jtiA,
+		"sub":  Subject,
+		"jti":  JtiA,
 		"iat":  now.Add(-time.Second).Unix(),
 		"exp":  now.Add(10 * time.Minute).Unix(),
 		"type": typ,
 	}
 }
 
-// with returns a copy of claims with key set to v, or deleted when v is nil.
-func with(claims map[string]any, key string, v any) map[string]any {
+// With returns a copy of claims with key set to v, or deleted when v is nil.
+func With(claims map[string]any, key string, v any) map[string]any {
 	out := make(map[string]any, len(claims)+1)
 	for k, val := range claims {
 		out[k] = val
@@ -136,12 +140,12 @@ func with(claims map[string]any, key string, v any) map[string]any {
 	return out
 }
 
-// sign mints a compact token with method and key. header entries are merged
+// Sign mints a compact token with method and key. header entries are merged
 // over the kid header, and a nil value deletes that header field.
-func (e *env) sign(t testing.TB, method gjwt.SigningMethod, key any, header, claims map[string]any) string {
+func (e *Env) Sign(t testing.TB, method gjwt.SigningMethod, key any, header, claims map[string]any) string {
 	t.Helper()
 	tok := gjwt.NewWithClaims(method, gjwt.MapClaims(claims))
-	tok.Header["kid"] = e.kid
+	tok.Header["kid"] = e.Kid
 	for k, v := range header {
 		if v == nil {
 			delete(tok.Header, k)
@@ -156,22 +160,24 @@ func (e *env) sign(t testing.TB, method gjwt.SigningMethod, key any, header, cla
 	return s
 }
 
-// signEdDSA signs with the module's real key.
-func (e *env) signEdDSA(t testing.TB, header, claims map[string]any) string {
+// SignEdDSA signs with the module's real key.
+func (e *Env) SignEdDSA(t testing.TB, header, claims map[string]any) string {
 	t.Helper()
-	return e.sign(t, gjwt.SigningMethodEdDSA, e.priv, header, claims)
+	return e.Sign(t, gjwt.SigningMethodEdDSA, e.Priv, header, claims)
 }
 
-// signRaw signs an exact payload string with the real key, for payloads that
+// SignRaw signs an exact payload string with the real key, for payloads that
 // a map cannot express (duplicate keys, odd number spellings).
-func (e *env) signRaw(t testing.TB, payload string) string {
+func (e *Env) SignRaw(t testing.TB, payload string) string {
 	t.Helper()
-	head := b64(`{"alg":"EdDSA","kid":"` + e.kid + `","typ":"JWT"}`)
-	signingInput := head + "." + b64(payload)
-	sig := ed25519.Sign(e.priv, []byte(signingInput))
+	head := B64(`{"alg":"EdDSA","kid":"` + e.Kid + `","typ":"JWT"}`)
+	signingInput := head + "." + B64(payload)
+	sig := ed25519.Sign(e.Priv, []byte(signingInput))
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
-func itoa(v any) string { return strconv.FormatInt(v.(int64), 10) }
+// Itoa formats an int64 held in an any as decimal.
+func Itoa(v any) string { return strconv.FormatInt(v.(int64), 10) }
 
-func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+// B64 encodes s as unpadded base64url.
+func B64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }

@@ -1,4 +1,4 @@
-package jwt_test
+package hostiletest
 
 // An independent JWS verifier, written from RFC 7515 and RFC 8037 with only the
 // standard library, so that "the module agrees with another implementation" is
@@ -18,19 +18,19 @@ import (
 
 var uuidV7 = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
-// refPolicy is what the reference verifier enforces.
-type refPolicy struct {
-	issuer   string
-	audience string
-	typ      string
-	kid      string
-	pub      ed25519.PublicKey
-	now      time.Time
+// RefPolicy is what the reference verifier enforces.
+type RefPolicy struct {
+	Issuer   string
+	Audience string
+	Typ      string
+	Kid      string
+	Pub      ed25519.PublicKey
+	Now      time.Time
 }
 
-// refVerify returns nil when token is acceptable under p, and an error naming
+// RefVerify returns nil when token is acceptable under p, and an error naming
 // the first rule it breaks.
-func refVerify(token string, p refPolicy) error {
+func RefVerify(token string, p RefPolicy) error {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return errors.New("not three segments")
@@ -56,10 +56,10 @@ func refVerify(token string, p refPolicy) error {
 	if h["alg"] != "EdDSA" {
 		return fmt.Errorf("alg %v", h["alg"])
 	}
-	if h["kid"] != p.kid {
+	if h["kid"] != p.Kid {
 		return fmt.Errorf("kid %v", h["kid"])
 	}
-	if !ed25519.Verify(p.pub, []byte(parts[0]+"."+parts[1]), sig) {
+	if !ed25519.Verify(p.Pub, []byte(parts[0]+"."+parts[1]), sig) {
 		return errors.New("signature")
 	}
 
@@ -73,11 +73,11 @@ func refVerify(token string, p refPolicy) error {
 }
 
 // refClaims applies the claim rules to an already authenticated payload.
-func refClaims(c map[string]any, p refPolicy) error {
-	if c["iss"] != p.issuer {
+func refClaims(c map[string]any, p RefPolicy) error {
+	if c["iss"] != p.Issuer {
 		return fmt.Errorf("iss %v", c["iss"])
 	}
-	if !audienceHas(c["aud"], p.audience) {
+	if !audienceHas(c["aud"], p.Audience) {
 		return fmt.Errorf("aud %v", c["aud"])
 	}
 	for _, name := range []string{"sub", "jti"} {
@@ -86,14 +86,14 @@ func refClaims(c map[string]any, p refPolicy) error {
 			return fmt.Errorf("%s %v is not a UUID v7", name, c[name])
 		}
 	}
-	if c["type"] != p.typ {
+	if c["type"] != p.Typ {
 		return fmt.Errorf("type %v", c["type"])
 	}
 	exp, ok := numericDate(c["exp"])
 	if !ok {
 		return fmt.Errorf("exp %v", c["exp"])
 	}
-	if !p.now.Before(exp) {
+	if !p.Now.Before(exp) {
 		return errors.New("expired")
 	}
 	for _, name := range []string{"iat", "nbf"} {
@@ -105,7 +105,7 @@ func refClaims(c map[string]any, p refPolicy) error {
 		if !ok {
 			return fmt.Errorf("%s %v", name, raw)
 		}
-		if v.After(p.now) {
+		if v.After(p.Now) {
 			return fmt.Errorf("%s is in the future", name)
 		}
 	}

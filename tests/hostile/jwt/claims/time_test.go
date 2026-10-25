@@ -1,4 +1,4 @@
-package jwt_test
+package claims
 
 import (
 	"errors"
@@ -7,17 +7,18 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // The module reads a real clock, so these tests place the token relative to
 // the present with margins of a minute or more. A margin that wide keeps the
 // outcome deterministic however slowly the test runs.
 func TestHostile_Time_expiredAndMissingExpiryAreRefused(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	now := time.Now()
 
-	if _, err := m.VerifyAccessToken(e.signEdDSA(t, nil, with(claimsFor("access"), "exp", now.Add(time.Minute).Unix()))); err != nil {
+	if _, err := m.VerifyAccessToken(e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", now.Add(time.Minute).Unix()))); err != nil {
 		t.Fatalf("control: exp one minute ahead refused: %v", err)
 	}
 
@@ -32,14 +33,14 @@ func TestHostile_Time_expiredAndMissingExpiryAreRefused(t *testing.T) {
 		"exp fraction in past": float64(now.Add(-time.Hour).Unix()) + 0.5,
 	} {
 		t.Run(name, func(t *testing.T) {
-			token := e.signEdDSA(t, nil, with(claimsFor("access"), "exp", exp))
+			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", exp))
 			if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, jwt.ErrTokenExpired) {
 				t.Fatalf("VerifyAccessToken = %+v, %v; want ErrTokenExpired", c, err)
 			}
 		})
 	}
 
-	token := e.signEdDSA(t, nil, with(claimsFor("access"), "exp", nil))
+	token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", nil))
 	if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
 		t.Fatalf("token without exp = %+v, %v; want ErrTokenInvalid", c, err)
 	}
@@ -50,8 +51,8 @@ func TestHostile_Time_expiredAndMissingExpiryAreRefused(t *testing.T) {
 // the issuer's policy, but a value too large for the date type must never be
 // accepted as a date that is already past.
 func TestHostile_Time_overflowingExpNeverWrapsIntoTheAcceptedPast(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	for name, payloadExp := range map[string]string{
 		"int64 max":          "9223372036854775807",
 		"int64 max plus one": "9223372036854775808",
@@ -68,9 +69,9 @@ func TestHostile_Time_overflowingExpNeverWrapsIntoTheAcceptedPast(t *testing.T) 
 	} {
 		t.Run(name, func(t *testing.T) {
 			now := time.Now().Unix()
-			payload := `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + subject +
-				`","jti":"` + jtiA + `","iat":` + itoa(now-1) + `,"exp":` + payloadExp + `,"type":"access"}`
-			token := e.signRaw(t, payload)
+			payload := `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + hostiletest.Subject +
+				`","jti":"` + hostiletest.JtiA + `","iat":` + hostiletest.Itoa(now-1) + `,"exp":` + payloadExp + `,"type":"access"}`
+			token := e.SignRaw(t, payload)
 			c, err := m.VerifyAccessToken(token)
 			if c != nil && !c.ExpiresAt.After(time.Now()) {
 				t.Fatalf("exp=%s was accepted with ExpiresAt=%v, which is not in the future", payloadExp, c.ExpiresAt)
@@ -85,9 +86,9 @@ func TestHostile_Time_overflowingExpNeverWrapsIntoTheAcceptedPast(t *testing.T) 
 // nbf and iat in the future are refused; the leeway is the only slack and it
 // is bounded.
 func TestHostile_Time_futureTokensAndLeeway(t *testing.T) {
-	e := newEnv(t)
-	strict := e.module(t, jwt.Config{})
-	lenient := e.module(t, jwt.Config{ClockSkewLeeway: 5 * time.Minute})
+	e := hostiletest.NewEnv(t)
+	strict := e.Module(t, jwt.Config{})
+	lenient := e.Module(t, jwt.Config{ClockSkewLeeway: 5 * time.Minute})
 	now := time.Now()
 
 	type tc struct {
@@ -111,7 +112,7 @@ func TestHostile_Time_futureTokensAndLeeway(t *testing.T) {
 		{"exp 6m ago", "exp", -6 * time.Minute, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			token := e.signEdDSA(t, nil, with(claimsFor("access"), c.key, now.Add(c.offset).Unix()))
+			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), c.key, now.Add(c.offset).Unix()))
 			if _, err := strict.VerifyAccessToken(token); (err == nil) != c.strict {
 				t.Errorf("no leeway: err=%v, want accepted=%v", err, c.strict)
 			}
@@ -125,8 +126,8 @@ func TestHostile_Time_futureTokensAndLeeway(t *testing.T) {
 // Leeway is the knob an operator turns when clocks drift, and the one an
 // attacker would like turned all the way up. The module caps it.
 func TestHostile_Time_leewayIsCappedAtConstruction(t *testing.T) {
-	e := newEnv(t)
-	if _, err := jwt.New[extra](e.prov, jwt.Config{ClockSkewLeeway: 5 * time.Minute}); err != nil {
+	e := hostiletest.NewEnv(t)
+	if _, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{ClockSkewLeeway: 5 * time.Minute}); err != nil {
 		t.Fatalf("the maximum leeway was refused: %v", err)
 	}
 	for name, leeway := range map[string]time.Duration{
@@ -136,7 +137,7 @@ func TestHostile_Time_leewayIsCappedAtConstruction(t *testing.T) {
 		"negative":            -time.Second,
 		"min duration":        time.Duration(math.MinInt64),
 	} {
-		_, err := jwt.New[extra](e.prov, jwt.Config{ClockSkewLeeway: leeway})
+		_, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{ClockSkewLeeway: leeway})
 		if !errors.Is(err, jwt.ErrInvalidConfig) {
 			t.Errorf("%s: jwt.New = %v, want ErrInvalidConfig", name, err)
 		}
@@ -146,7 +147,7 @@ func TestHostile_Time_leewayIsCappedAtConstruction(t *testing.T) {
 // Lifetimes the issuer would never mint are refused at construction, so a
 // misconfiguration cannot turn into a token that outlives its purpose.
 func TestHostile_Time_lifetimesAreCappedAtConstruction(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	for name, cfg := range map[string]jwt.Config{
 		"access over a day":        {AccessTokenTTL: 24*time.Hour + time.Nanosecond, RefreshTokenTTL: 365 * 24 * time.Hour},
 		"access negative":          {AccessTokenTTL: -time.Minute},
@@ -159,11 +160,11 @@ func TestHostile_Time_lifetimesAreCappedAtConstruction(t *testing.T) {
 		"audience invalid utf8":    {Audience: []string{"\xff"}},
 		"issuer invalid utf8":      {Issuer: "\xff"},
 	} {
-		if _, err := jwt.New[extra](e.prov, cfg); !errors.Is(err, jwt.ErrInvalidConfig) {
+		if _, err := jwt.New[hostiletest.Extra](e.Prov, cfg); !errors.Is(err, jwt.ErrInvalidConfig) {
 			t.Errorf("%s: jwt.New = %v, want ErrInvalidConfig", name, err)
 		}
 	}
-	if _, err := jwt.New[extra](e.prov, jwt.Config{AccessTokenTTL: 24 * time.Hour, RefreshTokenTTL: 365 * 24 * time.Hour}); err != nil {
+	if _, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{AccessTokenTTL: 24 * time.Hour, RefreshTokenTTL: 365 * 24 * time.Hour}); err != nil {
 		t.Errorf("the maximum lifetimes were refused: %v", err)
 	}
 }
@@ -171,10 +172,10 @@ func TestHostile_Time_lifetimesAreCappedAtConstruction(t *testing.T) {
 // An expired refresh token cannot be rotated, even when its signature and
 // type are right.
 func TestHostile_Time_expiredRefreshTokenCannotRotate(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	token := e.signEdDSA(t, nil, with(claimsFor("refresh"), "exp", time.Now().Add(-time.Hour).Unix()))
-	if p, err := m.RotateTokens(token, extra{}); p != nil || !errors.Is(err, jwt.ErrTokenExpired) {
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("refresh"), "exp", time.Now().Add(-time.Hour).Unix()))
+	if p, err := m.RotateTokens(token, hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrTokenExpired) {
 		t.Fatalf("RotateTokens = %+v, %v; want ErrTokenExpired", p, err)
 	}
 }

@@ -1,4 +1,6 @@
-package jwt_test
+// Package claims attacks the JWT claims: wrong shapes, extreme numbers,
+// time bounds and numeric date ranges.
+package claims
 
 import (
 	"errors"
@@ -7,16 +9,17 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // Every registered claim is checked against the shape the module issues. A
 // signed token whose claim has the wrong JSON type is refused, never coerced
 // into something that passes.
 func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 
-	if _, err := m.VerifyAccessToken(e.signEdDSA(t, nil, claimsFor("access"))); err != nil {
+	if _, err := m.VerifyAccessToken(e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))); err != nil {
 		t.Fatalf("control token refused: %v", err)
 	}
 
@@ -44,14 +47,14 @@ func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
 		"iss near miss":        {"iss", jwt.DefaultConfig().Issuer + "/"},
 		"iss missing":          {"iss", nil},
 		"sub number":           {"sub", 12345},
-		"sub array":            {"sub", []any{subject}},
+		"sub array":            {"sub", []any{hostiletest.Subject}},
 		"sub missing":          {"sub", nil},
 		"sub not a uuid":       {"sub", "admin"},
 		"sub uuid v4":          {"sub", "0191b432-b5a7-4c4f-b2e6-7a3f1d2e0001"},
-		"sub trailing newline": {"sub", subject + "\n"},
-		"sub with NUL":         {"sub", subject[:35] + "\x00"},
-		"sub uuid in braces":   {"sub", "{" + subject + "}"},
-		"sub urn form":         {"sub", "urn:uuid:" + subject},
+		"sub trailing newline": {"sub", hostiletest.Subject + "\n"},
+		"sub with NUL":         {"sub", hostiletest.Subject[:35] + "\x00"},
+		"sub uuid in braces":   {"sub", "{" + hostiletest.Subject + "}"},
+		"sub urn form":         {"sub", "urn:uuid:" + hostiletest.Subject},
 		"sub bad variant":      {"sub", "0191b432-b5a7-7c4f-c2e6-7a3f1d2e0001"},
 		"jti number":           {"jti", 1},
 		"jti object":           {"jti", map[string]any{}},
@@ -63,7 +66,7 @@ func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			token := e.signEdDSA(t, nil, with(claimsFor("access"), tc.key, tc.v))
+			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), tc.key, tc.v))
 			c, err := m.VerifyAccessToken(token)
 			if c != nil || err == nil {
 				t.Fatalf("accepted %s=%v: %+v", tc.key, tc.v, c)
@@ -77,8 +80,8 @@ func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
 // face value: a string date that is in the past or the future must act like the
 // number would, never be dropped as if the claim were absent.
 func TestHostile_ClaimTypes_stringDatesAreHonouredNotIgnored(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	now := time.Now()
 	cases := map[string]struct {
 		key  string
@@ -91,7 +94,7 @@ func TestHostile_ClaimTypes_stringDatesAreHonouredNotIgnored(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			token := e.signEdDSA(t, nil, with(claimsFor("access"), tc.key, tc.v))
+			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), tc.key, tc.v))
 			if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, tc.want) {
 				t.Fatalf("VerifyAccessToken = %+v, %v; want %v", c, err, tc.want)
 			}
@@ -103,13 +106,13 @@ func TestHostile_ClaimTypes_stringDatesAreHonouredNotIgnored(t *testing.T) {
 // audiences it names, and one match is enough; a list that does not name it
 // is not.
 func TestHostile_ClaimTypes_audienceArrayNeedsOurAudience(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{Audience: []string{"https://api.example", "https://other.example"}})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{Audience: []string{"https://api.example", "https://other.example"}})
 	cfgAud := "https://api.example"
 
 	accept := []any{cfgAud, []any{cfgAud}, []any{"https://elsewhere.example", cfgAud}}
 	for i, aud := range accept {
-		token := e.signEdDSA(t, nil, with(claimsFor("access"), "aud", aud))
+		token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", aud))
 		if _, err := m.VerifyAccessToken(token); err != nil {
 			t.Errorf("accept case %d (%v): %v", i, aud, err)
 		}
@@ -117,7 +120,7 @@ func TestHostile_ClaimTypes_audienceArrayNeedsOurAudience(t *testing.T) {
 
 	// Only Audience[0] is the audience this module checks: a token for the
 	// second configured audience alone is refused.
-	token := e.signEdDSA(t, nil, with(claimsFor("access"), "aud", "https://other.example"))
+	token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", "https://other.example"))
 	if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
 		t.Fatalf("a token for the secondary audience only was accepted: %+v", c)
 	}
@@ -126,10 +129,10 @@ func TestHostile_ClaimTypes_audienceArrayNeedsOurAudience(t *testing.T) {
 // The extra payload has a fixed shape. A signed token whose extra holds the
 // wrong JSON type is refused instead of yielding a half-filled struct.
 func TestHostile_ClaimTypes_extraWithWrongShape(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 
-	if c, err := m.VerifyAccessToken(e.signEdDSA(t, nil, with(claimsFor("access"), "extra", map[string]any{"role": "admin"}))); err != nil || c.Extra.Role != "admin" {
+	if c, err := m.VerifyAccessToken(e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "extra", map[string]any{"role": "admin"}))); err != nil || c.Extra.Role != "admin" {
 		t.Fatalf("control: %+v, %v", c, err)
 	}
 	for name, ex := range map[string]any{
@@ -141,7 +144,7 @@ func TestHostile_ClaimTypes_extraWithWrongShape(t *testing.T) {
 		"extra number": 1,
 	} {
 		t.Run(name, func(t *testing.T) {
-			token := e.signEdDSA(t, nil, with(claimsFor("access"), "extra", ex))
+			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "extra", ex))
 			if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
 				t.Fatalf("accepted extra=%v: %+v", ex, c)
 			}
@@ -152,17 +155,17 @@ func TestHostile_ClaimTypes_extraWithWrongShape(t *testing.T) {
 // Extra cannot reach the registered claims: a field that carries the name of
 // a registered claim inside "extra" stays inside it.
 func TestHostile_ClaimTypes_extraCannotOverrideRegisteredClaims(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	type loud struct {
 		Sub  string `json:"sub"`
 		Exp  int64  `json:"exp"`
 		Type string `json:"type"`
 	}
-	m, err := jwt.New[loud](e.prov)
+	m, err := jwt.New[loud](e.Prov)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pair, err := m.CreateTokens(subject, loud{Sub: "attacker", Exp: 1, Type: "refresh"})
+	pair, err := m.CreateTokens(hostiletest.Subject, loud{Sub: "attacker", Exp: 1, Type: "refresh"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +173,7 @@ func TestHostile_ClaimTypes_extraCannotOverrideRegisteredClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a payload named like registered claims broke a valid token: %v", err)
 	}
-	if c.Subject != subject || c.Extra.Sub != "attacker" {
+	if c.Subject != hostiletest.Subject || c.Extra.Sub != "attacker" {
 		t.Fatalf("subject = %q, extra.sub = %q; the payload leaked into the registered claims", c.Subject, c.Extra.Sub)
 	}
 }

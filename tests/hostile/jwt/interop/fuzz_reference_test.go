@@ -1,4 +1,4 @@
-package jwt_test
+package interop
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // canonicalClaims reports whether payload is a JSON object with the one
@@ -53,16 +54,16 @@ func canonicalClaims(payload []byte) bool {
 // independent verifier accepts too. The other direction is not asserted: the
 // module also checks things the reference does not model.
 func FuzzVerifyAccessTokenAgreesWithReference(f *testing.F) {
-	e := newEnv(f)
-	m := e.module(f, jwt.Config{})
+	e := hostiletest.NewEnv(f)
+	m := e.Module(f, jwt.Config{})
 	now := time.Now().Unix()
-	base := `{"iss":"github.com/Glyndor/authcore","aud":"github.com/Glyndor/authcore","sub":"` + subject + `","jti":"` + jtiA +
+	base := `{"iss":"github.com/Glyndor/authcore","aud":"github.com/Glyndor/authcore","sub":"` + hostiletest.Subject + `","jti":"` + hostiletest.JtiA +
 		`","iat":` + strconv.FormatInt(now-5, 10) + `,"exp":` + strconv.FormatInt(now+3600, 10) + `,"type":"access"}`
 	f.Add(base)
 	f.Add(strings.Replace(base, `"aud":"github.com/Glyndor/authcore"`, `"aud":["x","github.com/Glyndor/authcore"]`, 1))
 	f.Add(strings.Replace(base, `"type":"access"`, `"type":"access","extra":{"role":"admin"}`, 1))
 	f.Add(strings.Replace(base, `"iat"`, `"nbf":1,"iat"`, 1))
-	f.Add(strings.Replace(base, `"sub":"`+subject+`"`, `"sub":"0191B432-B5A7-7C4F-B2E6-7A3F1D2E0001"`, 1))
+	f.Add(strings.Replace(base, `"sub":"`+hostiletest.Subject+`"`, `"sub":"0191B432-B5A7-7C4F-B2E6-7A3F1D2E0001"`, 1))
 	f.Add(strings.Replace(base, `"aud":"github.com/Glyndor/authcore"`, `"aud":[]`, 1))
 	f.Add(strings.Replace(base, strconv.FormatInt(now+3600, 10), "1e10", 1))
 	// Payloads the module refuses; they matter when a check is removed.
@@ -77,18 +78,18 @@ func FuzzVerifyAccessTokenAgreesWithReference(f *testing.F) {
 		if !canonicalClaims([]byte(payload)) {
 			return
 		}
-		token := e.signRaw(t, payload)
+		token := e.SignRaw(t, payload)
 		if _, err := m.VerifyAccessToken(token); err != nil {
 			return
 		}
-		p := e.policy("access")
-		p.now = time.Now()
-		if err := refVerify(token, p); err != nil {
+		p := policy(e, "access")
+		p.Now = time.Now()
+		if err := hostiletest.RefVerify(token, p); err != nil {
 			// Skip the instants where the second turned over between the two checks.
 			var c map[string]json.Number
 			_ = json.Unmarshal([]byte(payload), &c)
 			for _, k := range []string{"exp", "iat", "nbf"} {
-				if v, err := c[k].Float64(); err == nil && v > float64(p.now.Unix()-3) && v < float64(p.now.Unix()+3) {
+				if v, err := c[k].Float64(); err == nil && v > float64(p.Now.Unix()-3) && v < float64(p.Now.Unix()+3) {
 					return
 				}
 			}

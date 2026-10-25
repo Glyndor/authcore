@@ -1,4 +1,6 @@
-package jwt_test
+// Package compact attacks the compact serialisation of a JWT: malformed,
+// non canonical, mutated and oversized tokens.
+package compact
 
 import (
 	"errors"
@@ -7,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 const base64urlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -14,9 +17,9 @@ const base64urlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0
 // Compact serialization is three base64url segments joined by dots. Every
 // other spelling of the same bytes is refused: one token, one spelling.
 func TestHostile_CompactForm_malformedSerializationsAreRefused(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	good := e.signEdDSA(t, nil, claimsFor("access"))
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	good := e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))
 	if _, err := m.VerifyAccessToken(good); err != nil {
 		t.Fatalf("control token refused: %v", err)
 	}
@@ -65,7 +68,7 @@ func TestHostile_CompactForm_malformedSerializationsAreRefused(t *testing.T) {
 	for name, token := range cases {
 		t.Run(name, func(t *testing.T) {
 			c, err := m.VerifyAccessToken(token)
-			if c != nil || !isInvalidOrMalformed(err) {
+			if c != nil || !hostiletest.IsInvalidOrMalformed(err) {
 				t.Fatalf("VerifyAccessToken = %+v, %v; want nil and ErrTokenInvalid or ErrTokenMalformed", c, err)
 			}
 		})
@@ -77,9 +80,9 @@ func TestHostile_CompactForm_malformedSerializationsAreRefused(t *testing.T) {
 // with those bits set, so a signature cannot be replayed under a second
 // spelling that evades a blocklist keyed on the token string.
 func TestHostile_CompactForm_nonCanonicalTrailingBitsAreRefused(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	good := e.signEdDSA(t, nil, claimsFor("access"))
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	good := e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))
 	h, p, s := split3(t, good)
 
 	// An Ed25519 signature is 64 bytes: 86 base64 characters, the last of
@@ -104,9 +107,9 @@ func TestHostile_CompactForm_nonCanonicalTrailingBitsAreRefused(t *testing.T) {
 // signature covers header and payload as spelled, and the last signature
 // character is covered by the strict decoding above, so no position is slack.
 func TestHostile_CompactForm_everySingleCharacterChangeIsRefused(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	good := e.signEdDSA(t, nil, claimsFor("access"))
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	good := e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))
 	if _, err := m.VerifyAccessToken(good); err != nil {
 		t.Fatalf("control token refused: %v", err)
 	}
@@ -126,9 +129,9 @@ func TestHostile_CompactForm_everySingleCharacterChangeIsRefused(t *testing.T) {
 
 // A truncated signature, or one padded with extra bytes, is not a signature.
 func TestHostile_CompactForm_signatureLengthIsExact(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	good := e.signEdDSA(t, nil, claimsFor("access"))
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	good := e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))
 	h, p, s := split3(t, good)
 	for name, sig := range map[string]string{
 		"one char short":  s[:len(s)-1],
@@ -148,8 +151,8 @@ func TestHostile_CompactForm_signatureLengthIsExact(t *testing.T) {
 
 // The size cap is 8 KiB on the token string and is checked before any decoding.
 func TestHostile_CompactForm_oversizedTokensAreRefusedBeforeParsing(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	const limit = 8 * 1024
 
 	// A token padded to the byte limit through a signed claim: 8192 is a
@@ -162,7 +165,7 @@ func TestHostile_CompactForm_oversizedTokensAreRefusedBeforeParsing(t *testing.T
 	if c, err := m.VerifyAccessToken(over); c != nil || !errors.Is(err, jwt.ErrTokenOversized) {
 		t.Fatalf("a token of %d bytes = %+v, %v; want ErrTokenOversized", len(over), c, err)
 	}
-	if p, err := m.RotateTokens(tokenOfLengthTyped(t, e, limit+2, "refresh"), extra{}); p != nil || !errors.Is(err, jwt.ErrTokenOversized) {
+	if p, err := m.RotateTokens(tokenOfLengthTyped(t, e, limit+2, "refresh"), hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrTokenOversized) {
 		t.Fatalf("an oversized refresh token = %+v, %v; want ErrTokenOversized", p, err)
 	}
 
@@ -182,13 +185,13 @@ func TestHostile_CompactForm_oversizedTokensAreRefusedBeforeParsing(t *testing.T
 // The module will not issue a token it would then refuse: a payload that
 // pushes either token past the cap fails at CreateTokens.
 func TestHostile_CompactForm_issuingRefusesOversizedTokens(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	pair, err := m.CreateTokens(subject, extra{Role: strings.Repeat("A", 9000)})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	pair, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{Role: strings.Repeat("A", 9000)})
 	if pair != nil || !errors.Is(err, jwt.ErrTokenOversized) {
 		t.Fatalf("CreateTokens with a 9000 byte role = %+v, %v; want ErrTokenOversized", pair, err)
 	}
-	if _, err := m.CreateTokens(subject, extra{Role: strings.Repeat("A", 4000)}); err != nil {
+	if _, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{Role: strings.Repeat("A", 4000)}); err != nil {
 		t.Fatalf("a 4000 byte role is within the cap: %v", err)
 	}
 }
@@ -196,18 +199,18 @@ func TestHostile_CompactForm_issuingRefusesOversizedTokens(t *testing.T) {
 // Deep nesting inside the 8 KiB budget does not blow the stack or hang, and
 // shapes the extra payload cannot hold are refused.
 func TestHostile_CompactForm_deeplyNestedPayloadIsBounded(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	for name, nested := range map[string]string{
 		"arrays":  strings.Repeat("[", 3000) + strings.Repeat("]", 3000),
 		"objects": strings.Repeat(`{"a":`, 600) + "1" + strings.Repeat("}", 600),
 		"open":    strings.Repeat("[", 5000),
 	} {
 		now := time.Now().Unix()
-		payload := `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + subject +
-			`","jti":"` + jtiA + `","iat":` + itoa(now-1) + `,"exp":` + itoa(now+600) + `,"type":"access","extra":` + nested + `}`
+		payload := `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + hostiletest.Subject +
+			`","jti":"` + hostiletest.JtiA + `","iat":` + hostiletest.Itoa(now-1) + `,"exp":` + hostiletest.Itoa(now+600) + `,"type":"access","extra":` + nested + `}`
 		start := time.Now()
-		c, err := m.VerifyAccessToken(e.signRaw(t, payload))
+		c, err := m.VerifyAccessToken(e.SignRaw(t, payload))
 		// Nested objects are unknown fields of the extra struct and are
 		// skipped, so that spelling is a valid token. The other two cannot
 		// decode into it and must be refused.
@@ -229,15 +232,17 @@ func split3(t testing.TB, token string) (h, p, s string) {
 	return parts[0], parts[1], parts[2]
 }
 
-func tokenOfLength(t testing.TB, e *env, n int) string { return tokenOfLengthTyped(t, e, n, "access") }
+func tokenOfLength(t testing.TB, e *hostiletest.Env, n int) string {
+	return tokenOfLengthTyped(t, e, n, "access")
+}
 
 // tokenOfLengthTyped signs a token whose compact form is exactly n bytes by
 // growing an unused claim until the length lands. Base64 lengths of the form
 // 4k+1 do not exist, so n must not be one.
-func tokenOfLengthTyped(t testing.TB, e *env, n int, typ string) string {
+func tokenOfLengthTyped(t testing.TB, e *hostiletest.Env, n int, typ string) string {
 	t.Helper()
 	for pad := 0; pad < n; pad++ {
-		tok := e.signEdDSA(t, nil, with(claimsFor(typ), "pad", strings.Repeat("a", pad)))
+		tok := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor(typ), "pad", strings.Repeat("a", pad)))
 		switch {
 		case len(tok) == n:
 			return tok

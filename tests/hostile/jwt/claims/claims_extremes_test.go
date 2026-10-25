@@ -1,4 +1,4 @@
-package jwt_test
+package claims
 
 import (
 	"errors"
@@ -9,17 +9,18 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // roundTrip issues a token carrying v as the extra claim and returns what
 // VerifyAccessToken reads back.
-func roundTrip[T any](t *testing.T, e *env, v T) T {
+func roundTrip[T any](t *testing.T, e *hostiletest.Env, v T) T {
 	t.Helper()
-	m, err := jwt.New[T](e.prov)
+	m, err := jwt.New[T](e.Prov)
 	if err != nil {
 		t.Fatalf("jwt.New: %v", err)
 	}
-	pair, err := m.CreateTokens(subject, v)
+	pair, err := m.CreateTokens(hostiletest.Subject, v)
 	if err != nil {
 		t.Fatalf("CreateTokens(%v): %v", v, err)
 	}
@@ -34,7 +35,7 @@ func roundTrip[T any](t *testing.T, e *env, v T) T {
 // floats at theirs. A parser that went through float64 would round
 // 9223372036854775807 to 9223372036854775808.
 func TestHostile_ClaimExtremes_numbersInExtraRoundTripExactly(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	for _, v := range []int64{math.MaxInt64, math.MinInt64, math.MaxInt64 - 1, 1<<53 + 1, -(1<<53 + 1), 0} {
 		if got := roundTrip(t, e, v); got != v {
 			t.Errorf("int64 %d came back as %d", v, got)
@@ -55,19 +56,19 @@ func TestHostile_ClaimExtremes_numbersInExtraRoundTripExactly(t *testing.T) {
 // A signed payload whose extra is a number outside the module's type is refused
 // instead of wrapping or saturating.
 func TestHostile_ClaimExtremes_outOfRangeNumbersInExtraAreRefused(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	now := time.Now().Unix()
 	payload := func(extraJSON string) string {
-		return `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + subject +
-			`","jti":"` + jtiA + `","iat":` + strconv.FormatInt(now-1, 10) + `,"exp":` + strconv.FormatInt(now+600, 10) +
+		return `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + hostiletest.Subject +
+			`","jti":"` + hostiletest.JtiA + `","iat":` + strconv.FormatInt(now-1, 10) + `,"exp":` + strconv.FormatInt(now+600, 10) +
 			`,"type":"access","extra":` + extraJSON + `}`
 	}
-	i64, err := jwt.New[int64](e.prov)
+	i64, err := jwt.New[int64](e.Prov)
 	if err != nil {
 		t.Fatal(err)
 	}
-	i8, _ := jwt.New[int8](e.prov)
-	f64, _ := jwt.New[float64](e.prov)
+	i8, _ := jwt.New[int8](e.Prov)
+	f64, _ := jwt.New[float64](e.Prov)
 	for name, tc := range map[string]struct {
 		verify func(string) error
 		extra  string
@@ -81,7 +82,7 @@ func TestHostile_ClaimExtremes_outOfRangeNumbersInExtraAreRefused(t *testing.T) 
 		"float64 1e999":       {func(s string) error { _, err := f64.VerifyAccessToken(s); return err }, "1e999"},
 		"float64 string":      {func(s string) error { _, err := f64.VerifyAccessToken(s); return err }, `"NaN"`},
 	} {
-		if err := tc.verify(e.signRaw(t, payload(tc.extra))); err == nil {
+		if err := tc.verify(e.SignRaw(t, payload(tc.extra))); err == nil {
 			t.Errorf("%s: a payload with extra=%s was accepted", name, tc.extra)
 		}
 	}
@@ -90,13 +91,13 @@ func TestHostile_ClaimExtremes_outOfRangeNumbersInExtraAreRefused(t *testing.T) 
 // Issuing refuses values the JSON encoding cannot carry, with an error and no
 // token, rather than a token that reads back as something else.
 func TestHostile_ClaimExtremes_unencodableExtraProducesNoToken(t *testing.T) {
-	e := newEnv(t)
-	m, err := jwt.New[float64](e.prov)
+	e := hostiletest.NewEnv(t)
+	m, err := jwt.New[float64](e.Prov)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
-		if p, err := m.CreateTokens(subject, v); p != nil || err == nil {
+		if p, err := m.CreateTokens(hostiletest.Subject, v); p != nil || err == nil {
 			t.Errorf("CreateTokens(%v) = %v, %v; want an error and no pair", v, p, err)
 		}
 	}
@@ -107,8 +108,8 @@ func TestHostile_ClaimExtremes_unencodableExtraProducesNoToken(t *testing.T) {
 // parsed; one that fits and names our audience last still verifies; and a
 // configuration whose audience cannot fit in a token cannot issue one.
 func TestHostile_ClaimExtremes_audienceArraySizeIsBounded(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	ours := jwt.DefaultConfig().Audience[0]
 
 	build := func(n int) string {
@@ -116,7 +117,7 @@ func TestHostile_ClaimExtremes_audienceArraySizeIsBounded(t *testing.T) {
 		for i := 0; i < n; i++ {
 			aud = append(aud, "a"+strconv.Itoa(i))
 		}
-		return e.signEdDSA(t, nil, with(claimsFor("access"), "aud", append(aud, ours)))
+		return e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", append(aud, ours)))
 	}
 	if _, err := m.VerifyAccessToken(build(400)); err != nil {
 		t.Errorf("a 400-entry audience naming us last was refused: %v", err)
@@ -137,11 +138,11 @@ func TestHostile_ClaimExtremes_audienceArraySizeIsBounded(t *testing.T) {
 	for i := 0; i < 2000; i++ {
 		big = append(big, strings.Repeat("x", 20)+strconv.Itoa(i))
 	}
-	huge, err := jwt.New[extra](e.prov, jwt.Config{Audience: big})
+	huge, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{Audience: big})
 	if err != nil {
 		return // refusing the configuration is also fine
 	}
-	if p, err := huge.CreateTokens(subject, extra{}); p != nil || !errors.Is(err, jwt.ErrTokenOversized) {
+	if p, err := huge.CreateTokens(hostiletest.Subject, hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrTokenOversized) {
 		t.Errorf("CreateTokens with a 2000-entry audience = %v, %v; want ErrTokenOversized", p, err)
 	}
 }

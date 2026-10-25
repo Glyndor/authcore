@@ -1,4 +1,4 @@
-package jwt_test
+package alg
 
 import (
 	"crypto/ed25519"
@@ -8,26 +8,27 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // signParts signs an exact header and payload string with the module's key.
-func (e *env) signParts(header, payload string) string {
-	in := b64(header) + "." + b64(payload)
-	return in + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(e.priv, []byte(in)))
+func signParts(e *hostiletest.Env, header, payload string) string {
+	in := hostiletest.B64(header) + "." + hostiletest.B64(payload)
+	return in + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(e.Priv, []byte(in)))
 }
 
 // A header or payload object has to be read one way only: a repeated key or a
 // claim name spelt with another capitalisation is refused, whatever its order.
 func TestHostile_ObjectKeysHaveOneReading(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	cfg := jwt.DefaultConfig()
 	now := time.Now().Unix()
-	good := `"sub":"` + subject + `","jti":"` + jtiA + `","iss":"` + cfg.Issuer + `","aud":"` + cfg.Audience[0] +
-		`","iat":` + itoa(now-1) + `,"exp":` + itoa(now+600)
-	head := `{"alg":"EdDSA","kid":"` + e.kid + `","typ":"JWT"}`
+	good := `"sub":"` + hostiletest.Subject + `","jti":"` + hostiletest.JtiA + `","iss":"` + cfg.Issuer + `","aud":"` + cfg.Audience[0] +
+		`","iat":` + hostiletest.Itoa(now-1) + `,"exp":` + hostiletest.Itoa(now+600)
+	head := `{"alg":"EdDSA","kid":"` + e.Kid + `","typ":"JWT"}`
 
-	if _, err := m.VerifyAccessToken(e.signParts(head, `{`+good+`,"type":"access"}`)); err != nil {
+	if _, err := m.VerifyAccessToken(signParts(e, head, `{`+good+`,"type":"access"}`)); err != nil {
 		t.Fatalf("control token refused: %v", err)
 	}
 
@@ -43,20 +44,20 @@ func TestHostile_ObjectKeysHaveOneReading(t *testing.T) {
 	}
 	for name, p := range payloads {
 		t.Run("payload/"+name, func(t *testing.T) {
-			if _, err := m.VerifyAccessToken(e.signParts(head, p)); err == nil {
+			if _, err := m.VerifyAccessToken(signParts(e, head, p)); err == nil {
 				t.Fatal("token with ambiguous payload keys was accepted")
 			}
 		})
 	}
 
 	headers := map[string]string{
-		"repeated kid":       `{"alg":"EdDSA","kid":"` + e.kid + `","kid":"` + e.kid + `","typ":"JWT"}`,
-		"upper-case alg":     `{"ALG":"EdDSA","kid":"` + e.kid + `","typ":"JWT"}`,
-		"both kid spellings": `{"alg":"EdDSA","kid":"` + e.kid + `","KID":"x","typ":"JWT"}`,
+		"repeated kid":       `{"alg":"EdDSA","kid":"` + e.Kid + `","kid":"` + e.Kid + `","typ":"JWT"}`,
+		"upper-case alg":     `{"ALG":"EdDSA","kid":"` + e.Kid + `","typ":"JWT"}`,
+		"both kid spellings": `{"alg":"EdDSA","kid":"` + e.Kid + `","KID":"x","typ":"JWT"}`,
 	}
 	for name, h := range headers {
 		t.Run("header/"+name, func(t *testing.T) {
-			if _, err := m.VerifyAccessToken(e.signParts(h, `{`+good+`,"type":"access"}`)); err == nil {
+			if _, err := m.VerifyAccessToken(signParts(e, h, `{`+good+`,"type":"access"}`)); err == nil {
 				t.Fatal("token with ambiguous header keys was accepted")
 			}
 		})

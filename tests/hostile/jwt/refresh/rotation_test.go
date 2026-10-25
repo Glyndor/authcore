@@ -1,4 +1,6 @@
-package jwt_test
+// Package refresh attacks refresh tokens: hashing, rotation, session identity
+// and uninitialised receivers.
+package refresh
 
 import (
 	"crypto/ed25519"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // refreshStore is the table the application keeps, as the package doc
@@ -42,9 +45,9 @@ func (s *refreshStore) replace(old, next string) bool {
 // token used alongside the legitimate client looks like. Run through the
 // documented flow, at most one of them gets a new pair.
 func TestHostile_Rotation_concurrentUseOfOneRefreshTokenYieldsOneWinner(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	pair, err := m.CreateTokens(subject, extra{Role: "user"})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	pair, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{Role: "user"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestHostile_Rotation_concurrentUseOfOneRefreshTokenYieldsOneWinner(t *testi
 			if !m.VerifyRefreshTokenHash(pair.RefreshToken, stored) {
 				return
 			}
-			next, err := m.RotateTokens(pair.RefreshToken, extra{Role: "user"})
+			next, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{Role: "user"})
 			if err != nil {
 				t.Errorf("RotateTokens: %v", err)
 				return
@@ -99,9 +102,9 @@ func TestHostile_Rotation_concurrentUseOfOneRefreshTokenYieldsOneWinner(t *testi
 // Rotation produces a different refresh token and hash every time, even from
 // the same input, so a hash-keyed compare-and-swap can tell the rotations apart.
 func TestHostile_Rotation_everyRotationIsDistinguishable(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	pair, _ := m.CreateTokens(subject, extra{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 
 	seenTokens := map[string]bool{pair.RefreshToken: true}
 	seenHashes := map[string]bool{pair.RefreshTokenHash: true}
@@ -111,7 +114,7 @@ func TestHostile_Rotation_everyRotationIsDistinguishable(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			next, err := m.RotateTokens(pair.RefreshToken, extra{})
+			next, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{})
 			if err != nil {
 				t.Errorf("RotateTokens: %v", err)
 				return
@@ -133,10 +136,10 @@ func TestHostile_Rotation_everyRotationIsDistinguishable(t *testing.T) {
 // The stored refresh hash is compared exactly. Near misses of the right hash
 // never match, and neither does a hash of a different token.
 func TestHostile_Rotation_refreshHashComparisonIsExact(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
-	pair, _ := m.CreateTokens(subject, extra{})
-	other, _ := m.CreateTokens(subject, extra{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
+	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
+	other, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 
 	if !m.VerifyRefreshTokenHash(pair.RefreshToken, pair.RefreshTokenHash) {
 		t.Fatal("control: the right hash was refused")
@@ -175,9 +178,9 @@ func TestHostile_Rotation_refreshHashComparisonIsExact(t *testing.T) {
 // Another deployment's secret yields other hashes, so a hash table lifted from
 // one service cannot be replayed into another.
 func TestHostile_Rotation_hashesAreBoundToTheRefreshSecret(t *testing.T) {
-	a, b := newEnv(t), newEnv(t)
-	ma, mb := a.module(t, jwt.Config{}), b.module(t, jwt.Config{})
-	pair, _ := ma.CreateTokens(subject, extra{})
+	a, b := hostiletest.NewEnv(t), hostiletest.NewEnv(t)
+	ma, mb := a.Module(t, jwt.Config{}), b.Module(t, jwt.Config{})
+	pair, _ := ma.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	hb, err := mb.HashRefreshToken(pair.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
@@ -194,42 +197,42 @@ func TestHostile_Rotation_hashesAreBoundToTheRefreshSecret(t *testing.T) {
 // downstream parser (traversal, SQL, whitespace, lookalike digits) never gets a
 // signature.
 func TestHostile_Subject_onlyAUUIDv7IsSigned(t *testing.T) {
-	e := newEnv(t)
-	m := e.module(t, jwt.Config{})
+	e := hostiletest.NewEnv(t)
+	m := e.Module(t, jwt.Config{})
 	for name, sub := range map[string]string{
 		"empty":            "",
 		"admin":            "admin",
 		"uuid v4":          "0191b432-b5a7-4c4f-b2e6-7a3f1d2e0001",
 		"uuid v1":          "0191b432-b5a7-1c4f-b2e6-7a3f1d2e0001",
 		"nil uuid":         "00000000-0000-0000-0000-000000000000",
-		"no dashes":        strings.ReplaceAll(subject, "-", ""),
-		"braces":           "{" + subject + "}",
-		"urn":              "urn:uuid:" + subject,
-		"trailing newline": subject + "\n",
-		"leading space":    " " + subject,
-		"NUL":              subject[:35] + "\x00",
-		"one char long":    subject + "0",
-		"one char short":   subject[:35],
+		"no dashes":        strings.ReplaceAll(hostiletest.Subject, "-", ""),
+		"braces":           "{" + hostiletest.Subject + "}",
+		"urn":              "urn:uuid:" + hostiletest.Subject,
+		"trailing newline": hostiletest.Subject + "\n",
+		"leading space":    " " + hostiletest.Subject,
+		"NUL":              hostiletest.Subject[:35] + "\x00",
+		"one char long":    hostiletest.Subject + "0",
+		"one char short":   hostiletest.Subject[:35],
 		"non-hex":          "0191b432-b5a7-7c4f-b2e6-7a3f1d2e000g",
 		"arabic digit":     "0191b432-b5a7-7c4f-b2e6-7a3f1d2e000\u0661",
 		"traversal":        "../../../../../../etc/passwd",
 		"sql":              "' OR 1=1 --",
 		"bad variant":      "0191b432-b5a7-7c4f-c2e6-7a3f1d2e0001",
 	} {
-		pair, err := m.CreateTokens(sub, extra{})
+		pair, err := m.CreateTokens(sub, hostiletest.Extra{})
 		if pair != nil || !errors.Is(err, jwt.ErrInvalidSubject) {
 			t.Errorf("%s: CreateTokens = %+v, %v; want ErrInvalidSubject", name, pair, err)
 		}
 	}
 	// The same subject in capitals is accepted and signed in lower case, so
 	// one user cannot hold two spellings of one subject.
-	pair, err := m.CreateTokens(strings.ToUpper(subject), extra{})
+	pair, err := m.CreateTokens(strings.ToUpper(hostiletest.Subject), hostiletest.Extra{})
 	if err != nil {
 		t.Fatalf("an uppercase UUID v7 was refused: %v", err)
 	}
 	c, err := m.VerifyAccessToken(pair.AccessToken)
-	if err != nil || c.Subject != subject {
-		t.Fatalf("subject = %q, %v; want %q", c.Subject, err, subject)
+	if err != nil || c.Subject != hostiletest.Subject {
+		t.Fatalf("subject = %q, %v; want %q", c.Subject, err, hostiletest.Subject)
 	}
 }
 
@@ -238,31 +241,31 @@ func TestHostile_Subject_onlyAUUIDv7IsSigned(t *testing.T) {
 // token under a retired key must stop verifying, and the new key's tokens must
 // not verify anywhere that never trusted it.
 func TestHostile_KeyRotation_retiredKeyStopsVerifying(t *testing.T) {
-	oldEnv := newEnv(t)
-	oldMod := oldEnv.module(t, jwt.Config{})
-	oldPair, _ := oldMod.CreateTokens(subject, extra{})
+	oldEnv := hostiletest.NewEnv(t)
+	oldMod := oldEnv.Module(t, jwt.Config{})
+	oldPair, _ := oldMod.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 
-	newEnvKeys := newEnv(t)
-	withPrev := newEnvKeys.module(t, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{oldEnv.pub}})
-	withoutPrev := newEnvKeys.module(t, jwt.Config{})
+	newEnvKeys := hostiletest.NewEnv(t)
+	withPrev := newEnvKeys.Module(t, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{oldEnv.Pub}})
+	withoutPrev := newEnvKeys.Module(t, jwt.Config{})
 
 	if _, err := withPrev.VerifyAccessToken(oldPair.AccessToken); err != nil {
 		t.Fatalf("control: a token under a listed previous key was refused: %v", err)
 	}
-	if p, err := withPrev.RotateTokens(oldPair.RefreshToken, extra{}); err != nil {
+	if p, err := withPrev.RotateTokens(oldPair.RefreshToken, hostiletest.Extra{}); err != nil {
 		t.Fatalf("control: rotating a refresh token under a previous key: %v", err)
-	} else if h := decodeHeader(t, p.AccessToken); h["kid"] != newEnvKeys.kid {
-		t.Fatalf("a rotation re-signed with kid %v, want the current key %q", h["kid"], newEnvKeys.kid)
+	} else if h := hostiletest.DecodeHeader(t, p.AccessToken); h["kid"] != newEnvKeys.Kid {
+		t.Fatalf("a rotation re-signed with kid %v, want the current key %q", h["kid"], newEnvKeys.Kid)
 	}
 
 	if c, err := withoutPrev.VerifyAccessToken(oldPair.AccessToken); c != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
 		t.Fatalf("retired key's access token = %+v, %v; want ErrTokenInvalid", c, err)
 	}
-	if p, err := withoutPrev.RotateTokens(oldPair.RefreshToken, extra{}); p != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
+	if p, err := withoutPrev.RotateTokens(oldPair.RefreshToken, hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
 		t.Fatalf("retired key's refresh token = %+v, %v; want ErrTokenInvalid", p, err)
 	}
 
-	newPair, _ := withPrev.CreateTokens(subject, extra{})
+	newPair, _ := withPrev.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	if c, err := oldMod.VerifyAccessToken(newPair.AccessToken); c != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
 		t.Fatalf("a token from a key this deployment never trusted = %+v, %v", c, err)
 	}
@@ -272,7 +275,7 @@ func TestHostile_KeyRotation_retiredKeyStopsVerifying(t *testing.T) {
 // sign for any message, or that clash with the current key, are refused when
 // the module is built.
 func TestHostile_KeyRotation_unusablePreviousKeysAreRefusedAtConstruction(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	hex := func(s string) ed25519.PublicKey {
 		b := make([]byte, 32)
 		for i := range b {
@@ -291,7 +294,7 @@ func TestHostile_KeyRotation_unusablePreviousKeysAreRefusedAtConstruction(t *tes
 		"order 4, non-canonical":  hex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
 	}
 	for name, key := range smallOrder {
-		if _, err := jwt.New[extra](e.prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{key}}); !errors.Is(err, jwt.ErrInvalidConfig) {
+		if _, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{key}}); !errors.Is(err, jwt.ErrInvalidConfig) {
 			t.Errorf("%s: jwt.New = %v, want ErrInvalidConfig", name, err)
 		}
 	}
@@ -299,15 +302,15 @@ func TestHostile_KeyRotation_unusablePreviousKeysAreRefusedAtConstruction(t *tes
 		"empty":           {},
 		"31 bytes":        make([]byte, 31),
 		"33 bytes":        make([]byte, 33),
-		"the current key": e.pub,
+		"the current key": e.Pub,
 	} {
-		if _, err := jwt.New[extra](e.prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{key}}); !errors.Is(err, jwt.ErrInvalidConfig) {
+		if _, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{key}}); !errors.Is(err, jwt.ErrInvalidConfig) {
 			t.Errorf("%s: jwt.New = %v, want ErrInvalidConfig", name, err)
 		}
 	}
 
 	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := jwt.New[extra](e.prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{otherPub}}); err != nil {
+	if _, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{otherPub}}); err != nil {
 		t.Fatalf("control: an ordinary previous key was refused: %v", err)
 	}
 }
@@ -324,16 +327,16 @@ func hexNibble(c byte) byte {
 // The zero value and the nil pointer hold no keys. They refuse instead of
 // signing with an empty one.
 func TestHostile_Module_uninitialisedInstanceProducesNothing(t *testing.T) {
-	var nilMod *jwt.JWT[extra]
-	zero := &jwt.JWT[extra]{}
-	for name, m := range map[string]*jwt.JWT[extra]{"nil": nilMod, "zero": zero} {
-		if p, err := m.CreateTokens(subject, extra{}); p != nil || !errors.Is(err, jwt.ErrNotInitialised) {
+	var nilMod *jwt.JWT[hostiletest.Extra]
+	zero := &jwt.JWT[hostiletest.Extra]{}
+	for name, m := range map[string]*jwt.JWT[hostiletest.Extra]{"nil": nilMod, "zero": zero} {
+		if p, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrNotInitialised) {
 			t.Errorf("%s CreateTokens = %+v, %v", name, p, err)
 		}
 		if c, err := m.VerifyAccessToken("a.b.c"); c != nil || !errors.Is(err, jwt.ErrNotInitialised) {
 			t.Errorf("%s VerifyAccessToken = %+v, %v", name, c, err)
 		}
-		if p, err := m.RotateTokens("a.b.c", extra{}); p != nil || !errors.Is(err, jwt.ErrNotInitialised) {
+		if p, err := m.RotateTokens("a.b.c", hostiletest.Extra{}); p != nil || !errors.Is(err, jwt.ErrNotInitialised) {
 			t.Errorf("%s RotateTokens = %+v, %v", name, p, err)
 		}
 	}

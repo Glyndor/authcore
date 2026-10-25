@@ -1,15 +1,16 @@
-package jwt_test
+package refresh
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // A nil *JWT answers like a zero value does: an error or false, never a panic.
 func TestHostile_Module_nilReceiverRefreshHash(t *testing.T) {
-	var m *jwt.JWT[extra]
+	var m *jwt.JWT[hostiletest.Extra]
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("a nil *JWT panicked: %v", r)

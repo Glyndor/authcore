@@ -1,4 +1,4 @@
-package jwt_test
+package keys
 
 import (
 	"crypto/ed25519"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
 // kidProvider is an application-written Provider whose key id is whatever the
@@ -34,7 +35,7 @@ func (p kidProvider) Keys() authcore.Keys     { return kidKeys{p.base.Keys(), p.
 // own verifier then rejects would lock every user out with no error at the
 // issuing side.
 func TestHostile_KidProvider_issuedTokensAlwaysVerifyOrIssuingFails(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	for name, kid := range map[string]string{
 		"empty":               "",
 		"unicode":             "ключ-\U0001f511",
@@ -53,18 +54,18 @@ func TestHostile_KidProvider_issuedTokensAlwaysVerifyOrIssuingFails(t *testing.T
 		"JSON-looking":        `{"kid":"x"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			m, err := jwt.New[extra](kidProvider{e.prov, kid})
+			m, err := jwt.New[hostiletest.Extra](kidProvider{e.Prov, kid})
 			if err != nil {
 				return // refused at construction: fine
 			}
-			pair, err := m.CreateTokens(subject, extra{Role: "user"})
+			pair, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{Role: "user"})
 			if err != nil {
 				return // refused at issuing: fine
 			}
 			if _, err := m.VerifyAccessToken(pair.AccessToken); err != nil {
 				t.Errorf("issued access token fails the module's own verification: %v", err)
 			}
-			if _, err := m.RotateTokens(pair.RefreshToken, extra{}); err != nil {
+			if _, err := m.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); err != nil {
 				t.Errorf("issued refresh token fails the module's own rotation: %v", err)
 			}
 		})
@@ -74,9 +75,9 @@ func TestHostile_KidProvider_issuedTokensAlwaysVerifyOrIssuingFails(t *testing.T
 // A key id that is not valid UTF-8 cannot survive the JSON header, so the
 // module refuses it when it is built instead of issuing tokens it would reject.
 func TestHostile_KidProvider_invalidUTF8KidIsRefusedAtConstruction(t *testing.T) {
-	e := newEnv(t)
+	e := hostiletest.NewEnv(t)
 	for _, kid := range []string{"a\xffb", "\xc0\xaf", "\xed\xa0\x80"} {
-		if _, err := jwt.New[extra](kidProvider{e.prov, kid}); !errors.Is(err, jwt.ErrInvalidConfig) {
+		if _, err := jwt.New[hostiletest.Extra](kidProvider{e.Prov, kid}); !errors.Is(err, jwt.ErrInvalidConfig) {
 			t.Errorf("jwt.New with kid %q = %v, want ErrInvalidConfig", kid, err)
 		}
 	}
@@ -86,17 +87,17 @@ func TestHostile_KidProvider_invalidUTF8KidIsRefusedAtConstruction(t *testing.T)
 // key twice, or a key whose derived id equals the id the Provider reports,
 // must not silently replace the current key in the verification set.
 func TestHostile_KidProvider_previousKeysCannotShadowTheCurrentKid(t *testing.T) {
-	e := newEnv(t)
-	owner := newEnv(t) // a second deployment: its key is "previous" for the first
-	prev := owner.pub
+	e := hostiletest.NewEnv(t)
+	owner := hostiletest.NewEnv(t) // a second deployment: its key is "previous" for the first
+	prev := owner.Pub
 
 	// The same previous key listed twice is harmless, and the module still
 	// verifies its own tokens.
-	m, err := jwt.New[extra](e.prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{prev, prev}})
+	m, err := jwt.New[hostiletest.Extra](e.Prov, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{prev, prev}})
 	if err != nil {
 		t.Fatalf("a previous key listed twice was refused: %v", err)
 	}
-	pair, err := m.CreateTokens(subject, extra{})
+	pair, err := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestHostile_KidProvider_previousKeysCannotShadowTheCurrentKid(t *testing.T)
 
 	// A Provider that reports the id of a previous key is refused: otherwise
 	// the previous key would replace the current one in the key set.
-	if _, err := jwt.New[extra](kidProvider{e.prov, owner.kid}, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{prev}}); !errors.Is(err, jwt.ErrInvalidConfig) {
+	if _, err := jwt.New[hostiletest.Extra](kidProvider{e.Prov, owner.Kid}, jwt.Config{PreviousPublicKeys: []ed25519.PublicKey{prev}}); !errors.Is(err, jwt.ErrInvalidConfig) {
 		t.Fatalf("jwt.New with a Provider kid equal to a previous key's id = %v, want ErrInvalidConfig", err)
 	}
 }
