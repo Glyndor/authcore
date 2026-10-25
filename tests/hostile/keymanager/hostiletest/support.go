@@ -81,22 +81,12 @@ type KeySet struct {
 // NewSet generates one complete, valid key set.
 func NewSet(t testing.TB) KeySet {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// None of these can fail for well-formed input and a working crypto/rand.
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	secret := make([]byte, layout.RefreshSecretLen)
-	if _, err := rand.Read(secret); err != nil {
-		t.Fatal(err)
-	}
-	privPEM, err := pemcodec.EncodePrivateKeyPEM(priv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pubPEM, err := pemcodec.EncodePublicKeyPEM(pub)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, _ = rand.Read(secret)
+	privPEM, _ := pemcodec.EncodePrivateKeyPEM(priv)
+	pubPEM, _ := pemcodec.EncodePublicKeyPEM(pub)
 	return KeySet{priv, pub, secret, privPEM, pubPEM, append([]byte(hex.EncodeToString(secret)), '\n')}
 }
 

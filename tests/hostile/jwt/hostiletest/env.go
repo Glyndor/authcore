@@ -46,14 +46,9 @@ type Env struct {
 // NewEnv builds an Env with a fresh Ed25519 key pair and a provider holding it.
 func NewEnv(t testing.TB) *Env {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
+	pub, priv, _ := ed25519.GenerateKey(nil) // a nil reader is crypto/rand, which does not fail
 	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		t.Fatalf("generate secret: %v", err)
-	}
+	_, _ = rand.Read(secret) // crypto/rand.Read never returns an error
 	ks, err := authcore.NewKeyStoreFromKeys(priv, pub, secret)
 	if err != nil {
 		t.Fatalf("key store: %v", err)

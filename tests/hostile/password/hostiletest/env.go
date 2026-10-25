@@ -29,14 +29,9 @@ func LowCost() password.Config {
 // NewProvider builds a provider holding a fresh key pair.
 func NewProvider(t testing.TB) authcore.Provider {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
+	pub, priv, _ := ed25519.GenerateKey(nil) // a nil reader is crypto/rand, which does not fail
 	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		t.Fatalf("generate secret: %v", err)
-	}
+	_, _ = rand.Read(secret) // crypto/rand.Read never returns an error
 	ks, err := authcore.NewKeyStoreFromKeys(priv, pub, secret)
 	if err != nil {
 		t.Fatalf("key store: %v", err)

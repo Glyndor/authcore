@@ -39,10 +39,7 @@ func (p provider) Keys() authcore.Keys   { return p.k }
 // NewProvider builds a provider with a throwaway key pair and a silent logger.
 func NewProvider(t testing.TB) authcore.Provider {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
+	pub, priv, _ := ed25519.GenerateKey(nil) // a nil reader is crypto/rand, which does not fail
 	return provider{keys{pub: pub, priv: priv}}
 }
 
