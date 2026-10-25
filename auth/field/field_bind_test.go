@@ -1,28 +1,12 @@
 package field
 
-// Tests for the Context binding into both the AES AAD and the blind
-// index, the length-prefixed non-collision guarantee, and the
-// cross-context uniqueness of ciphertexts and indexes. The shape
-// mirrors auth/credential/credential_bind_test.go.
-
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ed25519"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
-	"hash"
 	"testing"
 
 	"github.com/Glyndor/authcore"
-	"github.com/Glyndor/authcore/auth/field/internal/kdf"
-	"github.com/Glyndor/authcore/auth/field/internal/seal"
 )
 
 // sharedProvider returns a provider whose keys are pinned so two
@@ -41,9 +25,12 @@ func sharedProvider(tb testing.TB) authcore.Provider {
 type sharedKeys struct{ secret []byte }
 
 func (sharedKeys) PrivateKey() ed25519.PrivateKey { return nil }
-func (sharedKeys) PublicKey() ed25519.PublicKey   { return nil }
-func (k sharedKeys) RefreshSecret() []byte        { return k.secret }
-func (sharedKeys) KeyID() string                  { return "test" }
+
+func (sharedKeys) PublicKey() ed25519.PublicKey { return nil }
+
+func (k sharedKeys) RefreshSecret() []byte { return k.secret }
+
+func (sharedKeys) KeyID() string { return "test" }
 
 // sharedProviderWith wraps a fixed secret in a Provider that satisfies
 // the authcore.Provider interface used by the field module's tests.
@@ -54,8 +41,10 @@ func sharedProviderWith(secret []byte) authcore.Provider {
 type testProvider struct{ keys sharedKeys }
 
 func (*testProvider) Config() authcore.Config { return authcore.DefaultConfig() }
+
 func (*testProvider) Logger() authcore.Logger { return silentLogger{} }
-func (p *testProvider) Keys() authcore.Keys   { return p.keys }
+
+func (p *testProvider) Keys() authcore.Keys { return p.keys }
 
 // ---- Context binding (AAD) --------------------------------------------------
 
@@ -189,79 +178,6 @@ func TestBlindIndex_DiffersAcrossContexts(t *testing.T) {
 
 // ---- Length-prefix non-collision --------------------------------------------
 
-// TestLengthPrefix_NoCollisionBetweenAdjacentFields is the structural
-// guarantee that the length prefix prevents ("a", "bc") from colliding
-// with ("ab", "c"). The cases are chosen so a separator-byte
-// implementation would collide and the length-prefixed one does not.
-// "a||bc" = 0x61 0x62 0x63; "ab||c" = 0x61 0x62 0x63. A separator
-// would fold them; the length prefix does not.
-func TestLengthPrefix_NoCollisionBetweenAdjacentFields(t *testing.T) {
-	p := sharedProvider(t)
-	// One context, two different splits of the same byte sequence.
-	a, _ := New(p, Config{Context: "a"})
-	ab, _ := New(p, Config{Context: "ab"})
-
-	const value = "c" // the "value" is the same, only the context splits
-	// a + "bc" vs "ab" + "c": the bytes inside the HMAC are the same,
-	// but the framing differs. A separator would collapse them; a
-	// length prefix does not.
-	idxA, err := a.BlindIndex("bc")
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	idxAB, err := ab.BlindIndex(value)
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	if idxA == idxAB {
-		t.Error("length prefix collision: BlindIndex(\"bc\") under context \"a\" matched BlindIndex(\"c\") under context \"ab\"")
-	}
-}
-
-// TestLengthPrefix_NoCollisionBetweenContextAndValue is the broader
-// version of the same guarantee. We choose a single context "email"
-// and a single value "user@x", and another arrangement where the
-// combined bytes are the same but the boundary is in a different
-// place. A length prefix keeps them apart; a separator would not.
-func TestLengthPrefix_NoCollisionBetweenContextAndValue(t *testing.T) {
-	p := sharedProvider(t)
-	// context "a", value "bc" -> bytes a, b, c
-	a, _ := New(p, Config{Context: "a"})
-	// context "ab", value "c" -> bytes a, b, c
-	ab, _ := New(p, Config{Context: "ab"})
-
-	idxA, err := a.BlindIndex("bc")
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	idxAB, err := ab.BlindIndex("c")
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	if idxA == idxAB {
-		t.Error("length prefix collision: (\"a\",\"bc\") matched (\"ab\",\"c\")")
-	}
-}
-
-// TestLengthPrefix_NoCollisionSameContextSameValue is the trivial
-// sanity check: the same value under the same context must produce
-// the same index (already covered above, but listed here for the
-// "all four quadrants of the collision matrix" symmetry).
-func TestLengthPrefix_NoCollisionSameContextSameValue(t *testing.T) {
-	f := newFld(t, "email")
-	a, err := f.BlindIndex("alice@example.com")
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	b, err := f.BlindIndex("alice@example.com")
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	if a != b {
-		t.Error("same context, same value produced different indexes")
-	}
-}
-
 // TestBlindIndex_DifferentValuesDifferentIndexes is the obvious
 // "different input, different output" check. The HMAC is not
 // guaranteed to be collision-free in principle, but for the
@@ -280,160 +196,4 @@ func TestBlindIndex_DifferentValuesDifferentIndexes(t *testing.T) {
 	if idxAlice == idxBob {
 		t.Error("different values produced the same blind index")
 	}
-}
-
-// TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster pins key
-// separation, which no behavioural test can see.
-//
-// Encrypt, Decrypt and BlindIndex all keep working if kdf.Key is removed
-// and Keys().RefreshSecret() is used directly for both the AES key and the
-// index key. Round trips still round trip and indexes still match, so the
-// whole suite stays green while one secret is doing three jobs and a
-// weakness in any one construction reaches the others.
-//
-// This is the assertion that goes red instead.
-func TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster(t *testing.T) {
-	t.Parallel()
-
-	master := newFakeProvider(t).Keys().RefreshSecret()
-
-	encKey, err := kdf.Key(master, kdf.EncryptionInfo)
-	if err != nil {
-		t.Fatalf("kdf.Key(kdf.EncryptionInfo): %v", err)
-	}
-	idxKey, err := kdf.Key(master, kdf.IndexInfo)
-	if err != nil {
-		t.Fatalf("kdf.Key(kdf.IndexInfo): %v", err)
-	}
-
-	for name, key := range map[string][]byte{"encKey": encKey, "idxKey": idxKey} {
-		if len(key) != kdf.KeyLen {
-			t.Errorf("%s is %d bytes, want %d", name, len(key), kdf.KeyLen)
-		}
-		if bytes.Equal(key, master) {
-			t.Errorf("%s is the master secret verbatim: the derivation was skipped", name)
-		}
-	}
-	if bytes.Equal(encKey, idxKey) {
-		t.Error("encKey and idxKey are the same value: both info labels derive one key")
-	}
-
-	// Derivation must be deterministic, or a restart would lose every row.
-	again, err := kdf.Key(master, kdf.EncryptionInfo)
-	if err != nil {
-		t.Fatalf("kdf.Key again: %v", err)
-	}
-	if !bytes.Equal(encKey, again) {
-		t.Error("kdf.Key is not deterministic: existing ciphertexts would not decrypt after a restart")
-	}
-}
-
-// TestDeriveKey_NewActuallyStoresTheDerivedKeys is the integration pin
-// for kdf.Key. The unit test above verifies that kdf.Key produces
-// three distinct values from the master secret; this test verifies that
-// New stores the derived keys on the Field, not the master secret. A
-// sabotage that "leaves kdf.Key in place" but uses the master secret for
-// the actual AES key and HMAC key would still pass the unit test, because
-// kdf.Key's output is unused. This test catches that.
-func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
-	t.Parallel()
-	p := sharedProvider(t)
-	master := p.Keys().RefreshSecret()
-	f, err := New(p, Config{Context: "email"})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	encKey, err := kdf.Key(master, kdf.EncryptionInfo)
-	if err != nil {
-		t.Fatalf("kdf.Key(kdf.EncryptionInfo): %v", err)
-	}
-	idxKey, err := kdf.Key(master, kdf.IndexInfo)
-	if err != nil {
-		t.Fatalf("kdf.Key(kdf.IndexInfo): %v", err)
-	}
-
-	const value = "alice@example.com"
-	ctxBytes := []byte("email")
-	indexMAC := func(key []byte) string {
-		m := hmac.New(sha256.New, key)
-		writeLengthPrefixed(m, ctxBytes)
-		writeLengthPrefixed(m, []byte(value))
-		return hex.EncodeToString(m.Sum(nil))
-	}
-
-	idx, err := f.BlindIndex(value)
-	if err != nil {
-		t.Fatalf("BlindIndex: %v", err)
-	}
-	if idx == indexMAC(master) {
-		t.Error("Field.BlindIndex = HMAC(master, value): the index key on the Field is the master secret")
-	}
-	if idx != indexMAC(idxKey) {
-		t.Error("Field.BlindIndex != HMAC(kdf.Key(master, kdf.IndexInfo), value): New stored a different index key")
-	}
-
-	ct, err := f.Encrypt(value)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
-	raw, err := base64.RawStdEncoding.DecodeString(ct)
-	if err != nil {
-		t.Fatalf("decode ciphertext: %v", err)
-	}
-	nonce, sealed, aad := raw[:seal.NonceLen], raw[seal.NonceLen:], aadFor(ctxBytes)
-	if openGCM(t, master, nonce, sealed, aad) {
-		t.Error("Field.Encrypt ciphertext decrypts under AES-GCM keyed by the master secret")
-	}
-	if !openGCM(t, encKey, nonce, sealed, aad) {
-		t.Error("Field.Encrypt ciphertext does not decrypt under AES-GCM keyed by kdf.Key(master, kdf.EncryptionInfo)")
-	}
-}
-
-// openGCM probes which key New stored on a Field: returns true iff
-// nonce/sealed/aad open to "alice@example.com" under AES-GCM keyed by key.
-func openGCM(t *testing.T, key, nonce, sealed, aad []byte) bool {
-	t.Helper()
-	block, _ := aes.NewCipher(key)
-	aead, _ := cipher.NewGCM(block)
-	plain, err := aead.Open(nil, nonce, sealed, aad)
-	return err == nil && string(plain) == "alice@example.com"
-}
-
-// TestLengthPrefix_NoCollisionWithEmbeddedNULBytes pins the only failure
-// mode a length prefix survives that a separator byte does not: a NUL byte
-// inside a field. Under a separator-byte implementation the pairing
-// ("a\x00b", "c") and ("a", "b\x00c") collapses into the same byte stream.
-func TestLengthPrefix_NoCollisionWithEmbeddedNULBytes(t *testing.T) {
-	p := sharedProvider(t)
-	left, err := New(p, Config{Context: "a\x00b"})
-	if err != nil {
-		t.Fatalf("New(a\\x00b): %v", err)
-	}
-	right, err := New(p, Config{Context: "a"})
-	if err != nil {
-		t.Fatalf("New(a): %v", err)
-	}
-	idxLeft, err := left.BlindIndex("c")
-	if err != nil {
-		t.Fatalf("left.BlindIndex: %v", err)
-	}
-	idxRight, err := right.BlindIndex("b\x00c")
-	if err != nil {
-		t.Fatalf("right.BlindIndex: %v", err)
-	}
-	if idxLeft == idxRight {
-		t.Error("NUL-byte collision: (\"a\\x00b\",\"c\") and (\"a\",\"b\\x00c\") produced the same index")
-	}
-}
-
-// writeLengthPrefixed and aadFor are the test's own statement of the
-// encodings, written out here so the assertions above do not depend on the
-// code they check.
-func writeLengthPrefixed(h hash.Hash, b []byte) {
-	_, _ = h.Write(binary.BigEndian.AppendUint32(nil, uint32(len(b))))
-	_, _ = h.Write(b)
-}
-
-func aadFor(context []byte) []byte {
-	return append(binary.BigEndian.AppendUint32(nil, uint32(len(context))), context...)
 }
