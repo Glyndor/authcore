@@ -2,20 +2,9 @@ package oauth
 
 import (
 	"fmt"
-	"regexp"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/issuer"
 )
-
-// azureV2Issuer matches an Azure AD v2.0 issuer for any tenant:
-// https://login.microsoftonline.com/<tenant-guid>/v2.0
-var azureV2Issuer = regexp.MustCompile(`^https://login\.microsoftonline\.com/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/v2\.0$`)
-
-// microsoftTenantGUID matches a Microsoft Entra tenant id. Real Azure AD ID
-// tokens carry the tenant as a GUID, not a verified domain: the "iss" claim
-// for a user in contoso.onmicrosoft.com is
-// https://login.microsoftonline.com/<guid>/v2.0, never the bare domain. A
-// preset built from the bare domain therefore pins an issuer no token will
-// ever carry and rejects every login against that tenant.
-var microsoftTenantGUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // AzureMultiTenantIssuer returns an IssuerValidator that accepts any Azure AD
 // v2.0 issuer, i.e. tokens from any tenant. Use it with the Microsoft "common"
@@ -33,15 +22,7 @@ var microsoftTenantGUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-
 // This trusts users from EVERY Azure tenant. To restrict to specific tenants,
 // also check the "tid" claim via IDClaims.Raw against your allowlist.
 func AzureMultiTenantIssuer() func(issuer string) bool {
-	return azureV2Issuer.MatchString
-}
-
-// googleIssuerAccepted returns true for the two issuer spellings Google
-// documents as valid in its ID tokens: the https form and the bare host.
-// Anything else is refused. The function is exported as part of Google's
-// preset binding and is not a general purpose issuer matcher.
-func googleIssuerAccepted(iss string) bool {
-	return iss == "https://accounts.google.com" || iss == "accounts.google.com"
+	return issuer.AzureV2
 }
 
 // Google returns the Provider endpoints for Google's OIDC service.
@@ -64,7 +45,7 @@ func Google() Provider {
 		AuthURL:         "https://accounts.google.com/o/oauth2/v2/auth",
 		TokenURL:        "https://oauth2.googleapis.com/token",
 		JWKSURL:         "https://www.googleapis.com/oauth2/v3/certs",
-		IssuerValidator: googleIssuerAccepted,
+		IssuerValidator: issuer.Google,
 	}
 }
 
@@ -86,7 +67,7 @@ func GitHub() Provider {
 // "email".
 //
 // Discord also publishes an OIDC discovery document, captured in
-// testdata/providers/discord-discovery.json, and Discover parses it. Use
+// testdata/providers/discord/discovery.json, and Discover parses it. Use
 // Discover with the issuer "https://discord.com" instead of this preset to
 // receive ID tokens. That path has not been exercised against a live Discord
 // login here.
@@ -113,11 +94,11 @@ func Discord() Provider {
 // "iss" is always the signed-in user's own tenant GUID, never the alias.
 // Accepting users from any tenant requires a hand-built Provider and the
 // AzureMultiTenantIssuer validator; see the multi-tenant section of
-// docs/oauth.md for the exact Config and the reason Discover cannot be
+// docs/modules/oauth.md for the exact Config and the reason Discover cannot be
 // used against the alias discovery document (it publishes the {tenantid}
 // template issuer and refuses the round trip at the issuer-match check).
 func Microsoft(tenant string) (Provider, error) {
-	if !microsoftTenantGUID.MatchString(tenant) {
+	if !issuer.IsTenantGUID(tenant) {
 		return Provider{}, fmt.Errorf("oauth: Microsoft tenant must be a tenant id GUID, got %q", tenant)
 	}
 	base := fmt.Sprintf("https://login.microsoftonline.com/%s", tenant)
@@ -181,7 +162,7 @@ func Apple() Provider {
 //	}
 //
 // Vercel publishes a discovery document at its issuer, captured in
-// testdata/providers/vercel-discovery.json. Calling Discover with the
+// testdata/providers/vercel/discovery.json. Calling Discover with the
 // issuer "https://vercel.com" builds the same Provider.
 func Vercel() Provider {
 	// #nosec G101 -- these are Vercel's public OIDC endpoint URLs, not credentials.

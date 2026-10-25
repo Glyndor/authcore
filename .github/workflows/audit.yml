@@ -24,10 +24,10 @@ jobs:
       # G115 mirrors the .golangci.yml exclusion for UUID/time math.
       # G101 is a false positive on the OAuth provider preset URLs (a field named
       # *TokenURL* holding a public endpoint, not a credential).
-      # G505 is auth/totp importing crypto/sha1. RFC 6238 defines TOTP over
+      # G505 is auth/totp/internal/hotp importing crypto/sha1. RFC 6238 defines TOTP over
       # HMAC-SHA1 and every authenticator app implements that, so anything else
       # is a module nobody can pair with. SHA-1 collision attacks do not carry
       # to HMAC. The import is annotated in code too, but standalone gosec
       # ignores //nolint pragmas, which is why the exclusions above exist.
-      # sha1_import_test.go asserts no second package picks up this exclusion.
+      # tests/meta/sha1_import_test.go asserts no second package picks up this exclusion.
       gosec-exclude: "G104,G115,G306,G101,G505"

@@ -2,11 +2,9 @@ package keymanager
 
 import (
 	"fmt"
-	"io"
-)
 
-// redacted is the placeholder printed in place of any secret field.
-const redacted = "REDACTED"
+	"github.com/Glyndor/authcore/internal/keymanager/redact"
+)
 
 // Compile-time proof that *KeyManager controls its own formatting. Without
 // these, fmt reflects over the struct and prints every field, unexported
@@ -32,22 +30,7 @@ var (
 // that make no sense for this type render as a Go %!verb error rather than
 // falling back to reflection, because that fallback is the leak.
 func (km *KeyManager) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 'v':
-		if f.Flag('#') {
-			_, _ = io.WriteString(f, km.GoString())
-			return
-		}
-		_, _ = io.WriteString(f, km.String())
-	case 's', 'q':
-		if verb == 'q' {
-			_, _ = fmt.Fprintf(f, "%q", km.String())
-			return
-		}
-		_, _ = io.WriteString(f, km.String())
-	default:
-		_, _ = fmt.Fprintf(f, "%%!%c(keymanager.KeyManager)", verb)
-	}
+	redact.Format(f, verb, km.String, km.GoString)
 }
 
 // String describes the key manager by the two things that are safe to print:
@@ -56,8 +39,7 @@ func (km *KeyManager) String() string {
 	if km == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("keymanager.KeyManager{dir:%q, keyID:%q, privateKey:%s, publicKey:%s, refreshSecret:%s}",
-		km.dir, km.keyID, redacted, redacted, redacted)
+	return redact.Describe(false, km.dir, km.keyID)
 }
 
 // GoString covers the %#v verb, which is a separate rendering path in fmt and
@@ -68,6 +50,5 @@ func (km *KeyManager) GoString() string {
 	if km == nil {
 		return "(*keymanager.KeyManager)(nil)"
 	}
-	return fmt.Sprintf("&keymanager.KeyManager{dir:%q, keyID:%q, privateKey:%s, publicKey:%s, refreshSecret:%s}",
-		km.dir, km.keyID, redacted, redacted, redacted)
+	return redact.Describe(true, km.dir, km.keyID)
 }

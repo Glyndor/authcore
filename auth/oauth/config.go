@@ -3,11 +3,11 @@ package oauth
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
-	"time"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/redirect"
+	"github.com/Glyndor/authcore/auth/oauth/internal/urlcheck"
 )
 
 // Provider describes an OIDC provider's endpoints. Use a preset (Google,
@@ -130,9 +130,9 @@ func applyDefaults(cfg Config) Config {
 	// existing client authenticates, and race with a concurrent Exchange.
 	cfg.Provider.AuthMethods = append([]string(nil), cfg.Provider.AuthMethods...)
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = newSafeHTTPClient()
+		cfg.HTTPClient = redirect.NewClient()
 	} else {
-		cfg.HTTPClient = guardClient(cfg.HTTPClient)
+		cfg.HTTPClient = redirect.GuardClient(cfg.HTTPClient)
 	}
 	return cfg
 }
@@ -147,114 +147,6 @@ func applyDefaults(cfg Config) Config {
 // Exchange, and VerifyIDToken all use this predicate.
 func (c Config) isOIDC() bool {
 	return c.Provider.JWKSURL != "" && (c.Provider.Issuer != "" || c.IssuerValidator != nil)
-}
-
-// guardClient returns a shallow copy of non-nil c without mutating c. The
-// library's redirect rule applies first; the caller's CheckRedirect still
-// applies to redirects that safeRedirect accepts. Transport, Timeout and Jar
-// are preserved.
-//
-// A caller-supplied client whose Timeout is zero would remove the bound the
-// default client carries, since http.Client.Do on a zero-timeout client
-// blocks indefinitely on a hung provider. The library's 10-second default is
-// reapplied in that case, so the supplied client cannot quietly disable the
-// bound by clearing the field.
-func guardClient(c *http.Client) *http.Client {
-	// Copy the client; replacing its callback previously discarded caller refusals.
-	guarded := *c
-	// checkRedirect preserves the caller's callback at the time of the copy.
-	checkRedirect := c.CheckRedirect
-	guarded.CheckRedirect = safeRedirect
-	if checkRedirect != nil {
-		guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if err := safeRedirect(req, via); err != nil {
-				return err
-			}
-			return checkRedirect(req, via)
-		}
-	}
-	if guarded.Timeout == 0 {
-		guarded.Timeout = 10 * time.Second
-	}
-	return &guarded
-}
-
-// newSafeHTTPClient returns the default HTTP client for OAuth fetches, with a
-// 10-second timeout and safeRedirect as its redirect policy. Supplied clients
-// receive the same policy through guardClient before their own redirect rule.
-func newSafeHTTPClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Second, CheckRedirect: safeRedirect}
-}
-
-// safeRedirect is the redirect policy for every OAuth fetch (token, JWKS,
-// userinfo, discovery). It refuses:
-//   - more than a few hops,
-//   - a downgrade to plaintext http,
-//   - a redirect to a loopback / link-local / private host (SSRF to cloud
-//     metadata or internal services),
-//   - a cross-origin redirect — the token POST replays the client secret on a
-//     307/308, so it must never leave the configured host; legitimate OAuth
-//     endpoints do not redirect across hosts.
-func safeRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 5 {
-		return fmt.Errorf("too many redirects")
-	}
-	if req.URL.Scheme != "https" {
-		return fmt.Errorf("refusing redirect to non-https %q", req.URL.Redacted())
-	}
-	if isPrivateHost(req.URL.Hostname()) {
-		return fmt.Errorf("refusing redirect to private host %q", req.URL.Hostname())
-	}
-	prev := via[len(via)-1]
-	if !sameOrigin(prev.URL, req.URL) {
-		return fmt.Errorf("refusing cross-origin redirect to %q", req.URL.Host)
-	}
-	return nil
-}
-
-// sameOrigin reports whether a and b refer to the same scheme/host/port. It
-// compares the host case-insensitively (Hostnames are case-insensitive per
-// RFC 3986 §3.2.2) and the port by its effective value: an unset or default
-// port is treated as the scheme's default, so https://provider.example and
-// https://provider.example:443 are the same origin.
-func sameOrigin(a, b *url.URL) bool {
-	if a.Scheme != b.Scheme {
-		return false
-	}
-	if !strings.EqualFold(a.Hostname(), b.Hostname()) {
-		return false
-	}
-	return effectivePort(a) == effectivePort(b)
-}
-
-// effectivePort returns port as a string, defaulting to the scheme's standard
-// port when not set. Comparing two unspecified ports this way means
-// https://provider.example and https://provider.example:443 do not look like
-// a cross-origin move and stay on the same origin.
-func effectivePort(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
-	}
-	switch u.Scheme {
-	case "https":
-		return "443"
-	case "http":
-		return "80"
-	}
-	return ""
-}
-
-// isPrivateHost reports whether host is an IP literal in a loopback, private,
-// link-local, or unspecified range. Hostnames (non-literals) return false — the
-// scheme and cross-origin checks still apply, and the initial endpoint was
-// https-validated.
-func isPrivateHost(host string) bool {
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 // validateConfig returns an error if cfg is missing anything required.
@@ -309,7 +201,7 @@ func validateConfig(cfg Config) error {
 		if raw == "" {
 			continue
 		}
-		if err := requireHTTPS(label, raw); err != nil {
+		if err := urlcheck.RequireHTTPS(label, raw); err != nil {
 			return err
 		}
 	}
@@ -317,68 +209,8 @@ func validateConfig(cfg Config) error {
 	// would land every parameter inside the fragment instead of the query
 	// string, which no OIDC server reads. Refuse it here rather than discover
 	// the misconfiguration on the first login attempt.
-	if err := requireNoFragment("provider auth URL", cfg.Provider.AuthURL); err != nil {
+	if err := urlcheck.RequireNoFragment("provider auth URL", cfg.Provider.AuthURL); err != nil {
 		return err
 	}
 	return nil
-}
-
-// requireNoFragment rejects a URL whose fragment is non-empty. The OIDC
-// authorization endpoint is expected to consume query parameters; anything
-// after '#' never reaches the server.
-func requireNoFragment(label, raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		// Parsing failures are reported by requireHTTPS, which runs first.
-		return nil
-	}
-	if u.Fragment != "" || strings.Contains(raw, "#") {
-		return fmt.Errorf("%s must not carry a fragment: %q", label, raw)
-	}
-	return nil
-}
-
-// requireHTTPS rejects a URL whose scheme is not https. Plain http is allowed
-// only for an explicit loopback host (local development), and that is the loud
-// exception — the secure transport is the default everywhere else.
-//
-// Opaque URLs (https:opaque, https:?query) and https URLs with no host
-// (https:///path) parse without erroring but cannot be reached. They were
-// accepted by validation and only failed later, when the fetch ran, so the
-// caller had no signal that the config was unworkable. Both are refused here.
-func requireHTTPS(label, raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("%s is not a valid URL: %w", label, err)
-	}
-	if u.Opaque != "" {
-		return fmt.Errorf("%s is opaque, not a hierarchical URL: %q", label, raw)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("%s has no host, not a hierarchical URL: %q", label, raw)
-	}
-	switch u.Scheme {
-	case "https":
-		return nil
-	case "http":
-		if isLoopbackHost(u.Hostname()) {
-			return nil
-		}
-	}
-	return fmt.Errorf("%s must use https (got %q in %q)", label, u.Scheme, raw)
-}
-
-// isLoopbackHost reports whether host is a loopback address (dev-only http).
-func isLoopbackHost(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	// Match the whole loopback range rather than the two literals people
-	// usually type. 127.0.0.0/8 is all loopback, and a development server
-	// bound to 127.0.0.2 to dodge a port collision is as local as 127.0.0.1.
-	// Failing to recognise it refused the documented plaintext exception, so
-	// this was a usability gap rather than a hole, but the definition should
-	// be the one the standard library already has.
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

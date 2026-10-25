@@ -8,7 +8,7 @@ import "fmt"
 // Config holds the field module configuration.
 //
 // The configuration is split into two layers, matching the authcore
-// principle documented in docs/configuration.md:
+// principle documented in docs/guides/configuration.md:
 //
 //   - The cryptographic layer is CLOSED and is not configurable here.
 //     AES-256-GCM, the 12-byte random nonce per Encrypt, the HKDF-SHA256

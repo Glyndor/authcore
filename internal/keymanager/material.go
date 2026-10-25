@@ -2,7 +2,9 @@ package keymanager
 
 import (
 	"crypto/ed25519"
-	"fmt"
+
+	"github.com/Glyndor/authcore/internal/keymanager/material"
+	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
 )
 
 // ValidateMaterial reports whether priv, pub and secret form usable key
@@ -17,31 +19,7 @@ import (
 // root package's check on a consumer-supplied KeyStore all call it, so that a
 // custom store is held to the same rules as the built-in ones.
 func ValidateMaterial(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) error {
-	if l := len(priv); l != ed25519.PrivateKeySize {
-		return fmt.Errorf("private key has wrong length: got %d, want %d", l, ed25519.PrivateKeySize)
-	}
-	if l := len(pub); l != ed25519.PublicKeySize {
-		return fmt.Errorf("public key has wrong length: got %d, want %d", l, ed25519.PublicKeySize)
-	}
-	// Derive the key from its seed. Do not rely on priv.Public() alone: it
-	// reads back bytes 32..64 of priv and derives nothing. A private key made
-	// of one key's seed and another key's public half, passed with that other
-	// public key, satisfied the comparison below when measured on
-	// 2026-09-18, and ed25519.Sign then produced signatures that did not
-	// verify, so every token issued would have been refused.
-	//
-	// Keep this after the length check: Seed panics on a key shorter than its
-	// 32-byte seed.
-	if !ed25519.NewKeyFromSeed(priv.Seed()).Equal(priv) {
-		return fmt.Errorf("private key is inconsistent: its second half is not the public key its seed derives")
-	}
-	if !priv.Public().(ed25519.PublicKey).Equal(pub) {
-		return fmt.Errorf("public key does not match private key")
-	}
-	if l := len(secret); l != refreshSecretLen {
-		return fmt.Errorf("refresh secret has wrong length: got %d, want %d", l, refreshSecretLen)
-	}
-	return nil
+	return material.Validate(priv, pub, secret)
 }
 
 // FromKeys builds an in-memory KeyManager from already-loaded key material,
@@ -70,7 +48,7 @@ func FromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) (*K
 
 	return &KeyManager{
 		material: &secretMaterial{privateKey: privCopy, publicKey: pubCopy, refreshSecret: secretCopy},
-		keyID:    computeKeyID(pubCopy),
+		keyID:    material.KeyID(pubCopy),
 	}, nil
 }
 
@@ -83,11 +61,11 @@ func FromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) (*K
 // once FromPEM returns does not blank the live material. The PEM blocks
 // themselves decode into freshly allocated key slices.
 func FromPEM(privatePEM, publicPEM, refreshSecret []byte) (*KeyManager, error) {
-	priv, err := decodeEd25519PrivatePEM(privatePEM, "private key input")
+	priv, err := pemcodec.DecodeEd25519PrivatePEM(privatePEM, "private key input")
 	if err != nil {
 		return nil, err
 	}
-	pub, err := decodeEd25519PublicPEM(publicPEM, "public key input")
+	pub, err := pemcodec.DecodeEd25519PublicPEM(publicPEM, "public key input")
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,195 @@
+package jwk
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"math/big"
+	"strings"
+	"testing"
+)
+
+// The bounds in Parse reject key material a hostile or broken JWKS document
+// can otherwise hand the verifier: an undersized RSA modulus that is cheap to
+// factor, an oversized one that turns every verification into a CPU sink, and
+// EC coordinates outside the field. Every one of them survived being deleted
+// with the suite green, because the end-to-end tests build only well-formed
+// keys — so they are driven here directly.
+
+func b64(i *big.Int) string { return base64.RawURLEncoding.EncodeToString(i.Bytes()) }
+
+func rsaJWK(t *testing.T, bits int) JWK {
+	t.Helper()
+	k, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		t.Fatalf("generate %d-bit RSA key: %v", bits, err)
+	}
+	return JWK{Kty: "RSA", N: b64(k.N), E: b64(big.NewInt(int64(k.E)))}
+}
+
+func TestParseJWK_rejectsAnUndersizedRSAModulus(t *testing.T) {
+	// 1024 bits is generatable and plausible-looking, and well under the floor.
+	_, err := Parse(rsaJWK(t, 1024))
+	if err == nil {
+		t.Fatal("a 1024-bit RSA key must be refused")
+	}
+	if !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+}
+
+func TestParseJWK_acceptsAnRSAKeyAtTheFloor(t *testing.T) {
+	if _, err := Parse(rsaJWK(t, 2048)); err != nil {
+		t.Fatalf("2048 bits is the floor and must be accepted, got: %v", err)
+	}
+}
+
+func TestParseJWK_rejectsAnOversizedRSAModulus(t *testing.T) {
+	// Generating a >16384-bit key takes minutes, so the modulus is synthesised
+	// directly: Parse only measures its bit length.
+	huge := new(big.Int).Lsh(big.NewInt(1), 16385)
+	_, err := Parse(JWK{Kty: "RSA", N: b64(huge), E: b64(big.NewInt(65537))})
+	if err == nil {
+		t.Fatal("a 16385-bit modulus must be refused — every verification would be a modexp on it")
+	}
+	if !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+}
+
+// TestParseJWK_rejectsAnOversizedRSAExponent pins the exponent bound. An
+// exponent wider than 31 bits would overflow int(e.Int64()) on a 32-bit
+// build, and a real RSA exponent is tiny (commonly 65537). The bound fires at
+// parse time, before signature verification, so it must be exercised here.
+func TestParseJWK_rejectsAnOversizedRSAExponent(t *testing.T) {
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate 2048-bit RSA key: %v", err)
+	}
+	wide := new(big.Int).Lsh(big.NewInt(1), 33) // 33 bits, past the 31-bit cap
+	j := JWK{Kty: "RSA", N: b64(k.N), E: b64(wide)}
+	_, err = Parse(j)
+	if err == nil {
+		t.Fatal("a 33-bit exponent must be refused")
+	}
+	if !strings.Contains(err.Error(), "exponent") {
+		t.Fatalf("refusal must name the exponent, got %v", err)
+	}
+}
+
+func TestParseJWK_rejectsECCoordinatesOutsideTheField(t *testing.T) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate P-256 key: %v", err)
+	}
+	// One coordinate longer than the curve's field size: on curve arithmetic it
+	// is meaningless, and it is what the length bound exists to catch.
+	oversized := new(big.Int).Lsh(big.NewInt(1), 8*33)
+
+	_, err = Parse(JWK{Kty: "EC", Crv: "P-256", X: b64(oversized), Y: b64(k.Y)})
+	if err == nil {
+		t.Fatal("an x coordinate wider than the field must be refused")
+	}
+}
+
+func TestParseJWK_supportsEveryCurveItClaims(t *testing.T) {
+	// The provider chooses the curve, so all three advertised ones have to work
+	// — only P-256 was exercised before.
+	for name, curve := range map[string]elliptic.Curve{
+		"P-256": elliptic.P256(),
+		"P-384": elliptic.P384(),
+		"P-521": elliptic.P521(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			k, err := ecdsa.GenerateKey(curve, rand.Reader)
+			if err != nil {
+				t.Fatalf("generate %s key: %v", name, err)
+			}
+			got, err := Parse(JWK{Kty: "EC", Crv: name, X: b64(k.X), Y: b64(k.Y)})
+			if err != nil {
+				t.Fatalf("%s must be supported, got: %v", name, err)
+			}
+			pub, ok := got.(*ecdsa.PublicKey)
+			if !ok || pub.Curve != curve {
+				t.Fatalf("%s parsed into the wrong key type or curve: %T", name, got)
+			}
+		})
+	}
+}
+
+// TestParseJWK_acceptsECKeysEqualToTheGeneratedPublicKey pairs each EC
+// acceptance with a check that the parsed key is bit-for-bit the public key
+// the JWK was encoded from. The earlier curve-claim test only asserts the
+// curve name, so a regression that decoded the wrong coordinates while still
+// landing on the right curve would slip past it. None of the captured
+// provider fixtures (internal/presets/testdata/providers/*-jwks.json) carries an EC key, so
+// the JWK is generated here from fresh keys on P-256 and P-384.
+func TestParseJWK_acceptsECKeysEqualToTheGeneratedPublicKey(t *testing.T) {
+	for name, curve := range map[string]elliptic.Curve{
+		"P-256": elliptic.P256(),
+		"P-384": elliptic.P384(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			k, err := ecdsa.GenerateKey(curve, rand.Reader)
+			if err != nil {
+				t.Fatalf("generate %s key: %v", name, err)
+			}
+			got, err := Parse(JWK{Kty: "EC", Crv: name, X: b64(k.X), Y: b64(k.Y)})
+			if err != nil {
+				t.Fatalf("%s must be supported, got: %v", name, err)
+			}
+			pub, ok := got.(*ecdsa.PublicKey)
+			if !ok {
+				t.Fatalf("%s parsed into the wrong key type: %T", name, got)
+			}
+			if !pub.Equal(&k.PublicKey) {
+				gotBytes, gerr := pub.Bytes()
+				wantBytes, werr := k.PublicKey.Bytes()
+				gotStr, wantStr := "<unavailable>", "<unavailable>"
+				if gerr == nil {
+					gotStr = base64.RawURLEncoding.EncodeToString(gotBytes)
+				}
+				if werr == nil {
+					wantStr = base64.RawURLEncoding.EncodeToString(wantBytes)
+				}
+				t.Fatalf("%s parsed key does not equal the original public key: got %s, want %s",
+					name, gotStr, wantStr)
+			}
+		})
+	}
+}
+
+func TestParseJWK_rejectsAnUnknownCurve(t *testing.T) {
+	_, err := Parse(JWK{Kty: "EC", Crv: "P-999", X: b64(big.NewInt(1)), Y: b64(big.NewInt(1))})
+	if err == nil {
+		t.Fatal("an unknown curve must be refused rather than defaulted")
+	}
+}
+
+// TestParseJWK_rejectsAnOffCurvePoint pins the on-curve check at parse time.
+// Without this guard the verifier would refuse an off-curve key in the JWKS
+// for the wrong reason (no candidate for the kid), so a regression that
+// removes the check would still pass the end-to-end test.
+func TestParseJWK_rejectsAnOffCurvePoint(t *testing.T) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate P-256 key: %v", err)
+	}
+	x := b64(k.X)
+	// Flip a bit in y so the point is no longer on the curve.
+	yBytes := k.Y.Bytes()
+	if len(yBytes) == 0 {
+		t.Fatal("y coordinate is empty")
+	}
+	yBytes[0] ^= 0x01
+	j := JWK{Kty: "EC", Crv: "P-256", X: x, Y: base64.RawURLEncoding.EncodeToString(yBytes)}
+	_, err = Parse(j)
+	if err == nil {
+		t.Fatal("an off-curve point must be refused by the parser")
+	}
+	if !strings.Contains(err.Error(), "on curve") {
+		t.Fatalf("rejection must name the curve check, got %v", err)
+	}
+}

@@ -32,14 +32,17 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/oauth/internal/discovery"
+	"github.com/Glyndor/authcore/auth/oauth/internal/exchange"
+	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
+	"github.com/Glyndor/authcore/auth/oauth/internal/pkce"
+	"github.com/Glyndor/authcore/auth/oauth/internal/userinfo"
 )
 
 // Compile-time assertion: *Client must satisfy authcore.Module.
@@ -51,7 +54,7 @@ type Client struct {
 	cfg  Config
 	log  authcore.Logger
 	http *http.Client
-	jwks *jwksCache
+	jwks *jwks.Cache
 }
 
 // New creates an OIDC Client for a single provider.
@@ -64,7 +67,7 @@ func New(p authcore.Provider, cfg Config) (*Client, error) {
 		cfg:  cfg,
 		log:  p.Logger(),
 		http: cfg.HTTPClient,
-		jwks: newJWKSCache(cfg.Provider.JWKSURL, cfg.HTTPClient),
+		jwks: jwks.New(cfg.Provider.JWKSURL, cfg.HTTPClient, jwks.Errors{Fetch: ErrJWKS, Stale: ErrJWKSStale}),
 	}
 	c.log.Info("oauth: module initialised (issuer=%s)", cfg.Provider.Issuer)
 	return c, nil
@@ -92,15 +95,15 @@ type AuthRequest struct {
 // AuthCodeURL generates fresh state, nonce and a PKCE verifier, and builds the
 // authorization redirect URL. Every call is independent.
 func (c *Client) AuthCodeURL() (*AuthRequest, error) {
-	state, err := randomURLToken()
+	state, err := pkce.RandomURLToken()
 	if err != nil {
 		return nil, err
 	}
-	nonce, err := randomURLToken()
+	nonce, err := pkce.RandomURLToken()
 	if err != nil {
 		return nil, err
 	}
-	verifier, err := randomURLToken()
+	verifier, err := pkce.RandomURLToken()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +124,7 @@ func (c *Client) AuthCodeURL() (*AuthRequest, error) {
 	q.Set("scope", strings.Join(c.cfg.Scopes, " "))
 	q.Set("state", state)
 	q.Set("nonce", nonce)
-	q.Set("code_challenge", pkceChallenge(verifier))
+	q.Set("code_challenge", pkce.Challenge(verifier))
 	q.Set("code_challenge_method", "S256")
 	u.RawQuery = q.Encode()
 	return &AuthRequest{
@@ -140,11 +143,6 @@ type Tokens struct {
 	IDToken      string `json:"id_token"`
 	ExpiresIn    int    `json:"expires_in"`
 }
-
-// exchangeErrorMaxLen caps the description we surface from a provider error
-// response. Real error_description values are a short sentence; anything beyond
-// a few hundred bytes is the provider echoing form fields or log noise.
-const exchangeErrorMaxLen = 512
 
 // Exchange swaps an authorization code for tokens at the token endpoint, sending
 // the PKCE code_verifier. ctx bounds the request.
@@ -170,127 +168,21 @@ const exchangeErrorMaxLen = 512
 // read (the OIDC default would be Basic). A provider that advertises only
 // methods this library does not know is refused before the round trip.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
-	// Reject empty inputs before talking to the provider. An empty code or
-	// verifier would round-trip useless bytes and could mask a wiring bug in
-	// the caller (forgot to read the cookie, swapped two variables).
-	if code == "" {
-		return nil, fmt.Errorf("%w: code must not be empty", ErrExchange)
-	}
-	if verifier == "" {
-		return nil, fmt.Errorf("%w: code_verifier must not be empty", ErrExchange)
-	}
-
-	// Resolve the secret once per Exchange. ClientSecretFunc is invoked here,
-	// before any HTTP request is constructed, so a failure (including an empty
-	// return) leaves the token endpoint never called. The wrapped sentinel
-	// lets callers errors.Is against ErrExchange.
-	secret := c.cfg.ClientSecret
-	if c.cfg.ClientSecretFunc != nil {
-		s, err := c.cfg.ClientSecretFunc(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("%w: client secret function failed: %w", ErrExchange, err)
-		}
-		if s == "" {
-			return nil, fmt.Errorf("%w: client secret function returned an empty secret", ErrExchange)
-		}
-		secret = s
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("redirect_uri", c.cfg.RedirectURL)
-	form.Set("client_id", c.cfg.ClientID)
-	form.Set("code_verifier", verifier)
-
-	method := clientAuthMethod(c.cfg.Provider.AuthMethods, secret != "")
-	if method == authMethodNone && secret != "" {
-		return nil, fmt.Errorf("%w: provider advertises no supported client auth method (advertised %v)", ErrExchange, c.cfg.Provider.AuthMethods)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Provider.TokenURL, strings.NewReader(form.Encode()))
+	tok, err := exchange.Do(ctx, c.http, exchange.Params{
+		TokenURL:       c.cfg.Provider.TokenURL,
+		ClientID:       c.cfg.ClientID,
+		RedirectURL:    c.cfg.RedirectURL,
+		Secret:         c.cfg.ClientSecret,
+		SecretFunc:     c.cfg.ClientSecretFunc,
+		AuthMethods:    c.cfg.Provider.AuthMethods,
+		RequireIDToken: c.isOIDC(),
+		Errs:           exchange.Errors{Exchange: ErrExchange, NoIDToken: ErrNoIDToken},
+	}, code, verifier)
 	if err != nil {
-		return nil, fmt.Errorf("%w: build request: %w", ErrExchange, err)
+		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	switch method {
-	case authMethodBasic:
-		// The secret goes in the Authorization header, never in the body.
-		// RFC 6749 section 2.3.1 form-encodes both values before base64, and a
-		// compliant server decodes them: sent raw, a client id holding ":"
-		// splits in the wrong place and a secret holding "+" or "%2F" arrives
-		// altered.
-		req.SetBasicAuth(url.QueryEscape(c.cfg.ClientID), url.QueryEscape(secret))
-	case authMethodPost:
-		form.Set("client_id", c.cfg.ClientID)
-		form.Set("client_secret", secret)
-		// Reissue the request body after we mutate the form.
-		req.Body, req.ContentLength, err = formBody(form)
-		if err != nil {
-			return nil, fmt.Errorf("%w: build request body: %w", ErrExchange, err)
-		}
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrExchange, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// Cap the response so a hostile or broken endpoint cannot exhaust memory.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("%w: read response: %w", ErrExchange, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%w: status %d", ErrExchange, resp.StatusCode)
-	}
-
-	// OAuth2 §5.2: an error response uses {"error":"...","error_description":"..."}.
-	// Many providers (and the spec) allow it with HTTP 200, so the status check
-	// above is not enough. Decode the error fields first and refuse the body
-	// if "error" is present. Treat a non-object body (e.g. "null", "[]", a
-	// bare string) as an error too: the spec requires an object.
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(body, &probe); err != nil {
-		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
-	}
-	if probe == nil {
-		return nil, fmt.Errorf("%w: empty response", ErrExchange)
-	}
-	if rawErr, ok := probe["error"]; ok {
-		var code, desc string
-		_ = json.Unmarshal(rawErr, &code)
-		if rawDesc, ok := probe["error_description"]; ok {
-			_ = json.Unmarshal(rawDesc, &desc)
-		}
-		if len(desc) > exchangeErrorMaxLen {
-			desc = desc[:exchangeErrorMaxLen] + "…"
-		}
-		switch {
-		case desc != "":
-			return nil, fmt.Errorf("%w: provider returned %s: %s", ErrExchange, code, desc)
-		default:
-			return nil, fmt.Errorf("%w: provider returned %s", ErrExchange, code)
-		}
-	}
-
-	var tok Tokens
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return nil, fmt.Errorf("%w: decode response: %w", ErrExchange, err)
-	}
-	if tok.AccessToken == "" || tok.TokenType == "" {
-		return nil, fmt.Errorf("%w: response missing access_token or token_type", ErrExchange)
-	}
-	// An ID token is required only for an OIDC provider (one that has a JWKS
-	// and an issuer check to validate it against). A plain-OAuth2 provider
-	// (GitHub, Discord) returns no id_token, since identity comes from UserInfo,
-	// so requiring one here would make every such login fail.
-	if c.isOIDC() && tok.IDToken == "" {
-		return nil, ErrNoIDToken
-	}
-	return &tok, nil
+	out := Tokens(*tok)
+	return &out, nil
 }
 
 // isOIDC reports whether the provider issues an ID token (JWKS + issuer
@@ -298,4 +190,57 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, 
 // single source of truth lives on Config; this just threads it through.
 func (c *Client) isOIDC() bool {
 	return c.cfg.isOIDC()
+}
+
+// Discover builds a Provider from an OIDC issuer's discovery document, instead
+// of hardcoding endpoints. Pass the issuer URL (e.g.
+// "https://accounts.google.com", an Auth0/Okta tenant, a Keycloak realm) and
+// the authorization, token, JWKS and userinfo endpoints are read from the
+// provider itself — always current, never a stale constant.
+//
+// It enforces that the document's "issuer" equals the requested issuer (per
+// OpenID Connect Discovery), so a substituted discovery document cannot point
+// the client at attacker endpoints under a victim's name. ctx bounds the fetch;
+// httpClient is optional (a 10-second-timeout client is used when nil).
+// A supplied client is copied, with the library's redirect rule applied before
+// the caller's CheckRedirect. The original client is not modified.
+//
+//	p, err := oauth.Discover(ctx, "https://accounts.google.com", nil)
+//	if err != nil { ... }
+//	mod, _ := oauth.New(auth, oauth.Config{ClientID: id, RedirectURL: cb, Provider: p})
+func Discover(ctx context.Context, issuer string, httpClient *http.Client) (Provider, error) {
+	doc, err := discovery.Fetch(ctx, issuer, httpClient, ErrDiscovery)
+	if err != nil {
+		return Provider{}, err
+	}
+	return Provider{
+		Issuer:      doc.Issuer,
+		AuthURL:     doc.AuthURL,
+		TokenURL:    doc.TokenURL,
+		JWKSURL:     doc.JWKSURL,
+		UserInfoURL: doc.UserInfoURL,
+		AuthMethods: doc.AuthMethods,
+	}, nil
+}
+
+// UserInfo fetches the authenticated user's profile from a plain-OAuth2
+// provider's userinfo endpoint, presenting the access token as a Bearer
+// credential. Use it for providers that do not issue an ID token (GitHub,
+// Discord, …); for OIDC providers prefer VerifyIDToken.
+//
+// The returned map is the provider's raw JSON — its shape is provider-specific,
+// so read the fields you need (e.g. GitHub "id"/"login", Discord "id"/
+// "username"). The provider's stable user id is the value to key your account
+// on, never the email or display name.
+//
+// Returns ErrNoUserInfo if the provider has no UserInfoURL, or ErrUserInfo on
+// an empty bearer token, a transport error, a non-2xx response, a literal
+// "null" body, or any other undecodable body. Numeric values arrive as
+// json.Number (via json.Decoder.UseNumber) so large identifiers (e.g. GitHub
+// "id") survive the round trip without lossy float64 conversion.
+func (c *Client) UserInfo(ctx context.Context, accessToken string) (map[string]any, error) {
+	if c.cfg.Provider.UserInfoURL == "" {
+		return nil, ErrNoUserInfo
+	}
+	return userinfo.Fetch(ctx, c.http, c.cfg.Provider.UserInfoURL, accessToken, ErrUserInfo)
 }

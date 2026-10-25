@@ -57,23 +57,12 @@
 package password
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/base64"
 	"fmt"
-	"strconv"
-	"strings"
-	"unicode"
-	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore"
-	"golang.org/x/crypto/argon2"
-	"golang.org/x/text/unicode/norm"
-)
-
-const (
-	saltLen = 16 // bytes — 128 bits of entropy per hash
-	keyLen  = 32 // bytes — 256-bit Argon2id output
+	"github.com/Glyndor/authcore/auth/password/internal/kdf"
 )
 
 // Compile-time assertion: *Password must satisfy authcore.Module.
@@ -178,96 +167,6 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 	return nil
 }
 
-// checkPolicy validates plaintext against the policy encoded in cfg.
-// It runs in O(n) with a single pass and no memory allocations.
-//
-// Length is measured in Unicode characters (runes), not bytes, so a
-// multibyte passphrase is counted the way a user perceives it: a 4-character
-// CJK password is 4 characters, not 12 bytes.
-//
-// The cfg argument must already have its *bool policy fields resolved
-// (applyDefaults guarantees non-nil), so this function reads them through
-// the pointer without nil checks. The error messages quote cfg.MinLength
-// and cfg.MaxLength, so the caller sees the bound they actually configured.
-//
-// Keep the printable check ahead of the classification and outside cfg. It is
-// not a product rule a caller can turn off: until #347 a NUL appended to
-// "Abcdefghijk1" was what made it pass, got hashed, and verified.
-func checkPolicy(plaintext string, cfg Config) error {
-	count := utf8.RuneCountInString(plaintext)
-	if count < cfg.MinLength {
-		return fmt.Errorf("must be at least %d characters", cfg.MinLength)
-	}
-	if count > cfg.MaxLength {
-		return fmt.Errorf("must be at most %d characters", cfg.MaxLength)
-	}
-
-	var hasUpper, hasLower, hasDigit, hasSpecial bool
-	for _, r := range plaintext {
-		if !isPrintable(r) {
-			return ErrNonPrintableCharacter
-		}
-		switch {
-		case unicode.IsUpper(r):
-			hasUpper = true
-		case unicode.IsLower(r):
-			hasLower = true
-		case unicode.IsDigit(r):
-			hasDigit = true
-		case isSpecial(r):
-			hasSpecial = true
-		}
-		// No default arm on purpose. A printable rune outside the four classes
-		// (a letter without case such as a CJK ideograph, a combining mark, a
-		// number that is not a decimal digit) is allowed and satisfies nothing.
-	}
-
-	switch {
-	case *cfg.RequireUpper && !hasUpper:
-		return fmt.Errorf("must contain at least one uppercase letter")
-	case *cfg.RequireLower && !hasLower:
-		return fmt.Errorf("must contain at least one lowercase letter")
-	case *cfg.RequireDigit && !hasDigit:
-		return fmt.Errorf("must contain at least one digit")
-	case *cfg.RequireSymbol && !hasSpecial:
-		return fmt.Errorf("must contain at least one special character")
-	}
-	return nil
-}
-
-// isPrintable reports whether r may appear in a password at all.
-//
-// unicode.IsPrint is true for letters, marks, numbers, punctuation, symbols
-// and the ASCII space, and false for control characters, format characters
-// such as the zero-width joiner, every other space, and unassigned code
-// points.
-//
-// U+FFFD needs its own clause. It is category So, so IsPrint accepts it, and
-// it is what range yields for a byte that is not valid UTF-8. Measured before
-// this check existed: "Abcdefghijk1\xff" passed the default policy with the
-// stray byte counted as its special character.
-func isPrintable(r rune) bool {
-	if r == utf8.RuneError || !unicode.IsPrint(r) {
-		return false
-	}
-	// IsPrint admits code points that render as nothing: the Hangul fillers
-	// and the other default-ignorable letters and marks (U+115F, U+3164,
-	// U+FFA0, U+034F among them), and U+2800 BRAILLE PATTERN BLANK, a symbol.
-	// Measured 2026-09-25: "Abcdefghijk1" + U+2800 satisfied RequireSymbol
-	// with a character the user cannot see, the lockout #347 describes.
-	return r != 0x2800 && !unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r)
-}
-
-// isSpecial reports whether r satisfies RequireSymbol: Unicode punctuation
-// (category P), Unicode symbols (category S), and the ASCII space.
-//
-// The space stays in the class because it always counted, OWASP lists it
-// among the password special characters, and dropping it would start
-// rejecting passphrases written as spaced words.
-func isSpecial(r rune) bool {
-	return r == ' ' || unicode.IsPunct(r) || unicode.IsSymbol(r)
-}
-
 // Hash validates plaintext against the built-in password policy and, if it
 // passes, derives an Argon2id hash returned in PHC string format. A fresh
 // cryptographically random salt is generated per call, so two calls with the
@@ -312,36 +211,7 @@ func (p *Password) Hash(plaintext string) (string, error) {
 		return "", &policyViolation{reason: err}
 	}
 
-	// Fresh random salt per call ensures two hashes of the same password are
-	// always different strings — prevents rainbow-table precomputation attacks.
-	salt := make([]byte, saltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return "", fmt.Errorf("password: generate salt: %w", err)
-	}
-
-	// Argon2id: memory-hard, GPU/ASIC-resistant. This deliberately allocates
-	// ~Memory KiB of RAM to make brute-force attacks expensive.
-	key := argon2.IDKey([]byte(plaintext), salt, p.cfg.Iterations, p.cfg.Memory, p.cfg.Parallelism, keyLen)
-
-	// Encode as PHC string: self-describing and portable across libraries.
-	// Embedding the parameters in the hash string means Verify can always
-	// reconstruct the exact same hash without consulting the module config.
-	// Salt and key are base64-encoded without padding (RFC 4648 §5).
-	return encodePHC(p.cfg, salt, key), nil
-}
-
-// encodePHC writes the PHC string for an Argon2id hash: the version, the
-// memory, iteration and parallelism parameters of cfg, and salt and key in
-// unpadded standard base64. It is the only form parsePHC accepts.
-func encodePHC(cfg Config, salt, key []byte) string {
-	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version,
-		cfg.Memory,
-		cfg.Iterations,
-		cfg.Parallelism,
-		base64.RawStdEncoding.EncodeToString(salt),
-		base64.RawStdEncoding.EncodeToString(key),
-	)
+	return kdf.Hash(plaintext, p.cfg.phcParams())
 }
 
 // Verify reports whether plaintext matches the Argon2id hash in phcHash.
@@ -376,170 +246,9 @@ func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
 	// to their account.
 	plaintext = norm.NFC.String(plaintext)
 
-	// Extract the Argon2id parameters and salt embedded in the stored hash.
-	// Using the stored parameters — not the current module config — means old
-	// hashes remain valid even after the work factors are tuned upward.
-	params, salt, storedKey, err := parsePHC(phcHash)
+	ok, err := kdf.Verify(plaintext, phcHash)
 	if err != nil {
-		return false, fmt.Errorf("%w: %w", ErrInvalidHash, err)
+		return false, fmt.Errorf("%w: %w", ErrInvalidHash, invalidHash{cause: err})
 	}
-
-	// Recompute the derived key with the same parameters and salt as the original.
-	key := argon2.IDKey([]byte(plaintext), salt, params.Iterations, params.Memory, params.Parallelism, uint32(len(storedKey)))
-
-	// Compare in constant time to prevent timing attacks that could reveal
-	// how many bytes of the candidate key matched the stored key.
-	return subtle.ConstantTimeCompare(key, storedKey) == 1, nil
-}
-
-// parsePHC decodes a PHC string produced by Hash and returns the embedded
-// Argon2id parameters, the decoded salt, and the decoded derived key.
-//
-// Every returned error wraps ErrInvalidHash so the caller can match a single
-// sentinel regardless of which check refused the string.
-func parsePHC(phcHash string) (Config, []byte, []byte, error) {
-	// Expected: $argon2id$v=19$m=<mem>,t=<iter>,p=<par>$<salt>$<key>
-	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<key>"]
-	parts := strings.Split(phcHash, "$")
-	if len(parts) != 6 {
-		return Config{}, nil, nil, fmt.Errorf("%w: expected 6 dollar-separated segments, got %d", ErrInvalidHash, len(parts))
-	}
-	// The PHC format starts with a dollar, so the first segment is empty. Any
-	// text before it passes the count check above while leaving the rest of the
-	// parser a string it cannot tell apart from a real hash, and "junk" + hash
-	// then verifies the same password the clean hash does.
-	if parts[0] != "" {
-		return Config{}, nil, nil, fmt.Errorf("%w: unexpected text before the first dollar: %q", ErrInvalidHash, parts[0])
-	}
-	if parts[1] != "argon2id" {
-		return Config{}, nil, nil, fmt.Errorf("%w: unsupported algorithm %q, want argon2id", ErrInvalidHash, parts[1])
-	}
-
-	version, err := parseLabeledUint32(parts[2], "v")
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: parse version: %w", ErrInvalidHash, err)
-	}
-	if version != argon2.Version {
-		return Config{}, nil, nil, fmt.Errorf("%w: unsupported Argon2 version %d, want %d", ErrInvalidHash, version, argon2.Version)
-	}
-
-	// The parameter segment is three "label=N" fields separated by commas.
-	// Splitting on "," first lets the labeled parsers reject trailing text inside
-	// a single field ("m=65536junk"), which fmt.Sscanf's %d accepts silently.
-	paramFields := strings.Split(parts[3], ",")
-	if len(paramFields) != 3 {
-		return Config{}, nil, nil, fmt.Errorf("%w: expected 3 comma-separated parameter fields, got %d", ErrInvalidHash, len(paramFields))
-	}
-	mem, err := parseLabeledUint32(paramFields[0], "m")
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: parse memory: %w", ErrInvalidHash, err)
-	}
-	iter, err := parseLabeledUint32(paramFields[1], "t")
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: parse iterations: %w", ErrInvalidHash, err)
-	}
-	par, err := parseLabeledUint8(paramFields[2], "p")
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: parse parallelism: %w", ErrInvalidHash, err)
-	}
-
-	cfg := Config{Memory: mem, Iterations: iter, Parallelism: par}
-
-	// Bound the parsed parameters before handing them to argon2.IDKey. A
-	// corrupted or attacker-supplied hash with m=4_000_000_000 would otherwise
-	// cause the verifier to attempt a multi-TiB allocation and crash the
-	// process. Reuse the same ceilings validateConfig enforces at construction.
-	if cfg.Memory < minMemory || cfg.Memory > maxMemory {
-		return Config{}, nil, nil, fmt.Errorf("%w: memory parameter out of range: got %d, want [%d, %d]", ErrInvalidHash, cfg.Memory, minMemory, maxMemory)
-	}
-	if cfg.Iterations < 1 || cfg.Iterations > maxIterations {
-		return Config{}, nil, nil, fmt.Errorf("%w: iterations parameter out of range: got %d, want [1, %d]", ErrInvalidHash, cfg.Iterations, maxIterations)
-	}
-	if cfg.Parallelism < 1 {
-		return Config{}, nil, nil, fmt.Errorf("%w: parallelism parameter out of range: got %d, want >= 1", ErrInvalidHash, cfg.Parallelism)
-	}
-
-	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: decode salt: %w", ErrInvalidHash, err)
-	}
-
-	key, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
-		return Config{}, nil, nil, fmt.Errorf("%w: decode key: %w", ErrInvalidHash, err)
-	}
-
-	// Reject hashes whose salt or key are not the fixed sizes Hash produces.
-	// A truncated hash with an empty key segment would otherwise reach
-	// argon2.IDKey with keyLen=0, which panics (nil dereference) and crashes
-	// the process. Enforcing the exact lengths fails closed on any corrupted
-	// or attacker-supplied PHC string before it can reach the KDF.
-	if len(salt) != saltLen {
-		return Config{}, nil, nil, fmt.Errorf("%w: salt has wrong length: got %d bytes, want %d", ErrInvalidHash, len(salt), saltLen)
-	}
-	if len(key) != keyLen {
-		return Config{}, nil, nil, fmt.Errorf("%w: derived key has wrong length: got %d bytes, want %d", ErrInvalidHash, len(key), keyLen)
-	}
-
-	// Accept only the exact string Hash writes for these values. The checks
-	// above read each field leniently in ways no encoder produces: strconv
-	// takes "m=08192", and the base64 decoder skips "\n" and "\r" and ignores
-	// the unused bits of the last character. Each of those let a second
-	// spelling of one hash verify; a fuzzer comparing against the re-encoded
-	// form found the last two within a second (#456).
-	if phcHash != encodePHC(cfg, salt, key) {
-		return Config{}, nil, nil, fmt.Errorf("%w: hash is not in canonical form", ErrInvalidHash)
-	}
-
-	return cfg, salt, key, nil
-}
-
-// labeledValue returns the N of a field of the form "label=N", unparsed. It
-// refuses a missing label and an empty value; the typed parsers below refuse
-// everything else.
-func labeledValue(field, label string) (string, error) {
-	prefix := label + "="
-	if !strings.HasPrefix(field, prefix) {
-		return "", fmt.Errorf("missing %s= prefix in %q", label, field)
-	}
-	rest := field[len(prefix):]
-	if rest == "" {
-		return "", fmt.Errorf("empty %s value in %q", label, field)
-	}
-	return rest, nil
-}
-
-// parseLabeledUint32 reads a field of the form "label=N" and returns N, which
-// must be a decimal that fits in 32 bits. The whole field must be consumed:
-// "v=19junk" is rejected because strconv rejects it, and "v=19,extra=1" never
-// reaches here because the caller splits on the separator first.
-//
-// Parse at the target width, never wider and then narrow. Measured before this
-// existed: fmt.Sscanf("v=19junk", ...) silently bound v to 19, and the
-// replacement that parsed at 64 bits and converted afterwards let
-// m=4294975488 verify as m=8192 (#451).
-func parseLabeledUint32(field, label string) (uint32, error) {
-	rest, err := labeledValue(field, label)
-	if err != nil {
-		return 0, err
-	}
-	n, err := strconv.ParseUint(rest, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", label, err)
-	}
-	return uint32(n), nil
-}
-
-// parseLabeledUint8 is parseLabeledUint32 for a value that must fit in 8 bits.
-// Before #451, p=257 verified as p=1.
-func parseLabeledUint8(field, label string) (uint8, error) {
-	rest, err := labeledValue(field, label)
-	if err != nil {
-		return 0, err
-	}
-	n, err := strconv.ParseUint(rest, 10, 8)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", label, err)
-	}
-	return uint8(n), nil
+	return ok, nil
 }

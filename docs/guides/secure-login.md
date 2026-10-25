@@ -1,0 +1,261 @@
+# Secure login recipe
+
+authcore provides password hashing, token signing, timing-safe comparison and key
+management. It does **not** build the login flow around them. This page is the
+checklist for that flow: each section says what authcore does and what your
+application must add.
+
+> [!IMPORTANT]
+> authcore is a library, not an identity server. It has no database, no HTTP
+> server, no rate limiter and no session store. Your application supplies them.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App
+    participant authcore
+    participant Database
+
+    Note over Browser,App: 1. Register
+    Browser->>App: email + password
+    App->>authcore: pwdMod.Hash(password)
+    authcore-->>App: hash
+    App->>Database: store emailNorm + hash
+    Database-->>App: ok
+
+    Note over Browser,App: 2. Login
+    Browser->>App: email + password
+    App->>Database: find user by email
+    Database-->>App: user (or not found)
+    App->>authcore: pwdMod.Verify(password, hash)
+    authcore-->>App: ok
+    App->>authcore: jwtMod.CreateTokens(userID, claims)
+    authcore-->>App: pair (access, refresh, session)
+    App->>Database: store session + refresh hash
+    Database-->>App: ok
+
+    Note over Browser,App: 3. Authenticated request
+    Browser->>App: Authorization: Bearer accessToken
+    App->>authcore: jwtMod.VerifyAccessToken(accessToken)
+    authcore-->>App: claims (or error)
+
+    Note over Browser,App: 4. Refresh (with rotation)
+    Browser->>App: refreshToken
+    App->>Database: find session
+    Database-->>App: session
+    App->>authcore: jwtMod.VerifyRefreshTokenHash(refreshToken, storedHash)
+    authcore-->>App: true
+    App->>authcore: jwtMod.RotateTokens(refreshToken, claims)
+    authcore-->>App: newPair
+    App->>Database: UPDATE refresh_hash WHERE id AND old hash
+    Database-->>App: rows affected
+```
+
+## At a glance
+
+| Concern | authcore does | You must do |
+|---|---|---|
+| Password storage | Argon2id, salt, PHC, constant-time verify | Store the hash; never the plaintext |
+| Password strength | length + composition policy | Decide your own extra rules if any |
+| Token signing | EdDSA, alg-confusion-proof, `iss`/`aud`/`exp` enforced | Send/store tokens correctly |
+| Refresh tokens | issue + hash + timing-safe compare | Persist the hash, rotate, delete on logout |
+| Brute force | none | Rate-limit and lock out |
+| User enumeration | constant-time hash compare | Equalize responses **and** timing in your handler |
+| Transport | none | TLS, secure cookies, CSRF |
+| Instant revocation | short access TTL | Denylist by session id if you need it |
+
+## 1. Registration
+
+```go
+// Validate the identifier and the password BEFORE hashing.
+emailNorm, err := emailMod.ValidateAndNormalize(req.Email)
+if err != nil { return badRequest("invalid email") }
+
+if err := pwdMod.ValidatePolicy(req.Password); err != nil {
+    return badRequest(errors.Unwrap(err).Error()) // safe, specific reason
+}
+
+hash, err := pwdMod.Hash(req.Password)
+if err != nil { return serverError() }
+
+// Store the normalized identifier + hash. Never the plaintext.
+if err := db.CreateUser(emailNorm, hash); err != nil {
+    // Duplicate email? See enumeration (§3). Do not reveal "already registered"
+    // on a public endpoint; confirm via email instead.
+}
+```
+
+authcore: validation, policy, hashing. You: storage, and not leaking whether the
+address already exists.
+
+## 2. Login
+
+```go
+emailNorm, err := emailMod.ValidateAndNormalize(req.Email)
+if err != nil { return unauthorized() } // generic. See §3
+
+user, err := db.FindUserByEmail(emailNorm)
+if err != nil {
+    // User not found. Do NOT return early with a different message or timing.
+    // Verify against a dummy hash so the response time matches the found case.
+    _, _ = pwdMod.Verify(req.Password, dummyHash)
+    return unauthorized()
+}
+
+ok, err := pwdMod.Verify(req.Password, user.PasswordHash)
+if err != nil || !ok {
+    return unauthorized() // same generic error as "user not found"
+}
+
+// Authenticated. Issue tokens (§4).
+```
+
+`dummyHash` is one precomputed Argon2id hash of any throwaway password, stored as
+a constant. Verifying against it on the not-found path makes both paths cost the
+same Argon2id work, so an attacker cannot tell "no such user" from "wrong
+password" by timing.
+
+authcore: constant-time hash verify. You: identical error **and** identical
+timing on every failure (see §3).
+
+## 3. No user enumeration
+
+An attacker must not be able to discover which emails/usernames are registered.
+Three leaks to close, all in your handler:
+
+- **Message:** every login failure returns the same generic error
+  (`unauthorized`), whether the user is missing or the password is wrong.
+- **Timing:** the not-found path must do the same Argon2id work as the found path
+  (the `dummyHash` verify in §2). Without it, "no such user" returns in
+  microseconds and "wrong password" in ~50 ms. A trivial oracle.
+- **Side channels:** registration, password reset, and resend-verification must
+  not reveal existence either. Prefer "if that address exists, we sent a link"
+  over "no account with that email."
+
+## 4. Sessions & cookies
+
+```go
+pair, err := jwtMod.CreateTokens(user.ID, MyClaims{Role: user.Role})
+if err != nil { return serverError() }
+
+// Store ONLY the refresh hash, keyed by the session id.
+db.StoreSession(pair.SessionID, user.ID, pair.RefreshTokenHash, pair.RefreshTokenExpiresAt)
+```
+
+Deliver tokens safely:
+
+- Send the **refresh token** in an `HttpOnly`, `Secure`, `SameSite=Strict` (or
+  `Lax`) cookie, never readable by JavaScript.
+- Keep the **access token** in memory on the client where possible; if you must
+  cookie it, same flags.
+- Serve everything over **TLS only**. A bearer token on plaintext HTTP is a
+  leaked credential.
+- If you authenticate via cookies, add **CSRF** protection (double-submit token
+  or `SameSite`).
+
+authcore: token issuance + the hash to store. You: cookie flags, TLS, CSRF.
+
+## 5. Refresh & rotation
+
+Verify the presented refresh token against your stored hash **before** rotating:
+this is what detects a stolen, replayed token.
+
+```go
+session, err := db.FindSession(/* from cookie */)
+if err != nil { return unauthorized() }
+
+if !jwtMod.VerifyRefreshTokenHash(clientToken, session.RefreshTokenHash) {
+    return unauthorized() // timing-safe compare
+}
+
+newPair, err := jwtMod.RotateTokens(clientToken, freshClaims)
+if err != nil { return unauthorized() }
+
+// Replace the old hash with an UPDATE that pins the row to BOTH the session
+// and the hash you just verified. Two requests carrying the same token (the
+// client and a thief replaying it) both pass the compare above; only the
+// one whose UPDATE still sees the old hash wins, and the other must not be
+// handed newPair. A replace keyed on the session id alone lets both through.
+res, err := db.Exec(`UPDATE sessions SET refresh_hash = $1
+                      WHERE id = $2 AND refresh_hash = $3`,
+    newPair.RefreshTokenHash, session.ID, session.RefreshTokenHash)
+if err != nil { return unauthorized() }
+if rows, _ := res.RowsAffected(); rows != 1 {
+    return unauthorized() // rotated by someone else first: discard newPair
+}
+```
+
+Reuse detection is the lookup: a token presented after its rotation finds no
+row holding its hash, which is the moment to treat the session as
+compromised (optionally revoke the whole family). It works only with the
+conditional UPDATE above; `docs/modules/jwt.md` step 5 has the same recipe with
+its reasoning.
+
+authcore: signature + expiry verification, timing-safe hash compare, stable
+`SessionID` across rotations. You: the stored-hash lookup, the conditional
+swap, and the reuse-detection decision.
+
+## 6. Logout & revocation
+
+```go
+db.DeleteSession(session.ID) // stops renewal
+```
+
+> [!WARNING]
+> Deleting the refresh hash stops the session from being **renewed**. It does
+> **not** invalidate the access token the client already holds. A stateless
+> access token stays valid until its `exp` (the `AccessTokenTTL`, 15 min by
+> default). See [JWT: Revocation & logout](../modules/jwt.md#revocation--logout).
+
+- **Most apps:** the short access TTL is enough. The token dies on its own.
+- **Need instant kill** (logout-everywhere, account compromise): set a
+  `jwt.Denylist` on the config and add the `SessionID` to your store on logout.
+  `VerifyAccessToken` then returns `ErrTokenRevoked`. See
+  [JWT: Revocation & logout](../modules/jwt.md#revocation--logout).
+
+## 7. Brute force & lockout
+
+authcore does no rate limiting. Add it:
+
+- **Throttle** login, refresh, password-reset and registration per IP and per
+  account.
+- **Lock out** an account after N consecutive failures (exponential backoff or a
+  temporary ban), and surface it without revealing whether the account exists.
+- Apply the same to **password reset** and **MFA** endpoints.
+
+## 8. What authcore covers here, and what it does not
+
+Three of the things this section used to list as your job have shipped since it
+was written. Reach for them rather than hand rolling the flow:
+
+- **MFA / TOTP** is [`auth/totp`](../modules/totp.md): codes, drift window, and
+  recovery-code generation and verification. Verification is
+  `totpMod.Verify(ctx, secret, presented, rec)` with a `StepRecorder`
+  bound to the enrollment, so the matched step is recorded atomically
+  and a stolen code cannot be replayed across two concurrent
+  verifiers.
+- **Password reset and email verification** are
+  [`auth/credential`](../modules/credential.md): token generation, hashing and
+  verification, including expiry checks.
+- **Encrypting an identifier while keeping it unique** is
+  [`auth/field`](../modules/field.md): AES-256-GCM plus a blind index a `UNIQUE`
+  constraint can run against.
+
+The library verifies recovery codes and credential tokens; the application
+must enforce single use. After verification, atomically consume the stored
+hash: delete it or mark it used in the same database statement that checks the
+hash and its unused state. Accept the operation only if that statement consumed
+the hash, so concurrent requests cannot both redeem it.
+
+Still yours:
+
+- **Account lockout and rate limiting.** They need state authcore does not
+  hold, and the right policy is a property of your product.
+- **Breached-password rejection** is intentionally not part of authcore. The
+  built-in policy is length + composition only.
+
+## The one-line summary
+
+authcore removes the cryptographic mistakes. This recipe removes the flow
+mistakes. Do both and your login is solid; skip §3 or §7 and strong hashing
+won't save you.

@@ -28,7 +28,7 @@ jobs:
     with:
       max-age-days: 15
 
-  # scripts/release-notes.sh only runs when a tag is pushed, so a defect in it
+  # scripts/release-notes/release-notes.sh only runs when a tag is pushed, so a defect in it
   # would first show up in a release. Its test runs here instead.
   release-notes:
     name: Release notes script
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: bash scripts/release-notes.test.sh
+      - run: bash scripts/release-notes/release-notes.test.sh
 
   # The shared go-ci reusable runs gofmt, vet and tests but no lint, which
   # is why this job lives here. Pinning the tarball by sha256 is the gate; a

@@ -14,11 +14,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"hash"
 	"testing"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/field/internal/kdf"
+	"github.com/Glyndor/authcore/auth/field/internal/seal"
 )
 
 // sharedProvider returns a provider whose keys are pinned so two
@@ -281,7 +285,7 @@ func TestBlindIndex_DifferentValuesDifferentIndexes(t *testing.T) {
 // TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster pins key
 // separation, which no behavioural test can see.
 //
-// Encrypt, Decrypt and BlindIndex all keep working if deriveKey is removed
+// Encrypt, Decrypt and BlindIndex all keep working if kdf.Key is removed
 // and Keys().RefreshSecret() is used directly for both the AES key and the
 // index key. Round trips still round trip and indexes still match, so the
 // whole suite stays green while one secret is doing three jobs and a
@@ -293,18 +297,18 @@ func TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster(t *testing.T
 
 	master := newFakeProvider(t).Keys().RefreshSecret()
 
-	encKey, err := deriveKey(master, encKeyInfo)
+	encKey, err := kdf.Key(master, kdf.EncryptionInfo)
 	if err != nil {
-		t.Fatalf("deriveKey(encKeyInfo): %v", err)
+		t.Fatalf("kdf.Key(kdf.EncryptionInfo): %v", err)
 	}
-	idxKey, err := deriveKey(master, idxKeyInfo)
+	idxKey, err := kdf.Key(master, kdf.IndexInfo)
 	if err != nil {
-		t.Fatalf("deriveKey(idxKeyInfo): %v", err)
+		t.Fatalf("kdf.Key(kdf.IndexInfo): %v", err)
 	}
 
 	for name, key := range map[string][]byte{"encKey": encKey, "idxKey": idxKey} {
-		if len(key) != keyLen {
-			t.Errorf("%s is %d bytes, want %d", name, len(key), keyLen)
+		if len(key) != kdf.KeyLen {
+			t.Errorf("%s is %d bytes, want %d", name, len(key), kdf.KeyLen)
 		}
 		if bytes.Equal(key, master) {
 			t.Errorf("%s is the master secret verbatim: the derivation was skipped", name)
@@ -315,22 +319,22 @@ func TestDeriveKey_SeparatesTheTwoKeysFromEachOtherAndFromTheMaster(t *testing.T
 	}
 
 	// Derivation must be deterministic, or a restart would lose every row.
-	again, err := deriveKey(master, encKeyInfo)
+	again, err := kdf.Key(master, kdf.EncryptionInfo)
 	if err != nil {
-		t.Fatalf("deriveKey again: %v", err)
+		t.Fatalf("kdf.Key again: %v", err)
 	}
 	if !bytes.Equal(encKey, again) {
-		t.Error("deriveKey is not deterministic: existing ciphertexts would not decrypt after a restart")
+		t.Error("kdf.Key is not deterministic: existing ciphertexts would not decrypt after a restart")
 	}
 }
 
 // TestDeriveKey_NewActuallyStoresTheDerivedKeys is the integration pin
-// for deriveKey. The unit test above verifies that deriveKey produces
+// for kdf.Key. The unit test above verifies that kdf.Key produces
 // three distinct values from the master secret; this test verifies that
 // New stores the derived keys on the Field, not the master secret. A
-// sabotage that "leaves deriveKey in place" but uses the master secret for
+// sabotage that "leaves kdf.Key in place" but uses the master secret for
 // the actual AES key and HMAC key would still pass the unit test, because
-// deriveKey's output is unused. This test catches that.
+// kdf.Key's output is unused. This test catches that.
 func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
 	t.Parallel()
 	p := sharedProvider(t)
@@ -339,13 +343,13 @@ func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	encKey, err := deriveKey(master, encKeyInfo)
+	encKey, err := kdf.Key(master, kdf.EncryptionInfo)
 	if err != nil {
-		t.Fatalf("deriveKey(encKeyInfo): %v", err)
+		t.Fatalf("kdf.Key(kdf.EncryptionInfo): %v", err)
 	}
-	idxKey, err := deriveKey(master, idxKeyInfo)
+	idxKey, err := kdf.Key(master, kdf.IndexInfo)
 	if err != nil {
-		t.Fatalf("deriveKey(idxKeyInfo): %v", err)
+		t.Fatalf("kdf.Key(kdf.IndexInfo): %v", err)
 	}
 
 	const value = "alice@example.com"
@@ -365,7 +369,7 @@ func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
 		t.Error("Field.BlindIndex = HMAC(master, value): the index key on the Field is the master secret")
 	}
 	if idx != indexMAC(idxKey) {
-		t.Error("Field.BlindIndex != HMAC(deriveKey(master, idxKeyInfo), value): New stored a different index key")
+		t.Error("Field.BlindIndex != HMAC(kdf.Key(master, kdf.IndexInfo), value): New stored a different index key")
 	}
 
 	ct, err := f.Encrypt(value)
@@ -376,12 +380,12 @@ func TestDeriveKey_NewActuallyStoresTheDerivedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode ciphertext: %v", err)
 	}
-	nonce, sealed, aad := raw[:nonceLen], raw[nonceLen:], buildAAD(ctxBytes)
+	nonce, sealed, aad := raw[:seal.NonceLen], raw[seal.NonceLen:], aadFor(ctxBytes)
 	if openGCM(t, master, nonce, sealed, aad) {
 		t.Error("Field.Encrypt ciphertext decrypts under AES-GCM keyed by the master secret")
 	}
 	if !openGCM(t, encKey, nonce, sealed, aad) {
-		t.Error("Field.Encrypt ciphertext does not decrypt under AES-GCM keyed by deriveKey(master, encKeyInfo)")
+		t.Error("Field.Encrypt ciphertext does not decrypt under AES-GCM keyed by kdf.Key(master, kdf.EncryptionInfo)")
 	}
 }
 
@@ -420,4 +424,16 @@ func TestLengthPrefix_NoCollisionWithEmbeddedNULBytes(t *testing.T) {
 	if idxLeft == idxRight {
 		t.Error("NUL-byte collision: (\"a\\x00b\",\"c\") and (\"a\",\"b\\x00c\") produced the same index")
 	}
+}
+
+// writeLengthPrefixed and aadFor are the test's own statement of the
+// encodings, written out here so the assertions above do not depend on the
+// code they check.
+func writeLengthPrefixed(h hash.Hash, b []byte) {
+	_, _ = h.Write(binary.BigEndian.AppendUint32(nil, uint32(len(b))))
+	_, _ = h.Write(b)
+}
+
+func aadFor(context []byte) []byte {
+	return append(binary.BigEndian.AppendUint32(nil, uint32(len(context))), context...)
 }

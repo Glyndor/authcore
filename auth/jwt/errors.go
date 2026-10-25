@@ -1,6 +1,10 @@
 package jwt
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/Glyndor/authcore/auth/jwt/internal/jwterr"
+)
 
 // Sentinel errors returned by the jwt package.
 // Use errors.Is to check for these in calling code.
@@ -31,20 +35,20 @@ var (
 	//
 	// Safety: CLIENT-SAFE — use to return a specific "token expired" message
 	// so the client knows to refresh rather than re-authenticate.
-	ErrTokenExpired = errors.New("jwt: token has expired")
+	ErrTokenExpired = jwterr.ErrTokenExpired
 
 	// ErrTokenInvalid is returned when the token signature does not verify,
 	// or when an unsupported algorithm is present in the JOSE header.
 	//
 	// Safety: INTERNAL — the wrapped message may reveal the algorithm name.
 	// Return a generic "unauthorized" to the client.
-	ErrTokenInvalid = errors.New("jwt: token is invalid")
+	ErrTokenInvalid = jwterr.ErrTokenInvalid
 
 	// ErrTokenMalformed is returned when the token is not a properly formed
 	// three-part dot-separated string, or when any part cannot be base64url-decoded.
 	//
 	// Safety: INTERNAL — return a generic "unauthorized" to the client.
-	ErrTokenMalformed = errors.New("jwt: token is malformed")
+	ErrTokenMalformed = jwterr.ErrTokenMalformed
 
 	// ErrTokenOversized is returned when a token string exceeds the library's
 	// length cap. The cap stops a caller from forcing base64+JSON work on a
@@ -54,20 +58,20 @@ var (
 	//
 	// Safety: INTERNAL. The wrapped message names the limit and the actual
 	// size for the operator; return a generic "unauthorized" to the client.
-	ErrTokenOversized = errors.New("jwt: token exceeds maximum size")
+	ErrTokenOversized = jwterr.ErrTokenOversized
 
 	// ErrWrongTokenType is returned when an access token is passed to a
 	// function that expects a refresh token, or vice-versa.
 	//
 	// Safety: INTERNAL — reveals the internal token type distinction.
 	// Return a generic "unauthorized" to the client.
-	ErrWrongTokenType = errors.New("jwt: wrong token type")
+	ErrWrongTokenType = jwterr.ErrWrongTokenType
 
 	// ErrInvalidSubject is returned when CreateTokens is called with a
 	// subject that is not a valid UUID v7 (RFC 9562 §5.7, case-insensitive).
 	//
 	// Safety: INTERNAL — programming error in the caller. Treat as a 500.
-	ErrInvalidSubject = errors.New("jwt: subject must be a valid UUID v7")
+	ErrInvalidSubject = jwterr.ErrInvalidSubject
 
 	// ErrTokenRevoked is returned by VerifyAccessToken when a configured
 	// Denylist reports the token's session as revoked. The token's signature
@@ -81,7 +85,7 @@ var (
 	// same Verify call. There is no sentinel for store failures; check for
 	// ErrTokenRevoked to handle a clean revocation, and treat any other
 	// error as an internal problem with the denylist itself.
-	ErrTokenRevoked = errors.New("jwt: token has been revoked")
+	ErrTokenRevoked = jwterr.ErrTokenRevoked
 
 	// ErrNotInitialised is returned by HashRefreshToken on a zero-value
 	// JWT[T] (a module that was never constructed by New). A zero-value

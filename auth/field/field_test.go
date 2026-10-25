@@ -2,7 +2,7 @@ package field
 
 // Round-trip and basic-shape tests for the field module. The package-internal
 // test scope (package field rather than field_test) lets the suite import
-// unexported helpers like buildAAD when needed. Same pattern as auth/credential
+// unexported helpers when needed. Same pattern as auth/credential
 // and auth/totp.
 
 import (
@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/field/internal/seal"
 )
 
 // ---- test doubles -----------------------------------------------------------
@@ -224,7 +225,7 @@ func TestDecrypt_TamperedSealed(t *testing.T) {
 		t.Fatalf("decode ciphertext: %v", err)
 	}
 	// Flip one byte past the nonce, well into the sealed payload.
-	raw[nonceLen+2] ^= 0xFF
+	raw[seal.NonceLen+2] ^= 0xFF
 	tampered := base64.RawStdEncoding.EncodeToString(raw)
 
 	if _, err := f.Decrypt(tampered); !errors.Is(err, ErrDecrypt) {

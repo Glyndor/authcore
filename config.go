@@ -1,11 +1,9 @@
 package authcore
 
 import (
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
 	"time"
+
+	"github.com/Glyndor/authcore/internal/keystore/keysdir"
 )
 
 // Config holds the top-level configuration for an AuthCore instance.
@@ -74,8 +72,8 @@ type Config struct {
 	// metadata.json. The same error type a partially-populated directory
 	// already produces, so existing handling keeps working.
 	//
-	// See docs/key-management.md (Load-only in production) and
-	// docs/containers.md (the recommended compose file) for the deployment
+	// See docs/guides/key-management.md (Load-only in production) and
+	// docs/guides/containers.md (the recommended compose file) for the deployment
 	// shape this flag is designed for.
 	RequireExistingKeys bool
 }
@@ -126,60 +124,11 @@ func validateConfig(cfg Config) error {
 		return nil
 	}
 	if cfg.RequireExistingKeys {
-		// Load-only mode. Do not call validateKeysDir: it runs MkdirAll and
+		// Load-only mode. Do not call keysdir.CheckDir: it runs MkdirAll and
 		// would create the directory the operator meant to refuse to start
 		// without. A stat-only check is enough: production deployments mount
 		// a Secret volume that resolves through symlinks, so follow them.
-		return validateLoadOnlyKeysDir(cfg.KeysDir)
+		return keysdir.CheckLoadOnlyDir(cfg.KeysDir)
 	}
-	return validateKeysDir(cfg.KeysDir)
-}
-
-// validateKeysDir ensures KeysDir exists (creating it if possible).
-//
-// It deliberately does NOT probe for writability. A read-only KeysDir is a
-// valid and recommended deployment: pre-generated keys mounted read-only into
-// a container (see docs/key-management.md). Whether the directory needs to be
-// written to depends on whether the key files already exist — that is the key
-// manager's concern. When generation is actually required, the key manager
-// surfaces a clear write error (wrapped as ErrKeyManager); when the keys are
-// already present, no write happens and a read-only mount loads fine.
-func validateKeysDir(dir string) error {
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("cannot create keys directory %q: %w", dir, err)
-	}
-	return nil
-}
-
-// validateLoadOnlyKeysDir checks that dir exists and is a directory, without
-// creating it. The check uses os.Stat, which follows symlinks: that is what a
-// Kubernetes Secret mount needs (the Secret volume is a tree of symlinks).
-//
-// The zero value of KeysDir is replaced by applyDefaults before validateConfig
-// runs in New, so by the time this function is called dir is non-empty.
-//
-// The error names the path and tells the operator how to recover. It is the
-// config-side counterpart of the load-only keymanager error: both messages
-// point at restoring the three key files from a backup.
-func validateLoadOnlyKeysDir(dir string) error {
-	fi, err := os.Stat(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf(
-				"key directory %q does not exist; authcore will not generate keys in "+
-					"load-only mode. Provision ed25519_private.pem, ed25519_public.pem "+
-					"and refresh_secret.key (restore them from a backup, or generate "+
-					"them once without Config.RequireExistingKeys set) before starting",
-				dir)
-		}
-		return fmt.Errorf("inspect key directory %q: %w", dir, err)
-	}
-	if !fi.IsDir() {
-		return fmt.Errorf(
-			"keys directory %q is a %s, not a directory; load-only mode requires a "+
-				"directory holding ed25519_private.pem, ed25519_public.pem and "+
-				"refresh_secret.key",
-			dir, fi.Mode().Type())
-	}
-	return nil
+	return keysdir.CheckDir(cfg.KeysDir)
 }

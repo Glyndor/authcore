@@ -9,7 +9,7 @@
 //     [Config.ExtraReservedNames], minus [Config.AllowReservedNames])
 //
 // The length bounds and reserved-names list are [configurable policy
-// fields](../docs/configuration.md#the-principle). The character set,
+// fields](../docs/guides/configuration.md#the-principle). The character set,
 // normalisation, "must start and end with a letter or digit", and
 // "no consecutive specials" rules stay fixed - the character set in
 // particular is the homoglyph control, and widening it to Unicode is

@@ -58,6 +58,14 @@ linters:
           - gosec
           - errcheck
 
+      # Test-support packages (oauthtest, bootstraptest, recoverytest, stagingtest, keyloadtest, jwttest)
+      # hold fixtures that only _test.go files import. They are not named
+      # *_test.go, so the rule above does not reach them, and gosec flags the
+      # same controlled test inputs there (fixed fake secrets, copy helpers).
+      - path: "/(oauthtest|bootstraptest|recoverytest|stagingtest|keyloadtest|jwttest)/"
+        linters:
+          - gosec
+
       # Examples are documentation — relax style rules.
       - path: "examples/"
         linters:
@@ -91,11 +99,11 @@ linters:
       - text: "calculated cyclomatic complexity for function Exchange is 28"
         linters:
           - cyclop
-      # linkKeys is the transactional publish of the three key files:
+      # Link is the transactional publish of the three key files:
       # hard-link, fault-injection, two-init detection, symlink refusal,
       # recovery through a leftover staging directory; the order of those
       # branches is the guarantee.
-      - text: "calculated cyclomatic complexity for function linkKeys is 23"
+      - text: "calculated cyclomatic complexity for function Link is 23"
         linters:
           - cyclop
       # TestAppleClientSecret_EndToEndLoopback is a single httptest server
@@ -109,14 +117,14 @@ linters:
       # Same functions, funlen exclusion. The cyclop rules above explain
       # why each function is one piece; funlen would otherwise split the
       # same flow. VerifyIDToken is 92 lines, Exchange is 70 statements
-      # and linkKeys is 55 statements.
+      # and Link is 55 statements.
       - text: "Function 'VerifyIDToken' is too long"
         linters:
           - funlen
       - text: "Function 'Exchange' has too many statements"
         linters:
           - funlen
-      - text: "Function 'linkKeys' has too many statements"
+      - text: "Function 'Link' has too many statements"
         linters:
           - funlen
 
