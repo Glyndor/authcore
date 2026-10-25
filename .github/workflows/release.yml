@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # required by `gh release create` to publish the release
-      pull-requests: read # scripts/release-notes.sh reads the release pull request
+      pull-requests: read # scripts/release-notes/release-notes.sh reads the release pull request
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,7 +46,7 @@ jobs:
           # the generated list of pull requests below them. v1.15.0 and
           # v1.16.0 went out with the list alone, so their breaking changes
           # were not on the release page (#460).
-          bash scripts/release-notes.sh "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" >"${RUNNER_TEMP}/release-notes.md"
+          bash scripts/release-notes/release-notes.sh "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" >"${RUNNER_TEMP}/release-notes.md"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

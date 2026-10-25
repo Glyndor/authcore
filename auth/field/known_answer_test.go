@@ -11,7 +11,7 @@ import (
 // that expected value was computed outside Go. The ciphertext was produced
 // by this module on 2026-09-25 under the same secret and context, and pins
 // the encryption label, the AAD and the nonce placement: a change to any of
-// them makes every stored row unreadable, which docs/field.md says the
+// them makes every stored row unreadable, which docs/modules/field.md says the
 // version suffix on the labels exists to prevent.
 func TestStoredFormats_knownAnswers(t *testing.T) {
 	f, err := New(sharedProviderWith([]byte("0123456789abcdef0123456789abcdef")), Config{Context: "email"})

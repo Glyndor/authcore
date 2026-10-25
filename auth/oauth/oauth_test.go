@@ -7,8 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"math/big"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,89 +17,15 @@ import (
 
 	gjwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/oauth"
+	"github.com/Glyndor/authcore/auth/oauth/internal/oauthtest"
 )
-
-// ---- test infrastructure ----------------------------------------------------
-
-type fakeProvider struct{}
-
-func (fakeProvider) Config() authcore.Config { return authcore.DefaultConfig() }
-func (fakeProvider) Logger() authcore.Logger { return silentLogger{} }
-func (fakeProvider) Keys() authcore.Keys     { return nil }
-
-type silentLogger struct{}
-
-func (silentLogger) Debug(string, ...any) {}
-func (silentLogger) Info(string, ...any)  {}
-func (silentLogger) Warn(string, ...any)  {}
-func (silentLogger) Error(string, ...any) {}
-
-const (
-	testClientID = "client-123"
-	testKID      = "test-key-1"
-)
-
-// jwksServer serves a JWKS document for pubkey under testKID.
-func jwksServer(t *testing.T, pub *rsa.PublicKey) *httptest.Server {
-	t.Helper()
-	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
-	doc := fmt.Sprintf(`{"keys":[{"kty":"RSA","kid":%q,"n":%q,"e":%q}]}`, testKID, n, e)
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(doc))
-	}))
-}
-
-func signIDToken(t *testing.T, key *rsa.PrivateKey, kid string, claims gjwt.MapClaims) string {
-	t.Helper()
-	tok := gjwt.NewWithClaims(gjwt.SigningMethodRS256, claims)
-	tok.Header["kid"] = kid
-	s, err := tok.SignedString(key)
-	if err != nil {
-		t.Fatalf("sign id token: %v", err)
-	}
-	return s
-}
-
-func validClaims(issuer, nonce string) gjwt.MapClaims {
-	return gjwt.MapClaims{
-		"iss":            issuer,
-		"aud":            testClientID,
-		"sub":            "user-abc",
-		"email":          "a@example.com",
-		"email_verified": true,
-		"nonce":          nonce,
-		"exp":            time.Now().Add(time.Hour).Unix(),
-		"iat":            time.Now().Add(-time.Minute).Unix(),
-	}
-}
-
-// newClient builds a client whose Issuer/JWKS point at srv.
-func newClient(t *testing.T, srv *httptest.Server) *oauth.Client {
-	t.Helper()
-	c, err := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID:    testClientID,
-		RedirectURL: "https://app.example.com/cb",
-		Provider: oauth.Provider{
-			Issuer:   srv.URL,
-			AuthURL:  srv.URL + "/auth",
-			TokenURL: srv.URL + "/token",
-			JWKSURL:  srv.URL,
-		},
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	return c
-}
 
 // ---- AuthCodeURL ------------------------------------------------------------
 
 func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
-	c, _ := oauth.New(fakeProvider{}, oauth.Config{
-		ClientID: testClientID, RedirectURL: "https://app/cb", Provider: oauth.Google(),
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
+		ClientID: oauthtest.ClientID, RedirectURL: "https://app/cb", Provider: oauth.Google(),
 	})
 	req, err := c.AuthCodeURL()
 	if err != nil {
@@ -113,7 +38,7 @@ func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
 	q := u.Query()
 	for k, want := range map[string]string{
 		"response_type":         "code",
-		"client_id":             testClientID,
+		"client_id":             oauthtest.ClientID,
 		"code_challenge_method": "S256",
 		"state":                 req.State,
 		"nonce":                 req.Nonce,
@@ -140,7 +65,7 @@ func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
 }
 
 func TestAuthCodeURL_independentPerCall(t *testing.T) {
-	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
 	a, _ := c.AuthCodeURL()
 	b, _ := c.AuthCodeURL()
 	if a.State == b.State || a.Nonce == b.Nonce || a.Verifier == b.Verifier {
@@ -150,28 +75,15 @@ func TestAuthCodeURL_independentPerCall(t *testing.T) {
 
 // ---- New validation ---------------------------------------------------------
 
-func TestNew_invalidConfigRejected(t *testing.T) {
-	cases := map[string]oauth.Config{
-		"no client id": {RedirectURL: "https://app.example/cb", Provider: oauth.Google()},
-		"no redirect":  {ClientID: "x", Provider: oauth.Google()},
-		"no provider":  {ClientID: "x", RedirectURL: "https://app.example/cb"},
-	}
-	for name, cfg := range cases {
-		if _, err := oauth.New(fakeProvider{}, cfg); err == nil {
-			t.Errorf("%s: expected ErrInvalidConfig", name)
-		}
-	}
-}
-
 // ---- VerifyIDToken (the security-critical path) -----------------------------
 
 func TestVerifyIDToken_valid(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	srv := jwksServer(t, &key.PublicKey)
+	srv := oauthtest.JWKSServer(t, &key.PublicKey)
 	defer srv.Close()
-	c := newClient(t, srv)
+	c := oauthtest.NewClient(t, srv)
 
-	tok := signIDToken(t, key, testKID, validClaims(srv.URL, "nonce-xyz"))
+	tok := oauthtest.SignIDToken(t, key, oauthtest.KID, oauthtest.ValidClaims(srv.URL, "nonce-xyz"))
 	claims, err := c.VerifyIDToken(context.Background(), tok, "nonce-xyz")
 	if err != nil {
 		t.Fatalf("VerifyIDToken: %v", err)
@@ -187,63 +99,63 @@ func TestVerifyIDToken_valid(t *testing.T) {
 func TestVerifyIDToken_rejections(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
-	srv := jwksServer(t, &key.PublicKey)
+	srv := oauthtest.JWKSServer(t, &key.PublicKey)
 	defer srv.Close()
-	c := newClient(t, srv)
+	c := oauthtest.NewClient(t, srv)
 	ctx := context.Background()
 
 	t.Run("wrong nonce", func(t *testing.T) {
-		tok := signIDToken(t, key, testKID, validClaims(srv.URL, "right"))
+		tok := oauthtest.SignIDToken(t, key, oauthtest.KID, oauthtest.ValidClaims(srv.URL, "right"))
 		if _, err := c.VerifyIDToken(ctx, tok, "wrong"); err == nil {
 			t.Error("expected rejection on nonce mismatch")
 		}
 	})
 	t.Run("empty nonce supplied", func(t *testing.T) {
-		tok := signIDToken(t, key, testKID, validClaims(srv.URL, ""))
+		tok := oauthtest.SignIDToken(t, key, oauthtest.KID, oauthtest.ValidClaims(srv.URL, ""))
 		if _, err := c.VerifyIDToken(ctx, tok, ""); err == nil {
 			t.Error("expected rejection when no nonce is supplied")
 		}
 	})
 	t.Run("wrong issuer", func(t *testing.T) {
-		cl := validClaims("https://evil.example", "n")
-		tok := signIDToken(t, key, testKID, cl)
+		cl := oauthtest.ValidClaims("https://evil.example", "n")
+		tok := oauthtest.SignIDToken(t, key, oauthtest.KID, cl)
 		if _, err := c.VerifyIDToken(ctx, tok, "n"); err == nil {
 			t.Error("expected rejection on issuer mismatch")
 		}
 	})
 	t.Run("wrong audience", func(t *testing.T) {
-		cl := validClaims(srv.URL, "n")
+		cl := oauthtest.ValidClaims(srv.URL, "n")
 		cl["aud"] = "someone-else"
-		tok := signIDToken(t, key, testKID, cl)
+		tok := oauthtest.SignIDToken(t, key, oauthtest.KID, cl)
 		if _, err := c.VerifyIDToken(ctx, tok, "n"); err == nil {
 			t.Error("expected rejection on audience mismatch")
 		}
 	})
 	t.Run("expired", func(t *testing.T) {
-		cl := validClaims(srv.URL, "n")
+		cl := oauthtest.ValidClaims(srv.URL, "n")
 		cl["exp"] = time.Now().Add(-time.Hour).Unix()
-		tok := signIDToken(t, key, testKID, cl)
+		tok := oauthtest.SignIDToken(t, key, oauthtest.KID, cl)
 		if _, err := c.VerifyIDToken(ctx, tok, "n"); err == nil {
 			t.Error("expected rejection on expired token")
 		}
 	})
 	t.Run("wrong signing key", func(t *testing.T) {
-		tok := signIDToken(t, other, testKID, validClaims(srv.URL, "n"))
+		tok := oauthtest.SignIDToken(t, other, oauthtest.KID, oauthtest.ValidClaims(srv.URL, "n"))
 		if _, err := c.VerifyIDToken(ctx, tok, "n"); err == nil {
 			t.Error("expected rejection when signed by an unlisted key")
 		}
 	})
 	t.Run("hmac alg-confusion", func(t *testing.T) {
 		// A token signed with HS256 must be refused (asymmetric algs only).
-		hs := gjwt.NewWithClaims(gjwt.SigningMethodHS256, validClaims(srv.URL, "n"))
-		hs.Header["kid"] = testKID
+		hs := gjwt.NewWithClaims(gjwt.SigningMethodHS256, oauthtest.ValidClaims(srv.URL, "n"))
+		hs.Header["kid"] = oauthtest.KID
 		s, _ := hs.SignedString([]byte("secret"))
 		if _, err := c.VerifyIDToken(ctx, s, "n"); err == nil {
 			t.Error("expected rejection of an HS256 token")
 		}
 	})
 	t.Run("unknown kid", func(t *testing.T) {
-		tok := signIDToken(t, key, "no-such-kid", validClaims(srv.URL, "n"))
+		tok := oauthtest.SignIDToken(t, key, "no-such-kid", oauthtest.ValidClaims(srv.URL, "n"))
 		if _, err := c.VerifyIDToken(ctx, tok, "n"); err == nil {
 			t.Error("expected rejection for an unknown kid")
 		}
@@ -264,7 +176,7 @@ func TestExchange_success(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	c := newClient(t, srv)
+	c := oauthtest.NewClient(t, srv)
 
 	tok, err := c.Exchange(context.Background(), "the-code", "the-verifier")
 	if err != nil {
@@ -287,7 +199,7 @@ func TestExchange_errors(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":"bad"}`))
 		}))
 		defer srv.Close()
-		if _, err := newClient(t, srv).Exchange(context.Background(), "c", "v"); err == nil {
+		if _, err := oauthtest.NewClient(t, srv).Exchange(context.Background(), "c", "v"); err == nil {
 			t.Error("expected ErrExchange on 400")
 		}
 	})
@@ -296,15 +208,156 @@ func TestExchange_errors(t *testing.T) {
 			_, _ = w.Write([]byte(`{"access_token":"at"}`))
 		}))
 		defer srv.Close()
-		if _, err := newClient(t, srv).Exchange(context.Background(), "c", "v"); err == nil {
+		if _, err := oauthtest.NewClient(t, srv).Exchange(context.Background(), "c", "v"); err == nil {
 			t.Error("expected ErrNoIDToken")
 		}
 	})
 }
 
 func TestName(t *testing.T) {
-	c, _ := oauth.New(fakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
 	if c.Name() != "oauth" {
 		t.Errorf("Name() = %q, want oauth", c.Name())
+	}
+}
+
+func TestVerifyIDToken_rejectsNonOIDCProvider(t *testing.T) {
+	// A plain-OAuth2 client (UserInfoURL only) has nothing to verify an ID
+	// token against; VerifyIDToken must refuse the call rather than skip the
+	// iss check silently.
+	c := oauthtest.OAuth2Client(t, "https://provider.example/userinfo")
+	_, err := c.VerifyIDToken(context.Background(), "anything", "nonce")
+	if !errors.Is(err, oauth.ErrIDTokenInvalid) {
+		t.Fatalf("expected ErrIDTokenInvalid, got %v", err)
+	}
+	// The sentinel alone does not pin this down: a malformed token, or a JWKS
+	// that yields no key, reaches the same sentinel by another route. Require
+	// the refusal to name the configuration, so removing the check is visible
+	// here.
+	if !strings.Contains(err.Error(), "not configured for OIDC") {
+		t.Fatalf("error does not name the rule that refused the call: %v", err)
+	}
+}
+
+func TestUserInfo_noURLConfigured(t *testing.T) {
+	key := oauthtest.MustRSA(t)
+	srv := oauthtest.JWKSServer(t, &key.PublicKey)
+	defer srv.Close()
+	// An OIDC client has no UserInfoURL.
+	_, err := oauthtest.NewClient(t, srv).UserInfo(context.Background(), "x")
+	if !errors.Is(err, oauth.ErrNoUserInfo) {
+		t.Fatalf("expected ErrNoUserInfo on an OIDC client, got %v", err)
+	}
+}
+
+func TestAuthCodeURL_defaultScopesIncludeOpenID(t *testing.T) {
+	// No scopes set -> the OIDC default set is used. The test pins the exact
+	// decoded value so a regression that drops a scope or reorders them
+	// (e.g. building a different "openid email profile" sequence) does not
+	// pass on the "contains openid" check alone.
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
+		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google(),
+	})
+	req, _ := c.AuthCodeURL()
+	u, _ := url.Parse(req.URL)
+	if got, want := u.Query().Get("scope"), "openid email profile"; got != want {
+		t.Errorf("scope = %q, want %q", got, want)
+	}
+}
+
+func TestAuthCodeURL_callerScopesVerbatim(t *testing.T) {
+	// Caller-supplied scopes are used as-is (no openid injected) — required for
+	// plain-OAuth2 providers like GitHub.
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
+		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.GitHub(),
+		Scopes: []string{"read:user", "user:email"},
+	})
+	req, _ := c.AuthCodeURL()
+	if strings.Contains(req.URL, "openid") {
+		t.Error("openid must not be injected into caller-supplied scopes")
+	}
+}
+
+// TestAuthCodeURL_dedupsPreExistingQueryParameters pins the parse-then-Set
+// path: when the AuthURL already carries a "state" or "code_challenge"
+// parameter, the call must overwrite it instead of producing duplicates
+// (which most OIDC servers read as the pre-existing value).
+//
+// The AuthURL below carries a pre-existing value for every parameter the
+// library generates. Each one is asserted to be present exactly once, with
+// the fresh value, so a regression that switched from url.Values.Set to
+// url.Values.Add, or that left a parameter alone, would either repeat the
+// pre-existing string ("plain", "pre", "evil.example", "token") or drop
+// the fresh value.
+func TestAuthCodeURL_dedupsPreExistingQueryParameters(t *testing.T) {
+	c, err := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
+		ClientID: oauthtest.ClientID,
+		Scopes:   []string{"openid email profile"},
+		Provider: oauth.Provider{
+			Issuer:   "https://id.example",
+			AuthURL:  "https://id.example/auth?state=fixed&client_id=cid&code_challenge=pre-existing&code_challenge_method=plain&nonce=pre&redirect_uri=https://evil.example/cb&scope=pre&response_type=token",
+			TokenURL: "https://id.example/token",
+			JWKSURL:  "https://id.example/jwks",
+		},
+		RedirectURL: "https://app.example/cb",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	req, err := c.AuthCodeURL()
+	if err != nil {
+		t.Fatalf("AuthCodeURL: %v", err)
+	}
+	u, err := url.Parse(req.URL)
+	if err != nil {
+		t.Fatalf("parse AuthCodeURL result: %v", err)
+	}
+	checks := map[string]string{
+		"state":                 req.State,
+		"nonce":                 req.Nonce,
+		"client_id":             oauthtest.ClientID,
+		"code_challenge":        "", // not equal to "pre-existing"; checked below
+		"code_challenge_method": "S256",
+		"redirect_uri":          "https://app.example/cb",
+		"scope":                 "openid email profile",
+		"response_type":         "code",
+	}
+	for key, want := range checks {
+		vs := u.Query()[key]
+		if len(vs) != 1 {
+			t.Errorf("%s: got %d values (%v), want exactly 1", key, len(vs), vs)
+			continue
+		}
+		if key == "code_challenge" {
+			if vs[0] == "pre-existing" {
+				t.Errorf("%s: must be overwritten, still %q", key, vs[0])
+			}
+			continue
+		}
+		if vs[0] != want {
+			t.Errorf("%s = %q, want %q", key, vs[0], want)
+		}
+	}
+}
+
+// TestAuthCodeURL_handlesQuerylessAuthURL pins the parse path for a URL
+// with no pre-existing query string.
+func TestAuthCodeURL_handlesQuerylessAuthURL(t *testing.T) {
+	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
+		ClientID:    oauthtest.ClientID,
+		RedirectURL: "https://app.example/cb",
+		Provider: oauth.Provider{
+			Issuer:   "https://id.example",
+			AuthURL:  "https://id.example/auth",
+			TokenURL: "https://id.example/token",
+			JWKSURL:  "https://id.example/jwks",
+		},
+	})
+	req, err := c.AuthCodeURL()
+	if err != nil {
+		t.Fatalf("AuthCodeURL: %v", err)
+	}
+	if !strings.HasPrefix(req.URL, "https://id.example/auth?") {
+		t.Errorf("AuthCodeURL result = %q, want a path followed by ?", req.URL)
 	}
 }

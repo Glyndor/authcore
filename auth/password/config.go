@@ -1,6 +1,10 @@
 package password
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Glyndor/authcore/auth/password/internal/phc"
+)
 
 // Config holds the password module configuration.
 //
@@ -108,6 +112,12 @@ func DefaultConfig() Config {
 	}
 }
 
+// phcParams is the Argon2id cost cfg describes, in the form internal/phc and
+// internal/kdf take.
+func (c Config) phcParams() phc.Params {
+	return phc.Params{Memory: c.Memory, Iterations: c.Iterations, Parallelism: c.Parallelism}
+}
+
 // ptr is a tiny helper so DefaultConfig can take the address of a true
 // literal without a temporary local. It is intentionally unexported.
 func ptr[T any](v T) *T { return &v }
@@ -171,9 +181,9 @@ func applyDefaults(cfg Config) Config {
 }
 
 const (
-	minMemory     = 8 * 1024        // 8 MiB in KiB
-	maxMemory     = 4 * 1024 * 1024 // 4 GiB in KiB — prevents accidental DoS
-	maxIterations = 20              // beyond this, hashing takes tens of seconds
+	minMemory     = phc.MinMemory     // 8 MiB in KiB
+	maxMemory     = phc.MaxMemory     // 4 GiB in KiB — prevents accidental DoS
+	maxIterations = phc.MaxIterations // beyond this, hashing takes tens of seconds
 
 	// minPolicyLength is the smallest value validateConfig will accept for
 	// MinLength. 8 is the modern floor below which brute-force windows

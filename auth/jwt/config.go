@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Glyndor/authcore/auth/jwt/internal/vkey"
 )
 
 // Config holds the JWT module configuration.
@@ -181,7 +183,7 @@ func validateConfig(cfg Config) error {
 		if len(pk) != ed25519.PublicKeySize {
 			return fmt.Errorf("previous public key %d has wrong length: got %d, want %d", i, len(pk), ed25519.PublicKeySize)
 		}
-		if err := checkVerificationKey(pk); err != nil {
+		if err := vkey.Check(pk); err != nil {
 			return fmt.Errorf("previous public key %d cannot be trusted: %w", i, err)
 		}
 	}

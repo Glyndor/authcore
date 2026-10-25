@@ -9,7 +9,7 @@ name: Pin watch
 # every run, for each pin, ask `gh release view` what the upstream
 # latest non-prerelease tag is and compare against the value in the
 # workflow. The selection and the report live in
-# `.github/scripts/pin_watch.py`; the `report` job below also runs
+# `.github/scripts/pin_watch/pin_watch.py`; the `report` job below also runs
 # the script's unit tests so a broken edit cannot merge without
 # having been executed.
 #
@@ -40,7 +40,7 @@ name: Pin watch
 #   report went quiet.
 #
 # Adding a hand pin means adding a row to `PINS` in
-# `.github/scripts/pin_watch.py` and bumping the version and its
+# `.github/scripts/pin_watch/pin_watch.py` and bumping the version and its
 # sha256 together in the workflow; the report, the real-workflow
 # test, and the issue body all derive from that one row.
 #
@@ -87,7 +87,7 @@ jobs:
         # did not pin. Discovery uses the same path the watch job
         # runs against.
         run: |
-          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s .github/scripts/pin_watch -p 'test_*.py' -v
 
       - name: Run pin watch report
         env:
@@ -99,7 +99,7 @@ jobs:
         # issues on this code path.
         run: |
           set -euo pipefail
-          python3 .github/scripts/pin_watch.py --report
+          python3 .github/scripts/pin_watch/pin_watch.py --report
 
   watch:
     name: pin watch
@@ -123,4 +123,4 @@ jobs:
         # written issue.
         run: |
           set -euo pipefail
-          python3 .github/scripts/pin_watch.py --issue
+          python3 .github/scripts/pin_watch/pin_watch.py --issue

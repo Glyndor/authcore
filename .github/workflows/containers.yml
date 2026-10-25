@@ -1,7 +1,7 @@
 name: Containers
 
-# Runs examples/containers/recipe.sh, which turns the central claims of
-# docs/containers.md into a check: keygen once, copy into a named volume, the
+# Runs examples/deploy/containers/recipe.sh, which turns the central claims of
+# docs/guides/containers.md into a check: keygen once, copy into a named volume, the
 # guard that refuses an existing volume, three read-only keep-id replicas that
 # must all load the same key, a down -v and up that must keep it, and an empty
 # volume that RequireExistingKeys must refuse.
@@ -33,7 +33,7 @@ jobs:
     name: containers recipe
     # podup requires Podman 5.0 or later. ubuntu-24.04, which ubuntu-latest
     # still points to, ships Podman 4.9.3; ubuntu-26.04 ships 5.7.0, the
-    # version docs/containers.md was measured on (both read 2026-10-04).
+    # version docs/guides/containers.md was measured on (both read 2026-10-04).
     runs-on: ubuntu-26.04
     # 15 minutes is a ceiling, not a measurement: tighten it after the
     # first runs are read.
@@ -68,4 +68,4 @@ jobs:
           podman --remote version
 
       - name: Run the containers recipe
-        run: bash examples/containers/recipe.sh
+        run: bash examples/deploy/containers/recipe.sh

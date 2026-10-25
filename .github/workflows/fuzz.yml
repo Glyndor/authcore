@@ -17,16 +17,16 @@ jobs:
         [
           {"package":"./auth/email","func":"FuzzValidateAndNormalize"},
           {"package":"./auth/username","func":"FuzzValidateAndNormalize"},
-          {"package":"./auth/jwt","func":"FuzzVerifyAccessToken"},
-          {"package":"./auth/jwt","func":"FuzzIsUUIDv7"},
-          {"package":"./auth/password","func":"FuzzValidatePolicy"},
-          {"package":"./auth/password","func":"FuzzParsePHC"},
+          {"package":"./auth/jwt/internal/verify","func":"FuzzVerifyAccessToken"},
+          {"package":"./auth/jwt/internal/tokenid","func":"FuzzIsUUIDv7"},
+          {"package":"./auth/password/internal/policy","func":"FuzzValidatePolicy"},
+          {"package":"./auth/password/internal/phc","func":"FuzzParsePHC"},
           {"package":"./auth/apikey","func":"FuzzParseID"},
-          {"package":"./auth/oauth","func":"FuzzParseJWK"},
+          {"package":"./auth/oauth/internal/jwks/jwk","func":"FuzzParseJWK"},
           {"package":"./auth/credential","func":"FuzzVerify"},
           {"package":"./auth/field","func":"FuzzDecrypt"},
           {"package":"./auth/field","func":"FuzzEncryptDecrypt"},
-          {"package":"./auth/totp","func":"FuzzVerify"},
-          {"package":"./auth/totp","func":"FuzzVerifyRecoveryCode"},
+          {"package":"./auth/totp/internal/verifier","func":"FuzzVerify"},
+          {"package":"./auth/totp/internal/recovery","func":"FuzzVerifyRecoveryCode"},
           {"package":"./internal/keymanager","func":"FuzzFromPEM"}
         ]
