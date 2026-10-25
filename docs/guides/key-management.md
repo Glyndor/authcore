@@ -121,6 +121,21 @@ secret, so it reveals nothing about the secret.
   rewrite both the key files and `metadata.json` already controls the
   directory, and no marker can defend against that.
 
+### What the checks cannot see
+
+The checks above compare the files in the directory with each other. A directory
+restored **entirely** from an older backup (keys, refresh secret and
+`metadata.json` together) is consistent with itself, so it loads without a
+warning and authcore carries on with the older set: tokens and column keys of
+the newer set stop working, and nothing in the directory says the set is old.
+Keep track of which set is current outside the directory (the key id is printed
+by `authcore-keygen` and recorded in `metadata.json`).
+
+Replace key files while no process is starting, not during a start. A start
+reads the three files one after another, and an operator who rotates them in
+the same moment can leave a process with files from two sets. Stop the process,
+replace the set as a whole, then start it.
+
 ## Load-only in production
 
 Set `Config.RequireExistingKeys = true` to make the disk store load-only.

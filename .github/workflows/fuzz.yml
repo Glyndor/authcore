@@ -74,5 +74,6 @@ jobs:
           {"package":"./auth/oauth/internal/exchange","func":"FuzzRequestFidelity"},
           {"package":"./auth/oauth/internal/issuer","func":"FuzzIssuerPredicates"},
           {"package":"./auth/oauth/internal/jwks/candidate","func":"FuzzPick"},
-          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"}
+          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"},
+          {"package":"./tests/hostile/keymanager","func":"FuzzOpenWithHostileFile"}
         ]
