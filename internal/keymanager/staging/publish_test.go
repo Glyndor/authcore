@@ -125,7 +125,7 @@ func TestPublish_losingThePrivateLinkRaceAsksTheCallerToWait(t *testing.T) {
 
 func TestPublish_missingKeysDirectoryIsReported(t *testing.T) {
 	_, _, _, err := Publish(filepath.Join(t.TempDir(), "absent"), stagingtest.SilentLog{})
-	if err == nil || !strings.Contains(err.Error(), "create staging directory") {
-		t.Fatalf("Publish = %v, want the create-staging-directory failure", err)
+	if err == nil || !strings.Contains(err.Error(), "sync keys directory") {
+		t.Fatalf("Publish = %v, want the keys-directory failure", err)
 	}
 }
