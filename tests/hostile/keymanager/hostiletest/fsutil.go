@@ -18,13 +18,13 @@ func RestoreDirTree(dir string) {
 	for _, n := range append(layout.KeyFileNames(), layout.FileMetadata) {
 		p := filepath.Join(dir, n)
 		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink == 0 {
-			_ = os.Chmod(p, 0o700)
+			_ = os.Chmod(p, 0o700) // #nosec G302 -- the test must make its own fixture removable again
 		}
 	}
-	_ = os.Chmod(dir, 0o700)
+	_ = os.Chmod(dir, 0o700) // #nosec G302 -- the test must make its own fixture removable again
 	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if d != nil && d.IsDir() {
-			_ = os.Chmod(p, 0o700)
+			_ = os.Chmod(p, 0o700) // #nosec G122 G302 -- temp sandbox of the test, no attacker is running while it is restored
 		}
 		return nil
 	})
@@ -43,7 +43,7 @@ func ModeOf(t testing.TB, path string) os.FileMode {
 // PublishedPrivate returns the private key file of dir, or nil when none was published.
 func PublishedPrivate(t testing.TB, dir string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, layout.FilePrivateKey))
+	b, err := os.ReadFile(filepath.Join(dir, layout.FilePrivateKey)) // #nosec G304 -- test fixture path inside a temp sandbox
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

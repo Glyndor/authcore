@@ -157,7 +157,7 @@ func Put(t testing.TB, path string, data []byte, mode os.FileMode) {
 // Read returns the content of path or fails the test.
 func Read(t testing.TB, path string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- test fixture path inside a temp sandbox
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func Tree(t testing.TB, root string) map[string]Entry {
 			// Too big to hash cheaply; the size and mode still catch a rewrite.
 			out[rel] = Entry(fmt.Sprintf("big file %04o %d", fi.Mode().Perm(), fi.Size()))
 		case fi.Mode().IsRegular():
-			data, err := os.ReadFile(p)
+			data, err := os.ReadFile(p) // #nosec G122 G304 -- test fixture path inside a temp sandbox, no attacker runs while it is snapshotted
 			if err != nil {
 				out[rel] = Entry(fmt.Sprintf("unreadable %04o", fi.Mode().Perm()))
 				return nil
@@ -309,7 +309,7 @@ func RestoreMode(t testing.TB, paths ...string) {
 	t.Helper()
 	t.Cleanup(func() {
 		for _, p := range slices.Backward(paths) {
-			_ = os.Chmod(p, 0o700)
+			_ = os.Chmod(p, 0o700) // #nosec G302 -- the test must reopen a directory it locked, so it needs 0700
 		}
 	})
 }
