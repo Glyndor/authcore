@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/redirect"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 	"github.com/Glyndor/authcore/auth/oauth/internal/urlcheck"
 )
 
@@ -77,7 +78,7 @@ func Fetch(ctx context.Context, issuer string, httpClient *http.Client, errDisco
 	// two are not the same value to a comparison that does not know which
 	// form was canonicalised when.
 	if doc.Issuer != issuer {
-		return Document{}, fmt.Errorf("%w: issuer mismatch: document says %q", errDiscovery, doc.Issuer)
+		return Document{}, fmt.Errorf("%w: issuer mismatch: document says %s", errDiscovery, safetext.Quote(doc.Issuer))
 	}
 	if doc.AuthURL == "" || doc.TokenURL == "" || doc.JWKSURL == "" {
 		return Document{}, fmt.Errorf("%w: document missing required endpoints", errDiscovery)

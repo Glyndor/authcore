@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // RequireNoFragment rejects a URL whose fragment is non-empty. The OIDC
@@ -19,7 +21,7 @@ func RequireNoFragment(label, raw string) error {
 		return nil
 	}
 	if u.Fragment != "" || strings.Contains(raw, "#") {
-		return fmt.Errorf("%s must not carry a fragment: %q", label, raw)
+		return fmt.Errorf("%s must not carry a fragment: %s", label, safetext.Quote(raw))
 	}
 	return nil
 }
@@ -38,10 +40,10 @@ func RequireHTTPS(label, raw string) error {
 		return fmt.Errorf("%s is not a valid URL: %w", label, err)
 	}
 	if u.Opaque != "" {
-		return fmt.Errorf("%s is opaque, not a hierarchical URL: %q", label, raw)
+		return fmt.Errorf("%s is opaque, not a hierarchical URL: %s", label, safetext.Quote(raw))
 	}
 	if u.Host == "" {
-		return fmt.Errorf("%s has no host, not a hierarchical URL: %q", label, raw)
+		return fmt.Errorf("%s has no host, not a hierarchical URL: %s", label, safetext.Quote(raw))
 	}
 	switch u.Scheme {
 	case "https":
@@ -51,7 +53,7 @@ func RequireHTTPS(label, raw string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%s must use https (got %q in %q)", label, u.Scheme, raw)
+	return fmt.Errorf("%s must use https (got %s in %s)", label, safetext.Quote(u.Scheme), safetext.Quote(raw))
 }
 
 // isLoopbackHost reports whether host is a loopback address (dev-only http).
