@@ -37,7 +37,7 @@ Each module is an independent package that takes the `Provider` and is usable on
 go get github.com/Glyndor/authcore
 ```
 
-Requires **Go 1.26.9+**. On first run authcore writes an Ed25519 signing key and an HMAC refresh secret to `KeysDir` (default `.authcore/`); in production, point it at a mounted volume or provision the keys once with `authcore-keygen`. See [Key management](docs/guides/key-management.md) and [Containers](docs/guides/containers.md).
+Requires **Go 1.26.10+**. On first run authcore writes an Ed25519 signing key and an HMAC refresh secret to `KeysDir` (default `.authcore/`); in production, point it at a mounted volume or provision the keys once with `authcore-keygen`. See [Key management](docs/guides/key-management.md) and [Containers](docs/guides/containers.md).
 
 ## Quick start
 
