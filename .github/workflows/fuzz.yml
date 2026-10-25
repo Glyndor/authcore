@@ -19,6 +19,7 @@ jobs:
           {"package":"./auth/username","func":"FuzzValidateAndNormalize"},
           {"package":"./auth/jwt/internal/verify","func":"FuzzVerifyAccessToken"},
           {"package":"./auth/jwt/internal/tokenid","func":"FuzzIsUUIDv7"},
+          {"package":"./auth/jwt/internal/strictjson","func":"FuzzCheckAgreesWithDecoders"},
           {"package":"./auth/password/internal/policy","func":"FuzzValidatePolicy"},
           {"package":"./auth/password/internal/phc","func":"FuzzParsePHC"},
           {"package":"./auth/apikey","func":"FuzzParseID"},
@@ -49,5 +50,11 @@ jobs:
           {"package":"./auth/totp/internal/otpauth","func":"FuzzURI"},
           {"package":"./auth/totp/internal/secret","func":"FuzzDecode"},
           {"package":"./auth/email","func":"FuzzAcceptedAddressIsSafe"},
-          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"}
+          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"},
+          {"package":"./tests/hostile/jwt","func":"FuzzVerifyAccessTokenAgreesWithReference"},
+          {"package":"./tests/hostile/password","func":"FuzzVerifyMatchesReferenceArgon2"},
+          {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"},
+          {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"},
+          {"package":"./tests/hostile/identity","func":"FuzzEmailCanonicalFixedPoint"},
+          {"package":"./tests/hostile/identity","func":"FuzzUsernameMatchesSpec"}
         ]

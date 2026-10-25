@@ -83,6 +83,19 @@ fmt.Println(claims.ExpiresAt)  // time.Time
 > signed token with a date outside that range, or a number too large to be a
 > date, is rejected with `ErrTokenInvalid`.
 
+> [!NOTE]
+> A token's header and payload must each read one way. The top-level object
+> is rejected with `ErrTokenMalformed` when it repeats a key, when two of its
+> keys differ only in capitalisation (`role` and `Role`), or when a key matches
+> a name this module reads (`alg`, `kid`, `typ`, `iss`, `sub`, `aud`, `exp`,
+> `nbf`, `iat`, `jti`, `type`, `rid`, `extra`) but is spelt differently (`EXP`).
+> Nested objects are not inspected, and a custom claim whose name is not one of
+> those is accepted in any capitalisation as long as no other key of the same
+> object folds to it.
+>
+> Breaking change (minor): tokens issued by this module never have such keys,
+> so only a token written by another signer can be affected.
+
 ## Rotating tokens
 
 Each refresh token carries a random `rid` claim, so two tokens of one session

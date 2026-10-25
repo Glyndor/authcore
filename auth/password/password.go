@@ -23,7 +23,10 @@
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
 //   - Printable input only: Hash refuses control, format and other
-//     default-ignorable characters, and the blank braille pattern
+//     default-ignorable characters, and the blank braille pattern. Variation
+//     selectors are accepted on purpose (emoji and some CJK characters carry
+//     them) and are not folded: two passwords that render the same but differ
+//     in a variation selector are different passwords.
 //
 // # What is tunable
 //
@@ -235,8 +238,10 @@ func (p *Password) Hash(plaintext string) (string, error) {
 // Returns ErrInvalidHash when phcHash is malformed, uses a non-Argon2id
 // algorithm, or carries parameters or salt/key lengths outside the ranges
 // above, or when any of Memory, Iterations and Parallelism is higher than the
-// module accepts: 128 times the configured Memory (at most 1 GiB), and 8 times
-// the configured Iterations and Parallelism. A hash above that is refused
+// module accepts: 128 times the configured Memory (at most 1 GiB, or the
+// configured Memory when that is larger), and 8 times the configured Iterations
+// and Parallelism, and when Memory times Iterations is above 4 GiB-passes (or
+// the configured product when that is larger). A hash above that is refused
 // before any key is derived. A truncated hash never reaches the KDF, so it can neither verify
 // true nor crash the process.
 //
@@ -249,7 +254,7 @@ func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
 	// to their account.
 	plaintext = norm.NFC.String(plaintext)
 
-	ok, err := kdf.Verify(plaintext, phcHash, p.cfg.verifyCeiling())
+	ok, err := kdf.Verify(plaintext, phcHash, p.cfg.verifyCeiling(), p.cfg.verifyWorkCeiling())
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrInvalidHash, invalidHash{cause: err})
 	}

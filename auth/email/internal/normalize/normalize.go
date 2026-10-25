@@ -4,6 +4,7 @@ package normalize
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 
@@ -39,7 +40,18 @@ func Address(address string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	domain := strings.ToLower(trimmed[atIdx+1:])
+	// The domain goes to IDNA as typed: the Lookup profile applies the UTS #46
+	// case mapping itself. Lowercasing first with strings.ToLower used Go's
+	// simple case table instead, which turned U+0130 into an ASCII "i" and
+	// let the capital Georgian letters and U+04C0 through as their small forms,
+	// all of which UTS #46 maps differently or disallows.
+	domain := trimmed[atIdx+1:]
+	// IDNA reads an invalid UTF-8 byte as U+FFFD and converts it, so every such
+	// byte gave the same ASCII name ("xn--zn7c") that the next validation then
+	// refused. The local part already refuses invalid UTF-8 for the same reason.
+	if !utf8.ValidString(domain) {
+		return "", errs.Invalid(fmt.Errorf("domain is not valid UTF-8"))
+	}
 	ascii, err := idnaProfile.ToASCII(domain)
 	if err != nil {
 		return "", errs.Invalid(fmt.Errorf("domain %q is not a valid internationalised name: %w", domain, err))
