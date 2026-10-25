@@ -17,7 +17,8 @@ func TestVerifyCeiling(t *testing.T) {
 		{"minimum", Config{Memory: 8192, Iterations: 1, Parallelism: 1}, phc.Params{Memory: 1048576, Iterations: 8, Parallelism: 8}},
 		{"default", DefaultConfig(), phc.Params{Memory: 1048576, Iterations: 20, Parallelism: 16}},
 		{"small memory", Config{Memory: 9000, Iterations: 1, Parallelism: 1}, phc.Params{Memory: 1048576, Iterations: 8, Parallelism: 8}},
-		{"maximum", Config{Memory: phc.MaxMemory, Iterations: phc.MaxIterations, Parallelism: 255}, phc.Params{Memory: 1048576, Iterations: 20, Parallelism: 255}},
+		// A module configured above the absolute limit still verifies what it writes.
+		{"maximum", Config{Memory: phc.MaxMemory, Iterations: phc.MaxIterations, Parallelism: 255}, phc.Params{Memory: phc.MaxMemory, Iterations: 20, Parallelism: 255}},
 	}
 	for _, tc := range cases {
 		if got := tc.cfg.verifyCeiling(); got != tc.want {
