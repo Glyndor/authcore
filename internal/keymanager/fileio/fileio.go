@@ -17,9 +17,11 @@ import (
 
 // ReadCapped reads up to layout.MaxKeyFileSize bytes from path and returns an error
 // if the file is larger. It replaces os.ReadFile at every key-loading site.
+//
+// It never waits: an entry that is not a regular file, such as a pipe that took
+// the place of a key file after the caller checked it, is an error, not a hang.
 func ReadCapped(path string) ([]byte, error) {
-	// #nosec G304 -- path derived from trusted config.KeysDir and fixed filename, not user input
-	f, err := os.Open(path)
+	f, err := openRegular(path)
 	if err != nil {
 		return nil, err
 	}
@@ -30,10 +32,15 @@ func ReadCapped(path string) ([]byte, error) {
 		return nil, fmt.Errorf("file %q is %d bytes, exceeds %d-byte cap", path, fi.Size(), layout.MaxKeyFileSize)
 	}
 
-	// Read at most layout.MaxKeyFileSize+1 bytes. If the +1 byte actually arrives,
-	// the file streams more than the stat reported (symlink race, pipe-like
-	// path) and the loader refuses it.
-	data, err := io.ReadAll(io.LimitReader(f, layout.MaxKeyFileSize+1))
+	return readWithinCap(path, f)
+}
+
+// readWithinCap reads r, refusing more than layout.MaxKeyFileSize bytes. It
+// reads at most one byte past the cap: if that byte arrives, the source streams
+// more than the size Stat reported (a file that grew after the check) and the
+// loader refuses it.
+func readWithinCap(path string, r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, layout.MaxKeyFileSize+1))
 	if err != nil {
 		return nil, err
 	}
