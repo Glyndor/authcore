@@ -46,7 +46,7 @@
 //
 // The policy layer is open with secure defaults: the TTL (how long a
 // token stays valid) is configurable within a 1-nanosecond-to-24-hour
-// range, enforced by validateConfig. See docs/configuration.md for the
+// range, enforced by validateConfig. See docs/guides/configuration.md for the
 // principle.
 package credential
 

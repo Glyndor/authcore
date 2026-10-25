@@ -81,3 +81,12 @@ type policyViolation struct{ reason error }
 func (v *policyViolation) Error() string   { return ErrWeakPassword.Error() + ": " + v.reason.Error() }
 func (v *policyViolation) Is(t error) bool { return t == ErrWeakPassword }
 func (v *policyViolation) Unwrap() error   { return v.reason }
+
+// invalidHash carries the text of a phc.Parse refusal and reports itself as
+// ErrInvalidHash, which is the sentinel this package exports for it.
+type invalidHash struct{ cause error }
+
+func (e invalidHash) Is(target error) bool { return target == ErrInvalidHash }
+func (e invalidHash) Unwrap() error        { return e.cause }
+
+func (e invalidHash) Error() string { return e.cause.Error() }

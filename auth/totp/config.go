@@ -5,7 +5,7 @@ import "fmt"
 // Config holds the totp module configuration.
 //
 // The configuration is split into two layers, matching the authcore
-// principle documented in docs/configuration.md:
+// principle documented in docs/guides/configuration.md:
 //
 //   - The cryptographic layer is CLOSED and is not configurable here.
 //     HMAC-SHA1, 30-second time step, 6-digit codes, 20-byte secrets, and

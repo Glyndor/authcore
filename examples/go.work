@@ -19,14 +19,14 @@ go 1.26.9
 
 use (
 	../
-	./apikey
-	./basic
-	./containers
-	./email
-	./fiber
-	./gin
-	./jwt
-	./oauth
-	./password
-	./username
+	./modules/apikey
+	./modules/basic
+	./deploy/containers
+	./modules/email
+	./frameworks/fiber
+	./frameworks/gin
+	./modules/jwt
+	./modules/oauth
+	./modules/password
+	./modules/username
 )

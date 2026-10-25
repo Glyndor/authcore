@@ -3,50 +3,19 @@ package jwt
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/subtle"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/jwt/internal/claims"
+	"github.com/Glyndor/authcore/auth/jwt/internal/denylist"
+	"github.com/Glyndor/authcore/auth/jwt/internal/issue"
+	"github.com/Glyndor/authcore/auth/jwt/internal/refreshhash"
+	"github.com/Glyndor/authcore/auth/jwt/internal/rotation"
+	"github.com/Glyndor/authcore/auth/jwt/internal/verify"
 	"github.com/Glyndor/authcore/internal/clock"
 	"github.com/Glyndor/authcore/internal/keymanager"
 )
-
-// isUUIDv7 reports whether s is a valid UUID v7 string (RFC 9562 §5.7).
-// Accepts both upper and lower case — no prior normalization is required,
-// removing the implicit dependency on strings.ToLower being called upstream.
-//
-// UUID canonical form: xxxxxxxx-xxxx-7xxx-[89ab]xxx-xxxxxxxxxxxx (36 chars).
-func isUUIDv7(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
-		return false
-	}
-	// Position 14: version digit must be '7'.
-	if s[14] != '7' {
-		return false
-	}
-	// Position 19: variant bits must be 8, 9, a, or b (case-insensitive).
-	switch s[19] {
-	case '8', '9', 'a', 'b', 'A', 'B':
-	default:
-		return false
-	}
-	// All other positions must be hex digits.
-	for i := 0; i < 36; i++ {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			continue
-		}
-		c := s[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return false
-		}
-	}
-	return true
-}
 
 // Compile-time assertion: *JWT[struct{}] must satisfy authcore.Module.
 var _ authcore.Module = (*JWT[struct{}])(nil)
@@ -232,81 +201,25 @@ func (j *JWT[T]) CreateTokens(subject string, extra T) (*TokenPair, error) {
 	if j == nil || !j.initialised {
 		return nil, ErrNotInitialised
 	}
-	subject = strings.ToLower(subject)
-	if !isUUIDv7(subject) {
-		return nil, ErrInvalidSubject
-	}
-
-	jti, err := generateJTI(j.clock.Now())
+	r, err := issue.Create(j.issueParams(), j.clock.Now(), subject, extra)
 	if err != nil {
 		return nil, err
 	}
-
-	return j.issueTokens(subject, jti, extra)
+	return (*TokenPair)(r), nil
 }
 
-// issueTokens signs a new access+refresh pair for subject using the provided jti.
-// CreateTokens generates a fresh jti; RotateTokens reuses the existing session jti
-// so that SessionID remains stable for the lifetime of the session.
-func (j *JWT[T]) issueTokens(subject, jti string, extra T) (*TokenPair, error) {
-	now := j.clock.Now()
-
-	// golang-jwt truncates the exp claim to whole seconds. Apply the same
-	// truncation here so AccessTokenExpiresAt reports exactly what the signed
-	// claim says; a sub-second TTL must not round in the operator's view.
-	accessExpiresAt := now.Add(j.cfg.AccessTokenTTL).Truncate(time.Second)
-	refreshExpiresAt := now.Add(j.cfg.RefreshTokenTTL).Truncate(time.Second)
-
-	// ----- Access token -----
-	accessToken, err := signToken(newAccessClaims(j.cfg.Issuer, subject, jti, j.cfg.Audience, extra, now, j.cfg.AccessTokenTTL), j.priv, j.kid)
-	if err != nil {
-		return nil, fmt.Errorf("sign access token: %w", err)
+// issueParams snapshots the signing policy the issue package applies.
+func (j *JWT[T]) issueParams() issue.Params {
+	return issue.Params{
+		Priv:       j.priv,
+		KID:        j.kid,
+		Issuer:     j.cfg.Issuer,
+		Audience:   j.cfg.Audience,
+		AccessTTL:  j.cfg.AccessTokenTTL,
+		RefreshTTL: j.cfg.RefreshTokenTTL,
+		Secret:     j.secret,
+		Log:        j.log,
 	}
-	if n := len(accessToken); n > maxTokenLen {
-		// Enforce the same cap the verifier applies. A token that exceeds the
-		// limit would verify as ErrTokenOversized, so refuse at issuance with
-		// a message that names the limit and the actual length instead of
-		// letting the operator discover it on the next request.
-		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
-			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
-	}
-
-	// ----- Refresh token (no extra) -----
-	// Each refresh token gets a fresh random rid here, next to signing, so
-	// newRefreshClaims stays a pure constructor.
-	rid, err := generateRID()
-	if err != nil {
-		return nil, err
-	}
-	refreshToken, err := signToken(newRefreshClaims(j.cfg.Issuer, subject, jti, rid, j.cfg.Audience, now, j.cfg.RefreshTokenTTL), j.priv, j.kid)
-	if err != nil {
-		return nil, fmt.Errorf("sign refresh token: %w", err)
-	}
-	if n := len(refreshToken); n > maxTokenLen {
-		return nil, fmt.Errorf("%w: length %d exceeds %d byte limit (issuer=%d, audience=%d)",
-			ErrTokenOversized, n, maxTokenLen, len(j.cfg.Issuer), sumLen(j.cfg.Audience))
-	}
-
-	j.log.Debug("jwt: token pair issued (sub=%s, jti=%s)", subject, jti)
-
-	return &TokenPair{
-		AccessToken:           accessToken,
-		AccessTokenExpiresAt:  accessExpiresAt,
-		RefreshToken:          refreshToken,
-		RefreshTokenExpiresAt: refreshExpiresAt,
-		RefreshTokenHash:      computeHMAC(refreshToken, j.secret),
-		SessionID:             jti,
-	}, nil
-}
-
-// sumLen returns the sum of len(entry) across entries. Used to surface the
-// total audience bytes in an ErrTokenOversized message.
-func sumLen(entries []string) int {
-	n := 0
-	for _, e := range entries {
-		n += len(e)
-	}
-	return n
 }
 
 // VerifyAccessToken parses and validates an access token string.
@@ -341,10 +254,7 @@ func (j *JWT[T]) VerifyAccessToken(token string) (*Claims[T], error) {
 	if j == nil || !j.initialised {
 		return nil, ErrNotInitialised
 	}
-	if j.denylist == nil {
-		return j.VerifyAccessTokenContext(context.Background(), token)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultDenylistTimeout)
+	ctx, cancel := denylist.Context(j.denylist)
 	defer cancel()
 	return j.VerifyAccessTokenContext(ctx, token)
 }
@@ -356,25 +266,44 @@ func (j *JWT[T]) VerifyAccessTokenContext(ctx context.Context, token string) (*C
 	if j == nil || !j.initialised {
 		return nil, ErrNotInitialised
 	}
-	c, err := verifyAccessToken[T](token, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
+	c, err := verify.Access[T](ctx, j.verifyParams(), j.clock.Now(), token)
 	if err != nil {
 		return nil, err
 	}
-	if c.Type != tokenTypeAccess {
-		return nil, ErrWrongTokenType
-	}
-	// Revocation is checked last — only an otherwise-valid access token is worth
-	// a denylist lookup, so a garbage or expired token never reaches the store.
-	if j.denylist != nil {
-		revoked, err := j.denylist.IsRevoked(ctx, c.ID)
-		if err != nil {
-			return nil, fmt.Errorf("jwt: denylist lookup: %w", err)
-		}
-		if revoked {
-			return nil, ErrTokenRevoked
-		}
-	}
 	return accessClaimsToClaims(c), nil
+}
+
+// verifyParams snapshots the verification policy the verify package applies.
+func (j *JWT[T]) verifyParams() verify.Params {
+	return verify.Params{
+		Keys:     j.verifyKeys,
+		Issuer:   j.cfg.Issuer,
+		Audience: j.primaryAudience,
+		Leeway:   j.cfg.ClockSkewLeeway,
+		Denylist: j.denylist,
+	}
+}
+
+// accessClaimsToClaims converts internal claims.Access to the public Claims type.
+func accessClaimsToClaims[T any](c *claims.Access[T]) *Claims[T] {
+	// gjwt.NumericDate pointers can be nil if the claim is absent in the token.
+	// Extract them defensively to avoid nil pointer dereferences.
+	var iat, exp time.Time
+	if c.IssuedAt != nil {
+		iat = c.IssuedAt.Time
+	}
+	if c.ExpiresAt != nil {
+		exp = c.ExpiresAt.Time
+	}
+	return &Claims[T]{
+		Subject:   c.Subject,
+		Issuer:    c.Issuer,
+		Audience:  []string(c.Audience),
+		TokenID:   c.ID,
+		IssuedAt:  iat.UTC(), // normalise to UTC regardless of the server's local timezone
+		ExpiresAt: exp.UTC(),
+		Extra:     c.Extra,
+	}
 }
 
 // HashRefreshToken returns the HMAC-SHA256 hex digest of the given token
@@ -396,7 +325,7 @@ func (j *JWT[T]) HashRefreshToken(token string) (string, error) {
 	if !j.initialised {
 		return "", ErrNotInitialised
 	}
-	return computeHMAC(token, j.secret), nil
+	return refreshhash.Compute(token, j.secret), nil
 }
 
 // VerifyRefreshTokenHash reports whether token produces the same HMAC-SHA256
@@ -417,8 +346,7 @@ func (j *JWT[T]) VerifyRefreshTokenHash(token, storedHash string) bool {
 	if !j.initialised {
 		return false
 	}
-	computed := computeHMAC(token, j.secret)
-	return subtle.ConstantTimeCompare([]byte(computed), []byte(storedHash)) == 1
+	return refreshhash.Equal(token, storedHash, j.secret)
 }
 
 // RotateTokens verifies refreshToken, then generates and returns a new
@@ -458,10 +386,7 @@ func (j *JWT[T]) RotateTokens(refreshToken string, extra T) (*TokenPair, error) 
 	if j == nil || !j.initialised {
 		return nil, ErrNotInitialised
 	}
-	if j.denylist == nil {
-		return j.RotateTokensContext(context.Background(), refreshToken, extra)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultDenylistTimeout)
+	ctx, cancel := denylist.Context(j.denylist)
 	defer cancel()
 	return j.RotateTokensContext(ctx, refreshToken, extra)
 }
@@ -473,24 +398,9 @@ func (j *JWT[T]) RotateTokensContext(ctx context.Context, refreshToken string, e
 	if j == nil || !j.initialised {
 		return nil, ErrNotInitialised
 	}
-	c, err := verifyRefreshToken(refreshToken, j.verifyKeys, j.clock.Now(), j.cfg.Issuer, j.primaryAudience, j.cfg.ClockSkewLeeway)
+	r, err := rotation.Rotate(ctx, j.verifyParams(), j.issueParams(), j.clock.Now(), refreshToken, extra)
 	if err != nil {
 		return nil, err
 	}
-	if c.Type != tokenTypeRefresh {
-		return nil, ErrWrongTokenType
-	}
-	if j.denylist != nil {
-		revoked, err := j.denylist.IsRevoked(ctx, c.ID)
-		if err != nil {
-			return nil, fmt.Errorf("jwt: denylist lookup: %w", err)
-		}
-		if revoked {
-			return nil, ErrTokenRevoked
-		}
-	}
-
-	j.log.Debug("jwt: rotating token (sub=%s, jti=%s)", c.Subject, c.ID)
-
-	return j.issueTokens(c.Subject, c.ID, extra)
+	return (*TokenPair)(r), nil
 }

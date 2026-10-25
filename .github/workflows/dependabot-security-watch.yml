@@ -8,7 +8,7 @@ name: Dependabot security watch
 # security bump by hand off `develop`, and make the stuck state loud. This workflow is the loud part: it lists the
 # open pull requests into `main` and fails when Dependabot authored one whose
 # head is not `develop`. The selection and the report live in
-# `.github/scripts/dependabot_security_watch.py`; the `tests` job below runs
+# `.github/scripts/dependabot_security_watch/dependabot_security_watch.py`; the `tests` job below runs
 # the script's unit tests so a broken edit cannot merge without having been
 # executed.
 #
@@ -49,8 +49,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/dependabot-security-watch.yml"
-      - ".github/scripts/dependabot_security_watch.py"
-      - ".github/scripts/test_dependabot_security_watch.py"
+      - ".github/scripts/dependabot_security_watch/dependabot_security_watch.py"
+      - ".github/scripts/dependabot_security_watch/test_dependabot_security_watch.py"
 
 permissions:
   contents: read
@@ -87,7 +87,7 @@ jobs:
           set -euo pipefail
           gh pr list --repo "$REPO" --base main --state open --limit 100 \
             --json number,title,author,headRefName,createdAt \
-            | python3 .github/scripts/dependabot_security_watch.py
+            | python3 .github/scripts/dependabot_security_watch/dependabot_security_watch.py
 
   tests:
     name: dependabot security watch tests
@@ -108,4 +108,4 @@ jobs:
         # posts by adding a dependency the workflow did not pin. Discovery
         # uses the same path the watch job runs against.
         run: |
-          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s .github/scripts/dependabot_security_watch -p 'test_*.py' -v

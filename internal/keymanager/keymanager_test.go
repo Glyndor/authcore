@@ -2,365 +2,150 @@ package keymanager_test
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
 )
 
-// testLogger satisfies the unexported keymanager.logger interface via
-// structural typing and forwards entries to the test log.
-type testLogger struct{ t *testing.T }
+// quietLog forwards what the key manager logs to the test log.
+type quietLog struct{ t *testing.T }
 
-func (l testLogger) Info(msg string, args ...any) { l.t.Logf("[INFO] "+msg, args...) }
-func (l testLogger) Warn(msg string, args ...any) { l.t.Logf("[WARN] "+msg, args...) }
+func (l quietLog) Info(msg string, args ...any) { l.t.Logf("[INFO] "+msg, args...) }
+func (l quietLog) Warn(msg string, args ...any) { l.t.Logf("[WARN] "+msg, args...) }
 
-// newKM is a helper that creates a KeyManager in t.TempDir() and fails fast
-// on any error.
-func newKM(t *testing.T) *keymanager.KeyManager {
-	t.Helper()
-	km, err := keymanager.New(t.TempDir(), testLogger{t})
-	if err != nil {
-		t.Fatalf("keymanager.New() unexpected error: %v", err)
-	}
-	return km
-}
-
-// ----- generation -------------------------------------------------------------
-
-// seedValidDir returns a key directory holding a complete, valid set of key
-// files. The oversized-file tests start from one because New checks the
-// directory for consistency *before* it loads anything: a directory with two of
-// the three files is rejected as partially populated and never reaches the
-// capped reader at all.
-func seedValidDir(t *testing.T) string {
-	t.Helper()
+// KeyID is exported for the JWT module to index rotated keys by the same
+// derivation. Its own package never called it, so it read as 0% while being
+// exercised from next door — asserted here so the number stops lying.
+func TestKeyID_matchesTheManagersOwnDerivation(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("seed keymanager.New(): %v", err)
-	}
-	return dir
-}
-
-// assertSizeCapError fails unless err is the size-cap rejection. Asserting only
-// that some error came back is what let these tests pass for three releases
-// while never executing the cap they are named for.
-func assertSizeCapError(t *testing.T, err error) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected an error for a file over the size cap, got nil")
-	}
-	if !strings.Contains(err.Error(), "cap") {
-		t.Fatalf("expected the size-cap error, got a different failure: %v", err)
-	}
-}
-
-func TestNew_oversizedKeyFileRejected(t *testing.T) {
-	// A valid Ed25519 PEM is ~200 bytes. An attacker-replaced key file
-	// several megabytes long would otherwise be loaded whole into memory
-	// before pem.Decode rejected it. The capped reader must surface a size
-	// error before the allocation.
-	dir := seedValidDir(t)
-	oversized := make([]byte, 100*1024) // 100 KiB, well above the 4 KiB cap
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_private.pem"), oversized, 0600); err != nil {
-		t.Fatalf("replace private key with an oversized file: %v", err)
-	}
-
-	_, err := keymanager.New(dir, testLogger{t})
-	assertSizeCapError(t, err)
-}
-
-func TestNew_oversizedPublicKeyFileRejected(t *testing.T) {
-	// Regression guard for the public-key read path. Both key files must
-	// be size-capped; if only the private side is checked an attacker who
-	// can swap the public file still breaks startup.
-	dir := seedValidDir(t)
-	oversized := make([]byte, 100*1024)
-	if err := os.WriteFile(filepath.Join(dir, "ed25519_public.pem"), oversized, 0644); err != nil {
-		t.Fatalf("replace public key with an oversized file: %v", err)
-	}
-
-	_, err := keymanager.New(dir, testLogger{t})
-	assertSizeCapError(t, err)
-}
-
-func TestNew_oversizedRefreshSecretRejected(t *testing.T) {
-	// The refresh secret loader shares the same capped reader. A ~100 KiB
-	// secret file must be refused before it is hex-decoded.
-	dir := seedValidDir(t)
-	oversized := make([]byte, 100*1024)
-	if err := os.WriteFile(filepath.Join(dir, "refresh_secret.key"), oversized, 0600); err != nil {
-		t.Fatalf("replace refresh secret with an oversized file: %v", err)
-	}
-
-	_, err := keymanager.New(dir, testLogger{t})
-	assertSizeCapError(t, err)
-}
-
-func TestNew_generatesAllFiles(t *testing.T) {
-	dir := t.TempDir()
-	_, err := keymanager.New(dir, testLogger{t})
+	km, err := keymanager.New(dir, quietLog{t})
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("New(): %v", err)
+	}
+	if got := keymanager.KeyID(km.PublicKey()); got != km.KeyID() {
+		t.Fatalf("KeyID(pub) = %q, want the manager's own %q", got, km.KeyID())
 	}
 
-	wantFiles := []string{
-		".gitignore",
-		"ed25519_private.pem",
-		"ed25519_public.pem",
-		"refresh_secret.key",
+	other, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
 	}
-	for _, f := range wantFiles {
-		if _, err := os.Stat(filepath.Join(dir, f)); os.IsNotExist(err) {
-			t.Errorf("expected file %q was not created", f)
-		}
+	if keymanager.KeyID(other) == km.KeyID() {
+		t.Fatal("two different keys must not share an id")
 	}
 }
 
-func TestNew_partialKeyDirIsRejected(t *testing.T) {
-	// Removing any single managed file while the others remain must fail closed,
-	// rather than silently regenerating it. A regenerated refresh secret would
-	// invalidate every stored refresh-token hash.
-	for _, remove := range []string{
-		"refresh_secret.key",
-		"ed25519_private.pem",
-		"ed25519_public.pem",
+func pemPair(t *testing.T) (privPEM, pubPEM []byte, priv ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}), priv
+}
+
+// The PEM decoders accept one block, of the expected type, with no headers
+// and nothing else in the input. pem.Decode alone returned the first block
+// wherever it sat and ignored the rest.
+func TestPEMDecoders_acceptOneCanonicalBlockOnly(t *testing.T) {
+	privPEM, pubPEM, _ := pemPair(t)
+	otherPriv, _, _ := pemPair(t)
+	secret := []byte(strings.Repeat("k", 32))
+
+	if _, err := keymanager.FromPEM(privPEM, pubPEM, secret); err != nil {
+		t.Fatalf("the canonical pair: %v, want accepted", err)
+	}
+	// Leading and trailing whitespace is what an editor or a secret manager
+	// adds, not a second block.
+	if _, err := keymanager.FromPEM(append([]byte("\n"), privPEM...), append(pubPEM, '\n', '\n'), secret); err != nil {
+		t.Fatalf("whitespace around the blocks: %v, want accepted", err)
+	}
+
+	block, _ := pem.Decode(privPEM)
+	relabelled := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: block.Bytes})
+	withHeaders := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Headers: map[string]string{"Proc-Type": "4,ENCRYPTED"}, Bytes: block.Bytes})
+	for name, tc := range map[string]struct {
+		privPEM []byte
+		reason  string
+	}{
+		"two private blocks":      {append(append([]byte{}, privPEM...), otherPriv...), "more than one PEM block"},
+		"text before the block":   {append([]byte("Bag Attributes\n    friendlyName: k\n"), privPEM...), "does not start with a PEM block"},
+		"text after the block":    {append(append([]byte{}, privPEM...), []byte("trailing note\n")...), "more than one PEM block, or text after it"},
+		"CERTIFICATE label":       {relabelled, `labelled "CERTIFICATE", want "PRIVATE KEY"`},
+		"encryption headers":      {withHeaders, "carries headers"},
+		"public key as private":   {pubPEM, `labelled "PUBLIC KEY", want "PRIVATE KEY"`},
+		"BEGIN line and no block": {[]byte("-----BEGIN PRIVATE KEY-----\nnot a block\n"), "no PEM block found"},
 	} {
-		t.Run("missing_"+remove, func(t *testing.T) {
-			dir := t.TempDir()
-			if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-				t.Fatalf("initial New() error = %v", err)
-			}
-			if err := os.Remove(filepath.Join(dir, remove)); err != nil {
-				t.Fatalf("remove %q: %v", remove, err)
-			}
-			if _, err := keymanager.New(dir, testLogger{t}); err == nil {
-				t.Errorf("expected an error for a key dir missing %q, got nil", remove)
+		t.Run(name, func(t *testing.T) {
+			_, err := keymanager.FromPEM(tc.privPEM, pubPEM, secret)
+			if err == nil || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("FromPEM = %v, want a refusal naming %q", err, tc.reason)
 			}
 		})
 	}
-}
-
-func TestNew_keyMaterialHasCorrectSize(t *testing.T) {
-	km := newKM(t)
-
-	if got := len(km.PrivateKey()); got != ed25519.PrivateKeySize {
-		t.Errorf("PrivateKey() length = %d, want %d", got, ed25519.PrivateKeySize)
-	}
-	if got := len(km.PublicKey()); got != ed25519.PublicKeySize {
-		t.Errorf("PublicKey() length = %d, want %d", got, ed25519.PublicKeySize)
-	}
-	if got := len(km.RefreshSecret()); got != 32 {
-		t.Errorf("RefreshSecret() length = %d, want 32", got)
+	if _, err := keymanager.FromPEM(privPEM, privPEM, secret); err == nil || !strings.Contains(err.Error(), `labelled "PRIVATE KEY", want "PUBLIC KEY"`) {
+		t.Fatalf("a private key in the public slot: %v, want the label refusal", err)
 	}
 }
 
-func TestNew_publicKeyMatchesPrivateKey(t *testing.T) {
-	km := newKM(t)
-
-	derived := km.PrivateKey().Public().(ed25519.PublicKey)
-	if !derived.Equal(km.PublicKey()) {
-		t.Error("public key does not match the public half of the private key")
-	}
-}
-
-func TestNew_keysAreDifferentAcrossInstances(t *testing.T) {
-	km1 := newKM(t)
-	km2 := newKM(t)
-
-	if km1.PrivateKey().Equal(km2.PrivateKey()) {
-		t.Error("two independently generated private keys must not be equal")
-	}
-}
-
-// ----- persistence ------------------------------------------------------------
-
-func TestNew_loadsExistingKeysOnSecondRun(t *testing.T) {
+// New and Load hand back a manager holding exactly what the directory holds,
+// and Dir reports the path as passed in.
+func TestNewAndLoad_wireTheAccessorsToTheSameKeys(t *testing.T) {
 	dir := t.TempDir()
-	log := testLogger{t}
-
-	km1, err := keymanager.New(dir, log)
+	created, err := keymanager.New(dir, quietLog{t})
 	if err != nil {
-		t.Fatalf("first New() error = %v", err)
+		t.Fatalf("New: %v", err)
 	}
-
-	km2, err := keymanager.New(dir, log)
+	loaded, err := keymanager.Load(dir, quietLog{t})
 	if err != nil {
-		t.Fatalf("second New() error = %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-
-	if !km1.PrivateKey().Equal(km2.PrivateKey()) {
-		t.Error("private key changed between runs")
+	if created.Dir() != dir || loaded.Dir() != dir {
+		t.Errorf("Dir() = %q / %q, want %q", created.Dir(), loaded.Dir(), dir)
 	}
-	if !km1.PublicKey().Equal(km2.PublicKey()) {
-		t.Error("public key changed between runs")
+	if !created.PrivateKey().Equal(loaded.PrivateKey()) || !created.PublicKey().Equal(loaded.PublicKey()) ||
+		string(created.RefreshSecret()) != string(loaded.RefreshSecret()) || created.KeyID() != loaded.KeyID() {
+		t.Fatal("New and Load disagree on the key set of one directory")
 	}
-	if string(km1.RefreshSecret()) != string(km2.RefreshSecret()) {
-		t.Error("refresh secret changed between runs")
-	}
-}
-
-// ----- .gitignore -------------------------------------------------------------
-
-func TestNew_gitignoreCreated(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	path := filepath.Join(dir, ".gitignore")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf(".gitignore not created: %v", err)
-	}
-	// The .gitignore must contain a catch-all pattern that prevents
-	// every file in the directory from being committed. A comment-only
-	// file leaves the keys exposed to git add; this test asserts the
-	// catch-all, not just the file's existence.
-	if len(data) == 0 {
-		t.Error(".gitignore is empty")
-	}
-	if !strings.Contains(string(data), "*") {
-		t.Errorf(".gitignore has no catch-all pattern, content=%q", data)
+	if err := keymanager.ValidateMaterial(created.PrivateKey(), created.PublicKey(), created.RefreshSecret()); err != nil {
+		t.Fatalf("the generated material fails its own validation: %v", err)
 	}
 }
 
-func TestNew_gitignoreNotOverwritten(t *testing.T) {
-	dir := t.TempDir()
-	custom := []byte("# custom\n*.bak\n")
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), custom, 0600); err != nil {
-		t.Fatalf("write custom .gitignore: %v", err)
+func TestNewAndLoad_failuresComeBackAsErrorsNotManagers(t *testing.T) {
+	if km, err := keymanager.Load(t.TempDir()+"/absent", quietLog{t}); err == nil || km != nil {
+		t.Errorf("Load of a missing directory = %v, %v", km, err)
 	}
-
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("New() error = %v", err)
+	file := t.TempDir() + "/file"
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
-	data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if string(data) != string(custom) {
-		t.Error("existing .gitignore was overwritten")
+	if km, err := keymanager.New(file+"/keys", quietLog{t}); err == nil || km != nil {
+		t.Errorf("New below a regular file = %v, %v", km, err)
 	}
 }
 
-// ----- file permissions -------------------------------------------------------
-
-func TestNew_privateKeyPermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix file permission model does not apply on Windows")
+func TestDecodePEMBlock_delegatesToTheCodec(t *testing.T) {
+	pemBytes, _, _ := pemPair(t)
+	der, err := keymanager.DecodePEMBlock(pemBytes, "PRIVATE KEY", "test")
+	if err != nil || len(der) == 0 {
+		t.Fatalf("DecodePEMBlock = %d bytes, %v", len(der), err)
 	}
-
-	dir := t.TempDir()
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	info, err := os.Stat(filepath.Join(dir, "ed25519_private.pem"))
-	if err != nil {
-		t.Fatalf("stat private key: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0600 {
-		t.Errorf("private key permissions = %04o, want 0600", got)
-	}
-}
-
-func TestNew_refreshSecretPermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix file permission model does not apply on Windows")
-	}
-
-	dir := t.TempDir()
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	info, err := os.Stat(filepath.Join(dir, "refresh_secret.key"))
-	if err != nil {
-		t.Fatalf("stat refresh secret: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0600 {
-		t.Errorf("refresh secret permissions = %04o, want 0600", got)
-	}
-}
-
-// ----- error paths ------------------------------------------------------------
-
-func TestNew_inconsistentStateReturnsError(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create only the private key — the public key is missing.
-	// New() must detect the inconsistency and return an error.
-	if _, err := keymanager.New(dir, testLogger{t}); err != nil {
-		t.Fatalf("initial New() error = %v", err)
-	}
-	if err := os.Remove(filepath.Join(dir, "ed25519_public.pem")); err != nil {
-		t.Fatalf("remove public key: %v", err)
-	}
-
-	_, err := keymanager.New(dir, testLogger{t})
-	if err == nil {
-		t.Error("expected error for inconsistent key state, got nil")
-	}
-}
-
-func TestNew_dirReturnsCorrectPath(t *testing.T) {
-	dir := t.TempDir()
-	km, err := keymanager.New(dir, testLogger{t})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if km.Dir() != dir {
-		t.Errorf("Dir() = %q, want %q", km.Dir(), dir)
-	}
-}
-
-// ----- KeyID -----------------------------------------------------------------
-
-func TestKeyID_isNonEmpty(t *testing.T) {
-	km := newKM(t)
-	if km.KeyID() == "" {
-		t.Error("KeyID() returned empty string")
-	}
-}
-
-func TestKeyID_is16HexCharacters(t *testing.T) {
-	km := newKM(t)
-	id := km.KeyID()
-	if len(id) != 16 {
-		t.Fatalf("KeyID() length = %d, want 16", len(id))
-	}
-	for _, c := range id {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			t.Errorf("KeyID() contains non-hex character %q", c)
-		}
-	}
-}
-
-func TestKeyID_isDeterministicAcrossLoads(t *testing.T) {
-	dir := t.TempDir()
-	log := testLogger{t}
-
-	km1, err := keymanager.New(dir, log)
-	if err != nil {
-		t.Fatalf("first New() error = %v", err)
-	}
-	km2, err := keymanager.New(dir, log)
-	if err != nil {
-		t.Fatalf("second New() error = %v", err)
-	}
-
-	if km1.KeyID() != km2.KeyID() {
-		t.Errorf("KeyID changed between loads: %q vs %q", km1.KeyID(), km2.KeyID())
-	}
-}
-
-func TestKeyID_differentKeysProduceDifferentIDs(t *testing.T) {
-	km1 := newKM(t)
-	km2 := newKM(t)
-
-	if km1.KeyID() == km2.KeyID() {
-		t.Error("independently generated keys must not produce the same KeyID")
+	if _, err := keymanager.DecodePEMBlock(pemBytes, "PUBLIC KEY", "test"); err == nil {
+		t.Fatal("a private key block was accepted as a public key")
 	}
 }

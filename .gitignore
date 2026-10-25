@@ -10,15 +10,15 @@
 
 # Compiled example binaries (each example is `package main`; `go build ./...`
 # drops a binary named after its directory). Extensionless, so list them.
-/examples/apikey/apikey
-/examples/basic/basic
-/examples/email/email
-/examples/fiber/fiber
-/examples/gin/gin
-/examples/jwt/jwt
-/examples/oauth/oauth
-/examples/password/password
-/examples/username/username
+/examples/modules/apikey/apikey
+/examples/modules/basic/basic
+/examples/modules/email/email
+/examples/frameworks/fiber/fiber
+/examples/frameworks/gin/gin
+/examples/modules/jwt/jwt
+/examples/modules/oauth/oauth
+/examples/modules/password/password
+/examples/modules/username/username
 
 # Code coverage profiles and other test artifacts
 *.out
@@ -60,3 +60,4 @@ Thumbs.db
 # zips of v1.15.0 to v1.16.1.
 /authcore-keygen
 /cmd/authcore-keygen/authcore-keygen
+/examples/deploy/containers/containers

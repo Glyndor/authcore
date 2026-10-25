@@ -58,6 +58,14 @@ linters:
           - gosec
           - errcheck
 
+      # Test-support packages (oauthtest, bootstraptest, recoverytest, jwttest)
+      # hold fixtures that only _test.go files import. They are not named
+      # *_test.go, so the rule above does not reach them, and gosec flags the
+      # same controlled test inputs there (fixed fake secrets, copy helpers).
+      - path: "/(oauthtest|bootstraptest|recoverytest|jwttest)/"
+        linters:
+          - gosec
+
       # Examples are documentation — relax style rules.
       - path: "examples/"
         linters:

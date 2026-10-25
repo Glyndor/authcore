@@ -34,7 +34,7 @@ updates:
   # that all said the same thing. One group is one review.
   - package-ecosystem: "gomod"
     directories:
-      - "/examples/*"
+      - "/examples/*/*"
     schedule:
       interval: "daily"
     target-branch: "develop"

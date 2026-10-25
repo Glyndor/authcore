@@ -1,114 +1,22 @@
-// Package email provides email address validation and normalization for authcore.
-//
-// Validation follows RFC 5321 and RFC 5322 rules:
-//   - Total length 1–254 characters
-//   - Exactly one @ separating a non-empty local part and domain
-//   - Local part ≤ 64 characters
-//   - Domain contains at least one dot; no leading, trailing, or consecutive dots
-//   - Each domain label is 1–63 characters
-//
-// Internationalised domain names (IDN) are supported: a Unicode domain such
-// as "münchen.de" is converted to its ASCII punycode form ("xn--mnchen-3ya.de")
-// during normalisation, matching what DNS actually resolves. Store the
-// canonical ASCII form in your database so lookups are deterministic.
-//
-// Plus-addressing (`user+tag@example.com`) is accepted by default. A
-// deployment that treats `(local, domain)` as the unique account key can
-// opt in to [Config.RejectPlusAddressing] - this is a
-// [configurable policy field](../docs/configuration.md#the-principle),
-// not a security control. The structural rules above stay fixed.
-//
-// The single entry point is [Email.ValidateAndNormalize] — it normalizes
-// (lowercase + trim + punycode) and validates in one step, returning the
-// canonical form.
-// Always store and query emails using this canonical form:
-//
-//	emailMod, _ := email.New(auth)
-//
-//	// Registration
-//	normalized, err := emailMod.ValidateAndNormalize(req.Email)
-//	if err != nil {
-//	    c.JSON(400, map[string]string{"error": errors.Unwrap(err).Error()})
-//	    return
-//	}
-//	db.StoreUser(normalized, ...)
-//
-//	// Login lookup — same call, same canonical form, consistent results
-//	normalized, err = emailMod.ValidateAndNormalize(req.Email)
-//	if err != nil { ... }
-//	user := db.FindByEmail(normalized)
-//
-// # Domain MX verification
-//
-// VerifyDomain performs an optional DNS MX lookup to confirm the domain can
-// receive email. Results are cached per domain for [DefaultCacheTTL]
-// (5 minutes by default) to avoid repeated lookups for the same domain.
-// The Go stdlib LookupMX API does not surface DNS TTLs, so entries are
-// held for the fixed [DefaultCacheTTL] regardless of the authority
-// section of the response.
-// This check is network I/O — always call it after ValidateAndNormalize and
-// handle [ErrDomainUnresolvable] as a soft failure:
-//
-//	err = emailMod.VerifyDomain(ctx, normalized)
-//	if errors.Is(err, email.ErrDomainNoMX) {
-//	    c.JSON(400, map[string]string{"error": "email domain cannot receive messages"})
-//	    return
-//	}
-//	if errors.Is(err, email.ErrDomainUnresolvable) {
-//	    log.Warn("DNS check unavailable: %v", err) // do not block the user
-//	}
 package email
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
-	"net/mail"
 	"strings"
-	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
-
-	"golang.org/x/net/idna"
-	"golang.org/x/sync/singleflight"
-	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/email/internal/errs"
+	"github.com/Glyndor/authcore/auth/email/internal/mx"
+	"github.com/Glyndor/authcore/auth/email/internal/normalize"
+	"github.com/Glyndor/authcore/auth/email/internal/syntax"
 )
-
-// idnaProfile is configured once and reused because the profile value is
-// immutable and its internal tables are allocated only once.
-// Lookup is the strictest profile that still tolerates TR46 transitional
-// processing, matching what a browser's URL bar does when resolving a host.
-var idnaProfile = idna.Lookup
 
 // DefaultCacheTTL is the maximum duration a domain MX lookup result is cached.
 // Tune this value if your workload has strict freshness requirements.
 const DefaultCacheTTL = 5 * time.Minute
-
-// maxCacheSize is the maximum number of domains held in the cache at once.
-// When the cache is full and a result arrives, store first drops every
-// expired entry; if the cache is still full, the result is not cached and
-// the next request for that domain queries DNS again. There is no
-// background eviction since #135.
-const maxCacheSize = 10_000
-
-// cacheEntry holds the result of a single MX lookup.
-type cacheEntry struct {
-	hasMX      bool
-	dnsFailure bool // true = DNS error, false = confirmed result
-	expiresAt  time.Time
-}
-
-// mxResolver is the slice of net.Resolver that VerifyDomain depends on. A
-// narrow interface keeps the production code against the stdlib type and
-// lets tests swap in a deterministic stub without spinning up a fake DNS
-// server.
-type mxResolver interface {
-	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
-}
 
 // Email is the email validation and normalization module.
 // Create one instance at startup via New and reuse it — it is safe for
@@ -116,11 +24,7 @@ type mxResolver interface {
 // needs no cleanup; like the other modules, you construct it and use it.
 type Email struct {
 	log                  authcore.Logger
-	resolver             mxResolver
-	cacheTTL             time.Duration
-	mu                   sync.RWMutex
-	cache                map[string]cacheEntry
-	group                singleflight.Group
+	mx                   *mx.Verifier
 	rejectPlusAddressing bool // when true, ValidateAndNormalize rejects '+' in the local part
 }
 
@@ -132,24 +36,6 @@ type Email struct {
 //	if err != nil { ... }
 func New(p authcore.Provider) (*Email, error) {
 	return NewWithConfig(p, Config{})
-}
-
-// Config holds the email module's policy options.
-//
-// Today's behaviour is reproduced by the zero value, so callers that do not
-// need to override anything can keep using New(p). NewWithConfig is the
-// addition: it takes the policy explicitly.
-type Config struct {
-	// RejectPlusAddressing rejects addresses whose local part contains a
-	// '+'. When false (the default), plus-addressing is accepted - the same
-	// behaviour the module has always had.
-	//
-	// This is an account-uniqueness rule, not a security control. RFC 5233
-	// defines plus-addressing so that user+anything@example.com and
-	// user@example.com share one mailbox. Accepting it lets one mailbox own
-	// N accounts: if your product treats (local, domain) as the unique key,
-	// turn this on.
-	RejectPlusAddressing bool
 }
 
 // NewWithConfig creates an Email module with an explicit Config.
@@ -170,9 +56,7 @@ func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
 	}
 	e := &Email{
 		log:                  p.Logger(),
-		resolver:             net.DefaultResolver,
-		cacheTTL:             DefaultCacheTTL,
-		cache:                make(map[string]cacheEntry),
+		mx:                   mx.New(net.DefaultResolver, DefaultCacheTTL),
 		rejectPlusAddressing: cfg.RejectPlusAddressing,
 	}
 	e.log.Info("email: module initialised")
@@ -208,11 +92,11 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 	// Normalize first so validation sees the canonical form.
 	// Storing the normalized form ensures consistent lookups:
 	// "USER@EXAMPLE.COM" and "user@example.com" resolve to the same record.
-	normalized, err := normalize(address)
+	normalized, err := normalize.Address(address)
 	if err != nil {
 		return "", err
 	}
-	if err := validate(normalized); err != nil {
+	if err := syntax.Validate(normalized); err != nil {
 		return "", err
 	}
 	// Plus-addressing is a policy rule applied AFTER structural validation,
@@ -223,165 +107,10 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 	if e.rejectPlusAddressing {
 		atIdx := strings.LastIndexByte(normalized, '@')
 		if atIdx > 0 && strings.IndexByte(normalized[:atIdx], '+') >= 0 {
-			return "", &emailViolation{reason: fmt.Errorf("plus-addressing is not allowed")}
+			return "", errs.Invalid(fmt.Errorf("plus-addressing is not allowed"))
 		}
 	}
 	return normalized, nil
-}
-
-// normalize lowercases the address, trims surrounding whitespace, and
-// converts a Unicode (IDN) domain to its ASCII (punycode) form. Internal
-// only — callers outside this package must use ValidateAndNormalize.
-//
-// Returns an error wrapping ErrInvalidEmail when the domain cannot be
-// converted (a leading or trailing hyphen in a label, an underscore, a
-// colon, or any other codepoint that IDNA forbids). The conversion failure
-// must not fall through to the raw input: the downstream structural checks
-// do not catch a leading-hyphen label, and a malformed name has no
-// canonical form to store or query.
-func normalize(address string) (string, error) {
-	trimmed := strings.TrimSpace(address)
-	atIdx := strings.LastIndexByte(trimmed, '@')
-	if atIdx < 0 {
-		// Addresses without an "@" fail validation regardless of IDN, so
-		// leaving the input untouched here produces a clearer error path.
-		return strings.ToLower(trimmed), nil
-	}
-	local, err := canonicalLocalPart(trimmed[:atIdx])
-	if err != nil {
-		return "", err
-	}
-	domain := strings.ToLower(trimmed[atIdx+1:])
-	ascii, err := idnaProfile.ToASCII(domain)
-	if err != nil {
-		return "", &emailViolation{reason: fmt.Errorf("domain %q is not a valid internationalised name: %w", domain, err)}
-	}
-	return local + "@" + ascii, nil
-}
-
-// canonicalLocalPart returns the one canonical spelling of a local part: NFC,
-// then lowercased. Until 2026-09-25 the local part was lowercased as typed,
-// so one mailbox had two canonical forms (precomposed and decomposed
-// accents), two mailboxes could share one (U+212A KELVIN SIGN lowercases to
-// "k", U+0130 to "i"), and control, format and line-separator characters
-// travelled into the stored value. Each of those is refused now; the ASCII
-// controls were already refused by net/mail.
-func canonicalLocalPart(local string) (string, error) {
-	local = norm.NFC.String(local)
-	for _, r := range local {
-		switch {
-		case unicode.Is(unicode.Cc, r), unicode.Is(unicode.Cf, r),
-			unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r),
-			unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
-			return "", &emailViolation{reason: fmt.Errorf("local part holds an invisible or control character %U", r)}
-		case r >= utf8.RuneSelf && unicode.ToLower(r) < utf8.RuneSelf:
-			return "", &emailViolation{reason: fmt.Errorf("local part holds %U, which lowercases to an ASCII letter", r)}
-		}
-	}
-	return strings.ToLower(local), nil
-}
-
-// validate checks address against RFC 5321 / RFC 5322 rules.
-// It uses net/mail for syntax and then applies stricter structural checks.
-func validate(address string) error {
-	if len(address) == 0 {
-		return &emailViolation{reason: fmt.Errorf("must not be empty")}
-	}
-	if len(address) > 254 {
-		return &emailViolation{reason: fmt.Errorf("must be at most 254 characters")}
-	}
-
-	// net/mail.ParseAddress handles RFC 5322 syntax (quoted strings, comments, etc.).
-	parsed, err := mail.ParseAddress(address)
-	if err != nil {
-		return &emailViolation{reason: fmt.Errorf("invalid format")}
-	}
-
-	// Reject display names like "Ana García <ana@example.com>".
-	// EqualFold is intentional: net/mail may normalize domain case, so a
-	// direct == would reject valid addresses when Validate is called without
-	// prior normalization (e.g. "User@EXAMPLE.COM" vs "User@example.com").
-	if !strings.EqualFold(address, parsed.Address) {
-		return &emailViolation{reason: fmt.Errorf("invalid format")}
-	}
-
-	atIdx := strings.LastIndexByte(parsed.Address, '@')
-	local := parsed.Address[:atIdx]
-	domain := parsed.Address[atIdx+1:]
-
-	if len(local) > 64 {
-		return &emailViolation{reason: fmt.Errorf("local part must be at most 64 characters")}
-	}
-
-	// Reject address literals like "user@[192.168.1.1]" or "user@[IPv6:...]".
-	// net/mail accepts them, but they are almost never wanted in an account
-	// system, cannot be MX-verified, and would otherwise slip through the
-	// dot/label checks below (the bracketed octets look like labels).
-	if strings.HasPrefix(domain, "[") {
-		return &emailViolation{reason: fmt.Errorf("domain must not be an address literal")}
-	}
-
-	// Domain: at least one dot, no leading/trailing/consecutive dots,
-	// each label 1–63 characters.
-	hasDot := false
-	labelLen := 0
-	for i := 0; i < len(domain); i++ {
-		if domain[i] == '.' {
-			if labelLen == 0 {
-				return &emailViolation{reason: fmt.Errorf("domain must not start with or contain consecutive dots")}
-			}
-			hasDot = true
-			labelLen = 0
-		} else {
-			labelLen++
-			if labelLen > 63 {
-				return &emailViolation{reason: fmt.Errorf("each domain label must be at most 63 characters")}
-			}
-		}
-	}
-	if !hasDot {
-		return &emailViolation{reason: fmt.Errorf("domain must contain at least one dot")}
-	}
-	if labelLen == 0 {
-		return &emailViolation{reason: fmt.Errorf("domain must not end with a dot")}
-	}
-	// An all-digit top-level label is a bare IPv4 address ("user@127.0.0.1")
-	// or no domain at all (RFC 3696 section 2). It is the address literal
-	// refused above in another spelling, and it was accepted until 2026-09-25.
-	if allDigits(domain[strings.LastIndexByte(domain, '.')+1:]) {
-		return &emailViolation{reason: fmt.Errorf("top-level domain must not be all digits")}
-	}
-
-	return nil
-}
-
-// allDigits reports whether s is non-empty and made of ASCII digits only.
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-// plausibleDomain reports whether domain fits DNS's size limits: at most 253
-// bytes and labels of 1 to 63. VerifyDomain checks it before the cache or the
-// resolver, so a caller passing an unvalidated value cannot pin a megabyte
-// "domain" in the cache for the cache's lifetime.
-func plausibleDomain(domain string) bool {
-	if len(domain) == 0 || len(domain) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(domain, ".") {
-		if len(label) == 0 || len(label) > 63 {
-			return false
-		}
-	}
-	return true
 }
 
 // VerifyDomain performs a DNS MX lookup to confirm that the email's domain
@@ -419,136 +148,5 @@ func plausibleDomain(domain string) bool {
 //	    return
 //	}
 func (e *Email) VerifyDomain(ctx context.Context, address string) error {
-	domain := domainOf(address)
-	if domain == "" {
-		return ErrDomainNoMX
-	}
-	if !plausibleDomain(domain) {
-		return fmt.Errorf("%w: domain exceeds DNS size limits", ErrInvalidEmail)
-	}
-
-	// Fast path: valid cache hit.
-	if entry, ok := e.cached(domain); ok {
-		return entryErr(entry)
-	}
-
-	// Slow path: deduplicated DNS lookup.
-	// singleflight.Group ensures that N concurrent callers for the same domain
-	// fire exactly one DNS query; all share the result. This prevents thundering
-	// herd when a cache entry expires under high concurrency.
-	//
-	// Each caller selects on its own ctx.Done() so a short deadline on a
-	// late-arriving caller does not block on the first caller's lookup.
-	// DoChan returns a channel that closes exactly once with the shared
-	// result; an early return on ctx.Done() abandons the channel for this
-	// caller only, and the in-flight lookup completes for the others. The cache is populated inside the function
-	// so a deadline-limited caller benefits from another caller's answer.
-	ch := e.group.DoChan(domain, func() (any, error) {
-		// The shared lookup must not run on one caller's context: when that
-		// request was abandoned, the lookup failed, was cached as
-		// "unresolvable" for 30 s, and every caller got the soft answer the
-		// docs say never to block on, even for a domain with no MX
-		// (measured 2026-09-25). It keeps the caller's values and runs under
-		// the module's own bound.
-		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mxLookupTimeout)
-		defer cancel()
-		mxs, err := e.resolver.LookupMX(lookupCtx, domain)
-		if err != nil {
-			var dnsErr *net.DNSError
-			if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-				// Authoritative "no such host" or "no records of this type"
-				// (NXDOMAIN or NODATA for MX): the resolver answered with a
-				// final answer, not a transport error. Classify this as a
-				// definitive no-MX result and cache it with the normal TTL
-				// so subsequent calls do not retry the lookup.
-				entry := cacheEntry{hasMX: false, expiresAt: time.Now().Add(e.cacheTTL)}
-				e.store(domain, entry)
-				return nil, &noMXFromDNS{cause: err}
-			}
-			e.store(domain, cacheEntry{dnsFailure: true, expiresAt: time.Now().Add(30 * time.Second)})
-			return nil, &domainUnresolvable{cause: err}
-		}
-		entry := cacheEntry{hasMX: hasRealMX(mxs), expiresAt: time.Now().Add(e.cacheTTL)}
-		e.store(domain, entry)
-		return entry, nil
-	})
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case r := <-ch:
-		if r.Err != nil {
-			return r.Err
-		}
-		return entryErr(r.Val.(cacheEntry))
-	}
-}
-
-// hasRealMX reports whether the slice from LookupMX represents a domain
-// that accepts mail. A single record whose host is "." or "" is a "null MX"
-// (RFC 7505 section 3): the domain explicitly states it does not accept
-// mail, regardless of any other records a misconfigured resolver might
-// also return. A non-null single record, or any slice with at least one
-// non-null record, is a real MX.
-func hasRealMX(mxs []*net.MX) bool {
-	if len(mxs) == 0 {
-		return false
-	}
-	if len(mxs) == 1 && (mxs[0].Host == "." || mxs[0].Host == "") {
-		return false
-	}
-	return true
-}
-
-// cached returns the cache entry for domain if it exists and has not expired.
-func (e *Email) cached(domain string) (cacheEntry, bool) {
-	e.mu.RLock()
-	entry, ok := e.cache[domain]
-	e.mu.RUnlock()
-	return entry, ok && time.Now().Before(entry.expiresAt)
-}
-
-// store writes entry into the cache under write lock. When the cache is full,
-// it first drops expired entries to make room (lazy eviction — this is what
-// replaces the old background goroutine); if it is still full afterwards the
-// entry is dropped and the next lookup retries DNS.
-func (e *Email) store(domain string, entry cacheEntry) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(e.cache) >= maxCacheSize {
-		now := time.Now()
-		for k, v := range e.cache {
-			if now.After(v.expiresAt) {
-				delete(e.cache, k)
-			}
-		}
-	}
-	if len(e.cache) < maxCacheSize {
-		e.cache[domain] = entry
-	}
-}
-
-// entryErr converts a cache entry into the appropriate sentinel error.
-func entryErr(entry cacheEntry) error {
-	if entry.dnsFailure {
-		return ErrDomainUnresolvable
-	}
-	if !entry.hasMX {
-		return ErrDomainNoMX
-	}
-	return nil
-}
-
-// mxLookupTimeout bounds one shared MX lookup. It is the module's own bound,
-// independent of any caller's deadline: a caller whose deadline passes stops
-// waiting, and the lookup finishes for the others.
-const mxLookupTimeout = 10 * time.Second
-
-// domainOf extracts the domain part of a normalized email address.
-// Returns "" if address contains no '@'.
-func domainOf(address string) string {
-	i := strings.LastIndexByte(address, '@')
-	if i < 0 {
-		return ""
-	}
-	return address[i+1:]
+	return e.mx.Verify(ctx, address)
 }

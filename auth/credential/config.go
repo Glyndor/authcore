@@ -8,7 +8,7 @@ import (
 // Config holds the credential module configuration.
 //
 // The configuration is split into two layers, matching the authcore
-// principle documented in docs/configuration.md:
+// principle documented in docs/guides/configuration.md:
 //
 //   - The cryptographic layer is CLOSED and is not configurable here. Token
 //     entropy (32 bytes / 256 bits), the HMAC-SHA256 construction and its

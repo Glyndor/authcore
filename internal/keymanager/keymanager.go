@@ -32,36 +32,18 @@ package keymanager
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-)
 
-// File names written inside the key directory.
-const (
-	filePrivateKey    = "ed25519_private.pem"
-	filePublicKey     = "ed25519_public.pem"
-	fileRefreshSecret = "refresh_secret.key"
-	fileGitignore     = ".gitignore"
-
-	// gitignoreContent prevents every file in the directory from being tracked.
-	gitignoreContent = "# Managed by authcore — do not commit these files.\n*\n"
-
-	// dirMode restricts the key directory to the owner only.
-	dirMode = 0700
+	"github.com/Glyndor/authcore/internal/keymanager/bootstrap"
+	"github.com/Glyndor/authcore/internal/keymanager/keyload"
+	"github.com/Glyndor/authcore/internal/keymanager/layout"
+	"github.com/Glyndor/authcore/internal/keymanager/material"
+	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
 )
 
 // logger is the minimal logging dependency for the key manager.
 // It is intentionally unexported and narrow.
 // Any authcore.Logger value satisfies it via Go's structural typing.
-type logger interface {
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-}
+type logger = layout.Logger
 
 // KeyManager holds cryptographic material loaded at startup.
 // All fields are immutable after New returns; no mutex is required.
@@ -109,221 +91,27 @@ type secretMaterial struct {
 // an absolute path). Callers who want the keys inside a ".authcore"
 // subdirectory must pass ".authcore" explicitly.
 func New(dir string, log logger) (*KeyManager, error) {
-	if _, err := os.Stat(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("inspect key directory %q: %w", dir, err)
-	}
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return nil, fmt.Errorf("create key directory %q: %w", dir, err)
-	}
-
-	// MkdirAll does not tighten a directory that already exists, so a pre-created
-	// or volume-mounted KeysDir could sit at a looser mode (e.g. 0755). Tighten
-	// it to owner-only — but only ever tighten. An operator who hands over a
-	// stricter directory (0500 for a read-only mounted secret) means it, and
-	// widening the permissions on the directory that holds the private key would
-	// be the opposite of what this exists for. A failure here is not fatal — the
-	// private key and refresh secret are still written 0600 — so warn rather than
-	// abort.
-	if err := tightenDirMode(dir); err != nil {
-		log.Warn("authcore/keymanager: could not tighten key directory %q to %o: %v", dir, dirMode, err)
-	}
-
-	// The .gitignore is a convenience guard against committing keys; it is not
-	// security-critical. On a read-only KeysDir (a mounted secret) the write
-	// fails harmlessly — warn and carry on rather than refusing to start.
-	if err := ensureGitignore(dir); err != nil {
-		log.Warn("authcore/keymanager: could not write .gitignore in %q (continuing): %v", dir, err)
-	}
-
-	// Read the layout marker before anything is parsed or generated: a directory
-	// written by a newer authcore must be refused while its files are still
-	// untouched, not after a loader from this build has interpreted them.
-	meta, err := readMetadata(dir)
+	priv, pub, secret, err := bootstrap.Open(dir, log)
 	if err != nil {
 		return nil, err
 	}
-
-	state, err := inspectKeySet(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	if state == setEmpty {
-		// metadata.json is written only after a key set is published, so its
-		// presence with no key files left means a set existed and is gone.
-		// Until 2026-09-25 New generated a fresh set here and then rewrote
-		// the recorded key id, erasing the one sign of what was lost.
-		if meta != nil {
-			return nil, refuseRegeneration(dir, meta)
-		}
-		if err := symlinkPreflight(dir); err != nil {
-			return nil, err
-		}
-		return newByStaging(dir, meta, log)
-	}
-
-	if state == setPartial {
-		if err := recoverPartial(dir, log); err != nil {
-			return nil, err
-		}
-	}
-	return loadFromKeysDir(dir, meta, log)
+	return newKeyManager(dir, priv, pub, secret), nil
 }
 
-// setState names whether KeysDir is empty, partial, or complete. The empty
-// case takes the staging path; the complete case loads; the partial case
-// recovers (or refuses).
-type setState int
-
-const (
-	setEmpty setState = iota
-	setPartial
-	setComplete
-)
-
-// inspectKeySet counts how many of the three managed key files are present
-// in dir as regular files (or symlinks to regular files, since reads follow).
-// A classification error (a symlink loop or hostile entry) is surfaced as an
-// error: ignoring it would let New either write beside it or load from it.
-func inspectKeySet(dir string) (setState, error) {
-	present := 0
-	for _, name := range []string{filePrivateKey, filePublicKey, fileRefreshSecret} {
-		state, err := inspect(dir, name)
-		if err != nil {
-			return 0, err
-		}
-		if state != fileAbsent {
-			present++
-		}
-	}
-	switch present {
-	case 0:
-		return setEmpty, nil
-	case 3:
-		return setComplete, nil
-	default:
-		return setPartial, nil
-	}
-}
-
-// newByStaging is the empty-directory path: generate a key set into a private
-// staging directory, hard-link the three files into KeysDir, then write
-// metadata atomically. The in-memory keys are returned directly so the loaders
-// are not invoked on bytes we just wrote.
-func newByStaging(dir string, meta *metadata, log logger) (*KeyManager, error) {
-	// Warn before any fresh material is generated. The reason is the one in
-	// docs/key-management.md: an empty KeysDir on a container recreation, or
-	// on a fresh volume, means every issued token, every stored refresh-token
-	// hash, and every auth/field encrypted column is about to become
-	// unrecognised. Operators wire this Warn into monitoring so they find out
-	// before users do.
-	log.Warn("authcore/keymanager: KeysDir %q is empty; generating a fresh key "+
-		"set, which invalidates every issued token, every stored refresh-token "+
-		"and API-key hash, and every auth/field encrypted column",
-		dir)
-
-	// Sync the parent directory before the first publish. Another process
-	// may have created KeysDir without syncing its parent entry yet, and
-	// this process is about to publish keys that other processes will use.
-	if err := syncDir(filepath.Dir(dir)); err != nil {
-		// A parent with search but no read permission (0711, 0311) cannot be
-		// opened for fsync, and nothing here needs to read it. The load path
-		// treats the same sync as best effort; so does this one since
-		// 2026-09-25. Any other failure still stops the first run.
-		if errors.Is(err, fs.ErrPermission) {
-			log.Warn("authcore/keymanager: could not sync the parent of %q (continuing): %v", dir, err)
-		} else {
-			return nil, fmt.Errorf("sync parent of keys directory: %w", err)
-		}
-	}
-	staging, priv, pub, secret, err := createStagingSet(dir)
-	if err != nil {
-		return nil, err
-	}
-	if err := faultAt("staged"); err != nil {
-		return nil, err
-	}
-	if err := linkKeys(dir, staging, log); err != nil {
-		if errors.Is(err, errWaitAndLoad) {
-			if werr := waitForSet(dir, log); werr != nil {
-				return nil, werr
-			}
-			return loadFromKeysDir(dir, meta, log)
-		}
-		return nil, err
-	}
-	keyID := computeKeyID(pub)
-	if err := syncMetadata(dir, meta, keyID, log); err != nil {
-		return nil, err
-	}
-	reportLeftovers(dir, log)
+// newKeyManager wraps keys that were just loaded or generated from dir.
+func newKeyManager(dir string, priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) *KeyManager {
 	return &KeyManager{
 		dir:      dir,
 		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
-		keyID:    keyID,
-	}, nil
-}
-
-// loadFromKeysDir is the complete-directory path: load the three files
-// through the existing validators (which check pair consistency and secret
-// length), sync metadata, and report any leftover staging directories.
-//
-// The loading path tolerates a read-only KeysDir: symlinks are followed by
-// os.Stat, the size cap is honoured, and metadata is written with a warning
-// rather than as an error.
-func loadFromKeysDir(dir string, meta *metadata, log logger) (*KeyManager, error) {
-	privPath := filepath.Join(dir, filePrivateKey)
-	pubPath := filepath.Join(dir, filePublicKey)
-	secretPath := filepath.Join(dir, fileRefreshSecret)
-
-	priv, pub, err := loadEd25519(privPath, pubPath)
-	if err != nil {
-		return nil, fmt.Errorf("ed25519 key pair: %w", err)
+		keyID:    material.KeyID(pub),
 	}
-	secret, err := loadRefreshSecret(secretPath)
-	if err != nil {
-		return nil, fmt.Errorf("refresh secret: %w", err)
-	}
-
-	// Warn (never refuse, never chmod) when the private key or the refresh
-	// secret is readable by group or others. The public key is omitted by
-	// design: it is meant to be shared, so the same bit pattern on it is
-	// not a finding.
-	warnIfReadableByOthers(privPath, log)
-	warnIfReadableByOthers(secretPath, log)
-
-	keyID := computeKeyID(pub)
-	if err := syncMetadata(dir, meta, keyID, log); err != nil {
-		return nil, err
-	}
-	if err := syncDir(dir); err != nil {
-		// A read-only KeysDir (a mounted secret) is a supported deployment;
-		// the metadata is already written when possible, so a sync that
-		// cannot flush is a warning, not a load failure.
-		log.Warn("authcore/keymanager: could not sync key directory %q (continuing): %v", dir, err)
-	}
-	reportLeftovers(dir, log)
-	return &KeyManager{
-		dir:      dir,
-		material: &secretMaterial{privateKey: priv, publicKey: pub, refreshSecret: secret},
-		keyID:    keyID,
-	}, nil
 }
 
 // KeyID derives the stable key identifier for pub — the same value a
 // KeyManager reports for its own key. It is exported so the JWT module can
 // index additional verification keys (during rotation) by the same id without
 // duplicating the derivation.
-func KeyID(pub ed25519.PublicKey) string { return computeKeyID(pub) }
-
-// computeKeyID derives a stable identifier from a public key.
-// It returns the first 8 bytes of the SHA-256 digest of the raw public key
-// bytes, hex-encoded (16 lowercase characters). The value changes automatically
-// when the key is rotated, making it suitable as a JOSE "kid" header value.
-func computeKeyID(pub ed25519.PublicKey) string {
-	h := sha256.Sum256(pub)
-	return hex.EncodeToString(h[:8])
-}
+func KeyID(pub ed25519.PublicKey) string { return material.KeyID(pub) }
 
 // PrivateKey returns the Ed25519 private key used for signing operations.
 // The returned slice must not be modified by the caller.
@@ -353,7 +141,7 @@ func (km *KeyManager) RefreshSecret() []byte {
 }
 
 // KeyID returns the stable identifier for the current signing key.
-// See computeKeyID for the derivation details.
+// See material.KeyID for the derivation details.
 func (km *KeyManager) KeyID() string {
 	return km.keyID
 }
@@ -364,31 +152,54 @@ func (km *KeyManager) Dir() string {
 	return km.dir
 }
 
-// tightenDirMode removes any permission bit outside dirMode from dir, and
-// leaves a directory that is already at or below dirMode untouched.
+// Load reads an existing key set from dir and returns a *KeyManager holding it.
 //
-// Chmodding unconditionally would also *raise* a stricter mode to 0700, which
-// is why the current mode is read first: 0755 becomes 0700, while 0500 stays
-// 0500. On a platform without Unix permission bits the mode carries no group
-// or world bits to strip, so this is a no-op there.
-func tightenDirMode(dir string) error {
-	fi, err := os.Stat(dir)
+// It performs no writes of any kind: no MkdirAll, no directory chmod, no
+// .gitignore, no metadata creation or refresh, no staging directory, no
+// hard-link. Its purpose is the production deploy that mounts the keys as a
+// read-only Secret and must be able to start without ever producing a
+// filesystem event in that mount.
+//
+// Behaviour:
+//
+//   - dir must exist as a directory; os.Stat follows symlinks, which a
+//     Kubernetes Secret mount depends on. A missing path or a non-directory
+//     entry returns an error that names dir and lists the three filenames a
+//     complete set needs.
+//   - metadata.json, when present, is read with readMetadata; a missing file
+//     is fine (the pre-metadata layout is adopted), and any other failure of
+//     readMetadata (unparseable content, a future format) is returned
+//     verbatim, because the directory is not being written here.
+//   - The three key files must all be present. Any missing file produces an
+//     error that lists present and missing filenames and tells the operator
+//     to restore the missing files from a backup. The wording names the
+//     danger of regenerating refresh_secret.key.
+//   - The files are loaded and validated through loadEd25519 and
+//     loadRefreshSecret, the same functions New uses on the complete path:
+//     size-cap, PEM parse, pair-consistency and secret-length checks all
+//     apply, so a directory that passed a previous Load or New is loaded
+//     identically here.
+//   - reportLeftovers runs once before return: it is the read-only scan that
+//     warns about stale staging directories, and no operation here depends
+//     on it having been run.
+//
+// All errors returned here are wrapped by the disk store in keystore.go,
+// which itself wraps ErrKeyManager around them.
+func Load(dir string, log logger) (*KeyManager, error) {
+	priv, pub, secret, err := keyload.LoadOnly(dir, log)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	mode := fi.Mode().Perm()
-	if mode&^dirMode == 0 {
-		return nil // already at least this strict
-	}
-	return os.Chmod(dir, mode&dirMode)
+	return newKeyManager(dir, priv, pub, secret), nil
 }
 
-// ensureGitignore writes a catch-all .gitignore inside dir if one does
-// not already exist. It is idempotent.
-func ensureGitignore(dir string) error {
-	path := filepath.Join(dir, fileGitignore)
-	if exists(dir, fileGitignore) {
-		return nil // already present
-	}
-	return createExclusive(path, []byte(gitignoreContent), 0600)
+// DecodePEMBlock returns the DER bytes of the one PEM block in data, which
+// must be labelled wantType, carry no headers, and be the only thing in data
+// apart from whitespace. pem.Decode alone returns the first block wherever
+// it sits and ignores the label, the headers and whatever follows, so a file
+// holding two keys signed with whichever came first, and a PKCS#8 key under a
+// CERTIFICATE label or behind Proc-Type headers was accepted (measured
+// 2026-09-25). Key material has one canonical shape here.
+func DecodePEMBlock(data []byte, wantType, src string) ([]byte, error) {
+	return pemcodec.DecodePEMBlock(data, wantType, src)
 }

@@ -1,14 +1,9 @@
 package email
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"net"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/Glyndor/authcore"
 )
@@ -51,469 +46,106 @@ func TestName(t *testing.T) {
 	}
 }
 
-// ---- normalize() — internal -------------------------------------------------
+// ---- New(p) reproduces today's behaviour ------------------------------------
 
-func TestNormalize_lowercases(t *testing.T) {
-	got, err := normalize("USER@EXAMPLE.COM")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "user@example.com" {
-		t.Errorf("got %q", got)
+func TestNew_acceptsPlusAddressing(t *testing.T) {
+	// The zero Config{} - which is what New(p) uses - must NOT reject
+	// plus-addressing, because that is the existing behaviour callers
+	// depend on. Today the module is built with New(p); the change here is
+	// purely additive.
+	m := newMod(t)
+	if _, err := m.ValidateAndNormalize("user+tag@example.com"); err != nil {
+		t.Errorf("New(p) must accept plus-addressing by default, got %v", err)
 	}
 }
 
-func TestNormalize_trimsSpaces(t *testing.T) {
-	got, err := normalize("  user@example.com  ")
+// ---- NewWithConfig(p, Config{RejectPlusAddressing: true}) --------------------
+
+func TestNewWithConfig_rejectsPlusAddressing(t *testing.T) {
+	mod, err := NewWithConfig(fakeProvider{}, Config{RejectPlusAddressing: true})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("NewWithConfig: %v", err)
 	}
-	if got != "user@example.com" {
-		t.Errorf("got %q", got)
+
+	_, err = mod.ValidateAndNormalize("user+tag@example.com")
+	if !errors.Is(err, ErrInvalidEmail) {
+		t.Fatalf("expected ErrInvalidEmail for plus-addressing, got %v", err)
+	}
+	if reason := errors.Unwrap(err); reason == nil || !strings.Contains(reason.Error(), "plus") {
+		t.Errorf("error reason must name the rule (plus-addressing), got %v", reason)
 	}
 }
 
-func TestNormalize_mixedCaseAndSpaces(t *testing.T) {
-	got, err := normalize("  Ana@Example.COM  ")
+func TestNewWithConfig_rejectPlusStillPassesNormalAddresses(t *testing.T) {
+	// Turning plus-addressing rejection ON must not affect addresses that
+	// do not contain '+'. The whole point of the toggle is the
+	// plus-addressing rule specifically, not a stricter structural check.
+	mod, err := NewWithConfig(fakeProvider{}, Config{RejectPlusAddressing: true})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("NewWithConfig: %v", err)
 	}
-	if got != "ana@example.com" {
-		t.Errorf("got %q", got)
-	}
-}
 
-// ---- validate() — valid addresses (internal) --------------------------------
-
-func TestValidate_simpleValid(t *testing.T) {
-	valid := []string{
+	for _, addr := range []string{
 		"user@example.com",
 		"user.name@example.com",
-		"user+tag@example.co.uk",
 		"a@b.io",
-		"user@sub.domain.example.com",
-	}
-	for _, addr := range valid {
-		if err := validate(addr); err != nil {
-			t.Errorf("validate(%q) = %v, want nil", addr, err)
-		}
-	}
-}
-
-// ---- validate() — invalid addresses (internal) ------------------------------
-
-func TestValidate_empty(t *testing.T) {
-	if err := validate(""); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_tooLong(t *testing.T) {
-	local := "a"
-	for len(local+"@b.com") <= 254 {
-		local += "a"
-	}
-	if err := validate(local + "@b.com"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail for too-long address")
-	}
-}
-
-func TestValidate_noAt(t *testing.T) {
-	if err := validate("userexample.com"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_localPartTooLong(t *testing.T) {
-	local := ""
-	for i := 0; i < 65; i++ {
-		local += "a"
-	}
-	if err := validate(local + "@example.com"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail for local part > 64 chars")
-	}
-}
-
-func TestValidate_domainNoDot(t *testing.T) {
-	if err := validate("user@localhost"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_domainLeadingDot(t *testing.T) {
-	if err := validate("user@.example.com"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_domainTrailingDot(t *testing.T) {
-	if err := validate("user@example.com."); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_domainConsecutiveDots(t *testing.T) {
-	if err := validate("user@example..com"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidate_withDisplayName(t *testing.T) {
-	if err := validate("Ana <ana@example.com>"); !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail for display name format")
-	}
-}
-
-func TestValidate_addressLiteralRejected(t *testing.T) {
-	for _, addr := range []string{
-		"user@[192.168.1.1]",
-		"user@[IPv6:2001:db8::1]",
 	} {
-		if err := validate(addr); !errors.Is(err, ErrInvalidEmail) {
-			t.Errorf("expected ErrInvalidEmail for address literal %q, got %v", addr, err)
+		if _, err := mod.ValidateAndNormalize(addr); err != nil {
+			t.Errorf("ValidateAndNormalize(%q) = %v, want nil", addr, err)
 		}
 	}
 }
 
-// ---- ErrInvalidEmail wraps a reason -----------------------------------------
+func TestNewWithConfig_emptyConfigMatchesNew(t *testing.T) {
+	// Calling NewWithConfig with the zero Config{} must reproduce the
+	// behaviour of New(p). This is the additive guarantee: New keeps
+	// working, and zero-value Config{} in NewWithConfig does the same.
+	a, err := NewWithConfig(fakeProvider{}, Config{})
+	if err != nil {
+		t.Fatalf("NewWithConfig: %v", err)
+	}
+	b := newMod(t)
 
-func TestValidate_wrapsReason(t *testing.T) {
-	err := validate("")
+	if _, err := a.ValidateAndNormalize("user+tag@example.com"); err != nil {
+		t.Errorf("zero Config{} must accept plus-addressing, got %v", err)
+	}
+	if _, err := b.ValidateAndNormalize("user+tag@example.com"); err != nil {
+		t.Errorf("New(p) must accept plus-addressing, got %v", err)
+	}
+}
+
+// ---- structural errors must surface before plus-addressing ------------------
+
+func TestNewWithConfig_plusAddressWithBadDomainStillReportsDomain(t *testing.T) {
+	// If the user passes a structurally invalid address that also contains
+	// a '+', they should see the structural error (more actionable), not
+	// the policy error. The policy check sits AFTER structural validation.
+	mod, err := NewWithConfig(fakeProvider{}, Config{RejectPlusAddressing: true})
+	if err != nil {
+		t.Fatalf("NewWithConfig: %v", err)
+	}
+
+	_, err = mod.ValidateAndNormalize("user+tag@example..com")
 	if !errors.Is(err, ErrInvalidEmail) {
 		t.Fatalf("expected ErrInvalidEmail, got %v", err)
 	}
 	reason := errors.Unwrap(err)
-	if reason == nil {
-		t.Fatal("expected wrapped reason, got nil")
-	}
-	if reason.Error() == "" {
-		t.Error("wrapped reason must not be empty")
+	if reason == nil || strings.Contains(reason.Error(), "plus") {
+		t.Errorf("structural error must surface first; got %v", reason)
 	}
 }
 
-// ---- ValidateAndNormalize() -------------------------------------------------
+type nilLoggerProvider struct{ fakeProvider }
 
-func TestValidateAndNormalize_normalizes(t *testing.T) {
-	m := newMod(t)
-	got, err := m.ValidateAndNormalize("  USER@EXAMPLE.COM  ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "user@example.com" {
-		t.Errorf("got %q, want %q", got, "user@example.com")
-	}
-}
+func (nilLoggerProvider) Logger() authcore.Logger { return nil }
 
-func TestValidateAndNormalize_idnSubdomainEachLabelConverted(t *testing.T) {
-	// When a multi-label IDN domain is supplied, every Unicode label must
-	// be converted to its punycode form, not just the rightmost one.
-	got, err := newMod(t).ValidateAndNormalize("user@süd.münchen.de")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// A nil provider or logger panicked until 2026-09-25.
+func TestNewWithConfig_refusesANilProviderOrLogger(t *testing.T) {
+	if _, err := New(nil); !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "provider is nil") {
+		t.Errorf("New(nil) = %v, want ErrInvalidConfig", err)
 	}
-	want := "user@xn--sd-xka.xn--mnchen-3ya.de"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestValidateAndNormalize_idnWithOverlongLabelRejected(t *testing.T) {
-	// idna.Lookup caps a single label at 63 characters. When ToASCII produces
-	// a valid ASCII form whose label exceeds that cap, normalize accepts the
-	// conversion and the downstream 63-character label rule rejects the
-	// address with ErrInvalidEmail.
-	overlongLabel := strings.Repeat("ä", 60) // ~120 bytes UTF-8, punycode expands further → >63
-	_, err := newMod(t).ValidateAndNormalize("user@" + overlongLabel + ".com")
-	if !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail for overlong IDN label, got %v", err)
-	}
-}
-
-func TestValidateAndNormalize_idnDomainConvertedToPunycode(t *testing.T) {
-	// "münchen.de" is a legitimate German internationalised domain name.
-	// Without IDN support the validator rejects it as non-ASCII; with IDN
-	// support it is converted to its punycode (xn--mnchen-3ya.de) form that
-	// DNS can actually resolve.
-	got, err := newMod(t).ValidateAndNormalize("user@münchen.de")
-	if err != nil {
-		t.Fatalf("unexpected error for IDN email: %v", err)
-	}
-	want := "user@xn--mnchen-3ya.de"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-// TestValidateAndNormalize_rejectsIDNAFailure covers the regression where a
-// domain that IDNA cannot convert (leading-hyphen label, underscore in a
-// label, etc.) silently fell through to the raw input and the downstream
-// structural checks accepted it. The conversion failure must be propagated
-// as ErrInvalidEmail with an empty canonical form: a malformed IDN has no
-// canonical form to store or query.
-func TestValidateAndNormalize_rejectsIDNAFailure(t *testing.T) {
-	m := newMod(t)
-	for _, addr := range []string{
-		"user@-example.com",   // leading hyphen in a label
-		"user@exa_mple.com",   // underscore, forbidden in DNS labels
-		"user@example-.com",   // trailing hyphen in a label
-		"user@example.com:80", // colon, forbidden in DNS labels
-	} {
-		got, err := m.ValidateAndNormalize(addr)
-		if !errors.Is(err, ErrInvalidEmail) {
-			t.Errorf("%s: expected ErrInvalidEmail, got %v", addr, err)
-		}
-		if got != "" {
-			t.Errorf("%s: expected empty result on rejection, got %q", addr, got)
-		}
-	}
-}
-
-// Acceptance pair for TestValidateAndNormalize_rejectsIDNAFailure: a domain
-// IDNA does convert must still normalise to its punycode form, otherwise
-// the rejection path above could pass for any input at all.
-func TestValidateAndNormalize_acceptsConvertibleIDN(t *testing.T) {
-	got, err := newMod(t).ValidateAndNormalize("user@bücher.example")
-	if err != nil {
-		t.Fatalf("unexpected error for convertible IDN: %v", err)
-	}
-	want := "user@xn--bcher-kva.example"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestValidateAndNormalize_invalidReturnsError(t *testing.T) {
-	_, err := newMod(t).ValidateAndNormalize("not-an-email")
-	if !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-func TestValidateAndNormalize_emptyReturnsError(t *testing.T) {
-	_, err := newMod(t).ValidateAndNormalize("")
-	if !errors.Is(err, ErrInvalidEmail) {
-		t.Errorf("expected ErrInvalidEmail, got %v", err)
-	}
-}
-
-// ---- VerifyDomain() tests ---------------------------------------------------
-
-// primeCache directly writes a cache entry, bypassing DNS, so we can test
-// cache hit behaviour without network access.
-func primeCache(m *Email, domain string, hasMX bool, ttl time.Duration) {
-	m.mu.Lock()
-	m.cache[domain] = cacheEntry{hasMX: hasMX, expiresAt: time.Now().Add(ttl)}
-	m.mu.Unlock()
-}
-
-func TestVerifyDomain_cachedPositiveReturnsNil(t *testing.T) {
-	m := newMod(t)
-	primeCache(m, "example.com", true, time.Minute)
-
-	if err := m.VerifyDomain(context.Background(), "user@example.com"); err != nil {
-		t.Errorf("expected nil, got %v", err)
-	}
-}
-
-func TestVerifyDomain_cachedNegativeReturnsErrDomainNoMX(t *testing.T) {
-	m := newMod(t)
-	primeCache(m, "nodomain.example", false, time.Minute)
-
-	err := m.VerifyDomain(context.Background(), "user@nodomain.example")
-	if !errors.Is(err, ErrDomainNoMX) {
-		t.Errorf("expected ErrDomainNoMX, got %v", err)
-	}
-}
-
-func TestVerifyDomain_expiredCacheHitsDNS(t *testing.T) {
-	m := newMod(t)
-	// Write an expired positive entry — it must NOT be used.
-	m.mu.Lock()
-	m.cache["example.com"] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(-time.Second)}
-	m.mu.Unlock()
-
-	// DNS will fail (no real network in unit tests using a broken resolver).
-	m.resolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return nil, errors.New("no network")
-		},
-	}
-	err := m.VerifyDomain(context.Background(), "user@example.com")
-	if !errors.Is(err, ErrDomainUnresolvable) {
-		t.Errorf("expected ErrDomainUnresolvable after cache miss + DNS failure, got %v", err)
-	}
-}
-
-func TestVerifyDomain_dnsFailureReturnsErrDomainUnresolvable(t *testing.T) {
-	m := newMod(t)
-	m.resolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return nil, errors.New("no network")
-		},
-	}
-	err := m.VerifyDomain(context.Background(), "user@unreachable.example")
-	if !errors.Is(err, ErrDomainUnresolvable) {
-		t.Errorf("expected ErrDomainUnresolvable, got %v", err)
-	}
-}
-
-func TestVerifyDomain_dnsFailureIsWrapped(t *testing.T) {
-	m := newMod(t)
-	m.resolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return nil, errors.New("no network")
-		},
-	}
-	err := m.VerifyDomain(context.Background(), "user@unreachable.example")
-	if errors.Unwrap(err) == nil {
-		t.Error("ErrDomainUnresolvable must wrap the underlying DNS error")
-	}
-}
-
-// TestVerifyDomain_dnsFailureIsServedFromCache pins the dnsFailure flag
-// on the cached entry: a DNS failure has to be cached as dnsFailure=true
-// so the second call returns ErrDomainUnresolvable (soft failure) rather
-// than ErrDomainNoMX (hard failure, which would block the user on a
-// transient transport error).
-//
-// The test counts the resolver dial attempts: the first call must hit
-// DNS at least once, and the second must hit it zero additional times
-// (a cache hit). The exact count on the first call is left to the Go
-// resolver's retry policy. What matters for the assertion is that the
-// second call does not increase it. Together, the no-increment-on-second-
-// call and the error code are what catch the "remove dnsFailure: true
-// from the cache write" sabotage. A cache that stores the failure with
-// dnsFailure=false and hasMX=false still returns ErrDomainNoMX on the
-// second call, and the test sees the wrong error type instead of the
-// soft one.
-func TestVerifyDomain_dnsFailureIsServedFromCache(t *testing.T) {
-	m := newMod(t)
-	var calls int32
-	m.resolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			atomic.AddInt32(&calls, 1)
-			return nil, errors.New("no network")
-		},
-	}
-
-	// First call: must hit DNS at least once and must return
-	// ErrDomainUnresolvable; the failure must be cached under
-	// dnsFailure=true.
-	first := m.VerifyDomain(context.Background(), "user@flaky.example")
-	if !errors.Is(first, ErrDomainUnresolvable) {
-		t.Fatalf("first VerifyDomain: got %v, want ErrDomainUnresolvable", first)
-	}
-	firstCalls := atomic.LoadInt32(&calls)
-	if firstCalls < 1 {
-		t.Fatalf("first VerifyDomain: no DNS dial attempted, got %d", firstCalls)
-	}
-
-	// Second call: must NOT hit DNS again (cache hit) and must still
-	// return ErrDomainUnresolvable (not ErrDomainNoMX).
-	second := m.VerifyDomain(context.Background(), "user@flaky.example")
-	if !errors.Is(second, ErrDomainUnresolvable) {
-		t.Errorf("second VerifyDomain: got %v, want ErrDomainUnresolvable", second)
-	}
-	if errors.Is(second, ErrDomainNoMX) {
-		t.Error("second VerifyDomain: got ErrDomainNoMX; cached DNS failure must not be served as ErrDomainNoMX")
-	}
-	if got := atomic.LoadInt32(&calls); got != firstCalls {
-		t.Errorf("second VerifyDomain: dial count went from %d to %d; cache must be hit, not DNS", firstCalls, got)
-	}
-}
-
-func TestVerifyDomain_noAtSignReturnsErrDomainNoMX(t *testing.T) {
-	m := newMod(t)
-	err := m.VerifyDomain(context.Background(), "notanemail")
-	if !errors.Is(err, ErrDomainNoMX) {
-		t.Errorf("expected ErrDomainNoMX for address with no '@', got %v", err)
-	}
-}
-
-func TestVerifyDomain_cachedDnsFailureReturnsErrDomainUnresolvable(t *testing.T) {
-	// Regression: a DNS failure cached as hasMX=false must NOT return
-	// ErrDomainNoMX on subsequent cache hits — that would incorrectly block
-	// the user. It must return ErrDomainUnresolvable (soft failure).
-	m := newMod(t)
-	m.mu.Lock()
-	m.cache["unreachable.example"] = cacheEntry{
-		dnsFailure: true,
-		expiresAt:  time.Now().Add(time.Minute),
-	}
-	m.mu.Unlock()
-
-	err := m.VerifyDomain(context.Background(), "user@unreachable.example")
-	if !errors.Is(err, ErrDomainUnresolvable) {
-		t.Errorf("cached DNS failure must return ErrDomainUnresolvable, got %v", err)
-	}
-	if errors.Is(err, ErrDomainNoMX) {
-		t.Error("cached DNS failure must NOT return ErrDomainNoMX")
-	}
-}
-
-func TestVerifyDomain_cacheDropsEntryWhenFull(t *testing.T) {
-	m := newMod(t)
-
-	// Fill the cache to maxCacheSize with live entries.
-	m.mu.Lock()
-	for i := range maxCacheSize {
-		m.cache[fmt.Sprintf("live%d.example", i)] = cacheEntry{
-			hasMX:     true,
-			expiresAt: time.Now().Add(time.Hour),
-		}
-	}
-	m.mu.Unlock()
-
-	// Storing a new entry must be silently dropped when cache is full.
-	m.store("new.example", cacheEntry{hasMX: true, expiresAt: time.Now().Add(time.Minute)})
-
-	m.mu.RLock()
-	_, ok := m.cache["new.example"]
-	m.mu.RUnlock()
-
-	if ok {
-		t.Error("store must drop new entries silently when cache is at maxCacheSize")
-	}
-}
-
-// store is the only eviction there is since #135 removed the background
-// goroutine: when the cache is full it drops the expired entries and then
-// admits the new one. Until 2026-09-25 the test for eviction called a helper
-// nothing in production called, so this path could be deleted with the suite
-// green, and a full cache would then never admit another domain.
-func TestStore_evictsExpiredEntriesWhenFull(t *testing.T) {
-	m := newMod(t)
-	m.mu.Lock()
-	for i := 0; i < maxCacheSize-1; i++ {
-		m.cache[fmt.Sprintf("stale%d.example", i)] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(-time.Second)}
-	}
-	m.cache["live.example"] = cacheEntry{hasMX: true, expiresAt: time.Now().Add(time.Minute)}
-	m.mu.Unlock()
-
-	m.store("new.example", cacheEntry{hasMX: true, expiresAt: time.Now().Add(time.Minute)})
-
-	m.mu.RLock()
-	_, newOk := m.cache["new.example"]
-	_, liveOk := m.cache["live.example"]
-	_, staleOk := m.cache["stale0.example"]
-	size := len(m.cache)
-	m.mu.RUnlock()
-
-	if !newOk {
-		t.Error("a full cache of expired entries must admit the new domain")
-	}
-	if !liveOk {
-		t.Error("eviction must keep live entries")
-	}
-	if staleOk {
-		t.Error("eviction must remove expired entries")
-	}
-	if size != 2 {
-		t.Errorf("cache holds %d entries after eviction, want 2", size)
+	if _, err := NewWithConfig(nilLoggerProvider{}, Config{}); !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "Logger() returned nil") {
+		t.Errorf("nil logger = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -521,71 +153,4 @@ func TestClose_isIdempotent(t *testing.T) {
 	m := newMod(t)
 	m.Close()
 	m.Close() // must not panic
-}
-
-func TestVerifyDomain_dnsFailureCachesNegativeBriefly(t *testing.T) {
-	m := newMod(t)
-	m.resolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return nil, errors.New("no network")
-		},
-	}
-	_ = m.VerifyDomain(context.Background(), "user@unreachable.example")
-
-	// Second call must hit the cache (no second DNS attempt).
-	// We verify by reading the cache directly.
-	m.mu.RLock()
-	entry, ok := m.cache["unreachable.example"]
-	m.mu.RUnlock()
-	if !ok {
-		t.Fatal("expected a cache entry after DNS failure")
-	}
-	if entry.hasMX {
-		t.Error("failed DNS lookup must cache hasMX=false")
-	}
-	if time.Until(entry.expiresAt) > 31*time.Second {
-		t.Errorf("negative DNS failure TTL should be ≤30 s, got %v", time.Until(entry.expiresAt))
-	}
-}
-
-// TestValidate_tooLong above builds a ~249-character local part, so it is
-// refused by the 64-character local-part rule and never reaches the total
-// length check — deleting the 254 guard leaves it green. A total over 254 has
-// to be assembled from parts that are each individually legal.
-func TestValidate_tooLongWithEveryPartIndividuallyLegal(t *testing.T) {
-	local := strings.Repeat("a", 60) // under the 64 limit
-	label := strings.Repeat("b", 60) // under the 63-byte DNS label limit
-	domain := label + "." + label + "." + label + "." + label + ".com"
-	address := local + "@" + domain
-
-	if len(address) <= 254 {
-		t.Fatalf("fixture is only %d characters, it has to exceed 254 to test anything", len(address))
-	}
-	if len(local) > 64 {
-		t.Fatal("fixture's local part breaks its own premise")
-	}
-
-	err := validate(address)
-	if !errors.Is(err, ErrInvalidEmail) {
-		t.Fatalf("an address over 254 characters must be refused, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "254") {
-		t.Fatalf("refused for the wrong reason — the length guard is not what caught it: %v", err)
-	}
-}
-
-// The companion: the same shape just under the limit has to be accepted, or
-// the test above would pass for any address at all.
-func TestValidate_acceptsALongButLegalAddress(t *testing.T) {
-	local := strings.Repeat("a", 60)
-	label := strings.Repeat("b", 60)
-	address := local + "@" + label + "." + label + ".com"
-
-	if len(address) > 254 {
-		t.Fatalf("fixture is %d characters, it has to stay under 254", len(address))
-	}
-	if err := validate(address); err != nil {
-		t.Fatalf("a long but legal address must be accepted: %v", err)
-	}
 }
