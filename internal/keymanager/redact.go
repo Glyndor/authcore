@@ -6,10 +6,11 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/redact"
 )
 
-// Compile-time proof that *KeyManager controls its own formatting. Without
-// these, fmt reflects over the struct and prints every field, unexported
-// ones included.
+// Compile-time proof that KeyManager, held by pointer or by value, controls its
+// own formatting. Without these, fmt reflects over the struct and prints every
+// field, unexported ones included.
 var (
+	_ fmt.Formatter  = KeyManager{}
 	_ fmt.Formatter  = (*KeyManager)(nil)
 	_ fmt.Stringer   = (*KeyManager)(nil)
 	_ fmt.GoStringer = (*KeyManager)(nil)
@@ -29,7 +30,13 @@ var (
 // String alone: a String method would have left %#v leaking in hex. Verbs
 // that make no sense for this type render as a Go %!verb error rather than
 // falling back to reflection, because that fallback is the leak.
-func (km *KeyManager) Format(f fmt.State, verb rune) {
+//
+// The receiver is a value so that a KeyManager copied out of its pointer
+// (fmt.Sprintf("%s", *km)) is redacted too: with a pointer receiver the value's
+// method set lacked Format and fmt reflected into the struct. String and
+// GoString keep pointer receivers, which is what lets them answer for a nil
+// manager.
+func (km KeyManager) Format(f fmt.State, verb rune) {
 	redact.Format(f, verb, km.String, km.GoString)
 }
 

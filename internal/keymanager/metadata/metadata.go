@@ -4,6 +4,7 @@
 package metadata
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -14,8 +15,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Glyndor/authcore/internal/keymanager/binding"
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
+	"github.com/Glyndor/authcore/internal/keymanager/material"
+	"github.com/Glyndor/authcore/internal/keymanager/refusals"
 	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
 
@@ -25,8 +29,9 @@ import (
 const CurrentFormat = 1
 
 // Metadata is the content of layout.FileMetadata. It holds no secret — KeyID is
-// derived from the public key and already travels in every JWT header — but it
-// is written 0600 anyway, since nothing outside authcore reads it.
+// derived from the public key and already travels in every JWT header, and
+// SecretBinding is a keyed hash that reveals nothing of the key it is keyed
+// with — but it is written 0600 anyway, since nothing outside authcore reads it.
 type Metadata struct {
 	// Format is the on-disk layout version. A directory written by a newer
 	// authcore carries a higher number and is refused rather than guessed at.
@@ -39,6 +44,11 @@ type Metadata struct {
 	// written. It is informational: it lets an operator see which key a
 	// directory holds without parsing the PEM.
 	KeyID string `json:"key_id"`
+	// SecretBinding ties refresh_secret.key to the key pair (see package
+	// binding). It is absent in a directory written before it existed; the
+	// next start records it in place. Releases that predate it ignore the
+	// field, so a directory migrated by this build still loads in them.
+	SecretBinding string `json:"secret_binding,omitempty"`
 }
 
 // ErrFormatFromFuture reports a directory written by a newer authcore.
@@ -93,21 +103,24 @@ func Read(dir string) (*Metadata, error) {
 
 // Sync brings the descriptor in line with the keys that were just
 // loaded or generated: it writes one for a directory that has none (adopting
-// the pre-metadata layout in place, without touching the keys), and refreshes
-// the recorded key id when the signing key has been rotated underneath.
+// the pre-metadata layout in place, without touching the keys), refreshes the
+// recorded key id and secret binding when the signing key has been rotated
+// underneath, and records the binding on a descriptor that predates it.
 //
 // A genuine write failure is reported to the log and not returned: the
 // descriptor is bookkeeping and a read-only KeysDir (a mounted secret) is a
 // supported deployment, so a metadata write that fails must not stop a
 // service from starting. A faultAt return is a test-only signal and is
 // returned verbatim so the publish transaction aborts as a crash would.
-func Sync(dir string, existing *Metadata, keyID string, log layout.Logger) error {
+func Sync(dir string, existing *Metadata, keyID, secretBinding string, log layout.Logger) error {
 	switch {
 	case existing == nil:
 		m := Metadata{
 			Format:  CurrentFormat,
 			Created: creationTime(dir),
 			KeyID:   keyID,
+
+			SecretBinding: secretBinding,
 		}
 		if err := write(dir, m); err != nil {
 			log.Warn("authcore/keymanager: could not write %s in %q (continuing): %v", layout.FileMetadata, dir, err)
@@ -123,6 +136,7 @@ func Sync(dir string, existing *Metadata, keyID string, log layout.Logger) error
 		// rotation, or keys restored from elsewhere. Follow the keys.
 		m := *existing
 		m.KeyID = keyID
+		m.SecretBinding = secretBinding
 		if err := write(dir, m); err != nil {
 			log.Warn("authcore/keymanager: could not update %s in %q (continuing): %v", layout.FileMetadata, dir, err)
 			return nil
@@ -131,8 +145,37 @@ func Sync(dir string, existing *Metadata, keyID string, log layout.Logger) error
 			return err
 		}
 		log.Info("authcore/keymanager: signing key changed, %s now records key id %s", layout.FileMetadata, keyID)
+
+	case existing.SecretBinding == "":
+		// A directory written before the binding existed: bind its secret to
+		// its key pair in place. Keys and secret are untouched, so nothing
+		// issued so far stops verifying.
+		m := *existing
+		m.SecretBinding = secretBinding
+		if err := write(dir, m); err != nil {
+			log.Warn("authcore/keymanager: could not update %s in %q (continuing): %v", layout.FileMetadata, dir, err)
+			return nil
+		}
+		if err := seams.Fault("metadata-written"); err != nil {
+			return err
+		}
+		log.Info("authcore/keymanager: recorded the refresh secret binding in %s", layout.FileMetadata)
 	}
 	return nil
+}
+
+// CheckSecret refuses a refresh secret that is not the one recorded for the
+// key pair. It checks only a descriptor that was written for this very
+// signing key and already carries a binding; a rotated key id is handled by
+// Sync, and a descriptor without a binding is adopted by it.
+func CheckSecret(dir string, m *Metadata, pub ed25519.PublicKey, secret []byte) error {
+	if m == nil || m.SecretBinding == "" || m.KeyID != material.KeyID(pub) {
+		return nil
+	}
+	if binding.Matches(m.SecretBinding, pub, secret) {
+		return nil
+	}
+	return refusals.SecretMismatch(dir)
 }
 
 // write serialises m into dir atomically.

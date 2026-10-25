@@ -1,7 +1,6 @@
 package match
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,7 +14,9 @@ import (
 // names and arbitrary staged private-key bytes. It must never panic, must
 // only ever answer with a directory directly inside dir whose name carries
 // the staging prefix, and may adopt one only when the staged private key
-// equals the published one (or none is published).
+// equals the published one (or none is published) and the staged files form a
+// valid key set. The staged public key and secret here are filler, so no
+// input may be adopted at all.
 func FuzzFindStaging(f *testing.F) {
 	f.Add("abcdef0123456789", []byte("key"), []byte("key"), true)
 	f.Add("..", []byte("a"), []byte("b"), true)
@@ -55,16 +56,8 @@ func FuzzFindStaging(f *testing.F) {
 			if !errors.Is(err, ErrNoMatchingStaging) {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if !published || bytes.Equal(stagedPriv, publishedPriv) {
-				t.Fatalf("a matching staging directory was not found (published=%v)", published)
-			}
 			return
 		}
-		if filepath.Dir(got) != dir || !strings.HasPrefix(filepath.Base(got), layout.StagingPrefix) {
-			t.Fatalf("answered with a path outside the staging namespace: %q", got)
-		}
-		if published && !bytes.Equal(stagedPriv, publishedPriv) {
-			t.Fatal("adopted a staging directory whose private key differs from the published one")
-		}
+		t.Fatalf("adopted a staging directory that is not a valid key set: %q", got)
 	})
 }

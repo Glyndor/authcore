@@ -34,7 +34,7 @@ func TestSyncMetadata_writeFailureIsNotFatal(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	log := &captureLogger{}
 
-	Sync(missing, nil, "abcdef0123456789", log)
+	Sync(missing, nil, "abcdef0123456789", "", log)
 
 	if len(log.warnings) != 1 {
 		t.Fatalf("expected exactly one warning, got %d: %v", len(log.warnings), log.warnings)
@@ -54,7 +54,7 @@ func TestSyncMetadata_rotationWriteFailureIsNotFatal(t *testing.T) {
 	log := &captureLogger{}
 	existing := &Metadata{Format: CurrentFormat, Created: "2026-01-01T00:00:00Z", KeyID: "0000000000000000"}
 
-	Sync(missing, existing, "abcdef0123456789", log)
+	Sync(missing, existing, "abcdef0123456789", "", log)
 
 	if len(log.warnings) != 1 {
 		t.Fatalf("expected exactly one warning, got %d: %v", len(log.warnings), log.warnings)
@@ -70,9 +70,9 @@ func TestSyncMetadata_upToDateDescriptorIsNotRewritten(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	log := &captureLogger{}
 	keyID := "abcdef0123456789"
-	existing := &Metadata{Format: CurrentFormat, Created: "2026-01-01T00:00:00Z", KeyID: keyID}
+	existing := &Metadata{Format: CurrentFormat, Created: "2026-01-01T00:00:00Z", KeyID: keyID, SecretBinding: "bound"}
 
-	Sync(missing, existing, keyID, log)
+	Sync(missing, existing, keyID, "bound", log)
 
 	if len(log.warnings) != 0 {
 		t.Errorf("an up-to-date descriptor should not be written at all, got warnings: %v", log.warnings)

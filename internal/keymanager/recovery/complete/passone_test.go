@@ -192,6 +192,11 @@ func TestCompleteFromStaging_passOneReadCappedNonNotExist(t *testing.T) {
 	recoverytest.CopyFile(t, filepath.Join(ownerDir, layout.FilePublicKey), filepath.Join(dir, layout.FilePublicKey))
 	recoverytest.CopyFile(t, filepath.Join(ownerDir, layout.FileRefreshSecret), filepath.Join(dir, layout.FileRefreshSecret))
 	recoverytest.CopyFile(t, filepath.Join(ownerDir, layout.FilePrivateKey), filepath.Join(staging, layout.FilePrivateKey))
+	// The staged set is judged valid, then the file grows past the read cap
+	// before pass one reads it.
+	prev := checkStaged
+	checkStaged = func(string) error { return nil }
+	t.Cleanup(func() { checkStaged = prev })
 	big := make([]byte, layout.MaxKeyFileSize+1)
 	for i := range big {
 		big[i] = 'A'
