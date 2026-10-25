@@ -61,3 +61,7 @@ Thumbs.db
 /authcore-keygen
 /cmd/authcore-keygen/authcore-keygen
 /examples/deploy/containers/containers
+
+# Python bytecode from the script tests
+__pycache__/
+*.pyc
