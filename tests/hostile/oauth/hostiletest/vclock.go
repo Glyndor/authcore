@@ -3,6 +3,7 @@ package hostiletest
 import (
 	"bytes"
 	"io"
+	"maps"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -100,8 +101,6 @@ func InBubble(t *testing.T, f func(t *testing.T)) {
 // LongLived are claims whose expiry outlasts the longest virtual wait here.
 func LongLived(over map[string]any) map[string]any {
 	o := map[string]any{"exp": time.Now().Add(72 * time.Hour).Unix()}
-	for k, v := range over {
-		o[k] = v
-	}
+	maps.Copy(o, over)
 	return Claims(Nonce, o)
 }
