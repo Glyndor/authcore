@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
+	"github.com/Glyndor/authcore/auth/oauth/internal/netguard"
 	"github.com/Glyndor/authcore/auth/oauth/internal/redirect"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 	"github.com/Glyndor/authcore/auth/oauth/internal/urlcheck"
 )
 
@@ -33,10 +36,21 @@ type Document struct {
 // wraps errDiscovery (the public ErrDiscovery sentinel). See oauth.Discover for
 // the contract. httpClient may be nil.
 func Fetch(ctx context.Context, issuer string, httpClient *http.Client, errDiscovery error) (Document, error) {
+	return FetchWith(ctx, issuer, httpClient, errDiscovery, false)
+}
+
+// FetchWith is Fetch with the destination policy chosen: allowPrivate lets the
+// document advertise endpoints on internal addresses and lets the fetches
+// reach them, for an on-premises provider. Without it, an endpoint on a
+// private, link-local, unspecified or cloud-metadata address is refused, and
+// a loopback endpoint is accepted only when the issuer itself is loopback (a
+// developer's local provider vouches for its own machine and nothing else).
+func FetchWith(ctx context.Context, issuer string, httpClient *http.Client, errDiscovery error, allowPrivate bool) (Document, error) {
+	policy := redirect.Policy{AllowPrivate: allowPrivate}
 	if httpClient == nil {
-		httpClient = redirect.NewClient()
+		httpClient = policy.NewClient()
 	} else {
-		httpClient = redirect.GuardClient(httpClient)
+		httpClient = policy.Guard(httpClient)
 	}
 	// Never fetch discovery over plaintext — the whole trust chain (the jwks_uri
 	// the ID-token signature hangs on) comes from this document.
@@ -77,14 +91,18 @@ func Fetch(ctx context.Context, issuer string, httpClient *http.Client, errDisco
 	// two are not the same value to a comparison that does not know which
 	// form was canonicalised when.
 	if doc.Issuer != issuer {
-		return Document{}, fmt.Errorf("%w: issuer mismatch: document says %q", errDiscovery, doc.Issuer)
+		return Document{}, fmt.Errorf("%w: issuer mismatch: document says %s", errDiscovery, safetext.Quote(doc.Issuer))
 	}
 	if doc.AuthURL == "" || doc.TokenURL == "" || doc.JWKSURL == "" {
 		return Document{}, fmt.Errorf("%w: document missing required endpoints", errDiscovery)
 	}
 	// The endpoints are not constrained to the issuer's origin, so a substituted
 	// (or simply misconfigured) document could point them at plaintext hosts —
-	// require https on each.
+	// require https on each, and keep them off internal addresses.
+	issuerIsLoopback := false
+	if u, err := url.Parse(issuer); err == nil {
+		issuerIsLoopback = netguard.Loopback(u.Hostname())
+	}
 	for label, raw := range map[string]string{
 		"authorization_endpoint": doc.AuthURL,
 		"token_endpoint":         doc.TokenURL,
@@ -95,6 +113,12 @@ func Fetch(ctx context.Context, issuer string, httpClient *http.Client, errDisco
 			continue
 		}
 		if err := urlcheck.RequireHTTPS(label, raw); err != nil {
+			return Document{}, fmt.Errorf("%w: %w", errDiscovery, err)
+		}
+		if allowPrivate {
+			continue
+		}
+		if err := urlcheck.RequireExternal(label, raw, issuerIsLoopback); err != nil {
 			return Document{}, fmt.Errorf("%w: %w", errDiscovery, err)
 		}
 	}

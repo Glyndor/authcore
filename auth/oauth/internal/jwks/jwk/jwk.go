@@ -10,6 +10,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/big"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // JWK is one JSON Web Key. The fields that restrict the key (alg, use,
@@ -89,7 +91,7 @@ func Parse(k JWK) (crypto.PublicKey, error) {
 		}
 		return pub, nil
 	default:
-		return nil, fmt.Errorf("unsupported key type %q", k.Kty)
+		return nil, fmt.Errorf("unsupported key type %s", safetext.Quote(k.Kty))
 	}
 }
 
@@ -102,7 +104,7 @@ func ecCurve(crv string) (elliptic.Curve, error) {
 	case "P-521":
 		return elliptic.P521(), nil
 	default:
-		return nil, fmt.Errorf("unsupported curve %q", crv)
+		return nil, fmt.Errorf("unsupported curve %s", safetext.Quote(crv))
 	}
 }
 

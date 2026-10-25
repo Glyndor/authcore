@@ -15,6 +15,7 @@ import (
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/candidate"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/fetch"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 const (
@@ -115,7 +116,7 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 	// carries the previous attempt's timestamp, so concurrent callers join it
 	// rather than being refused up front.
 	if !ok && now.Sub(lastAttempt) < minRefreshInterval {
-		return Candidate{}, fmt.Errorf("%w: unknown kid %q", c.errs.Fetch, kid)
+		return Candidate{}, fmt.Errorf("%w: unknown kid %s", c.errs.Fetch, safetext.Quote(kid))
 	}
 	// A known kid whose set has expired gets the same cooldown. A successful
 	// refresh moves the expiry an hour ahead, so an attempt inside the window
@@ -155,7 +156,7 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 		if kid == "" && anonAvailable {
 			candidates = c.keys[""]
 		} else {
-			return Candidate{}, fmt.Errorf("%w: unknown kid %q", c.errs.Fetch, kid)
+			return Candidate{}, fmt.Errorf("%w: unknown kid %s", c.errs.Fetch, safetext.Quote(kid))
 		}
 	}
 	return candidate.Pick(c.errs.Fetch, candidates, kid, alg)

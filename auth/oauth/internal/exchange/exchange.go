@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/clientauth"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // Tokens is the token-endpoint response.
@@ -27,6 +28,10 @@ type Tokens struct {
 // response. Real error_description values are a short sentence; anything beyond
 // a few hundred bytes is the provider echoing form fields or log noise.
 const exchangeErrorMaxLen = 512
+
+// exchangeCodeMaxLen caps the "error" code of the same response; the codes
+// RFC 6749 defines are a few words long.
+const exchangeCodeMaxLen = 128
 
 // Errors carries the sentinel errors Do wraps its failures with. They are
 // owned by the public oauth package (ErrExchange and ErrNoIDToken).
@@ -130,6 +135,12 @@ func newRequest(ctx context.Context, p Params, secret, code, verifier string) (*
 	if method == clientauth.None && secret != "" {
 		return nil, fmt.Errorf("%w: provider advertises no supported client auth method (advertised %v)", p.Errs.Exchange, p.AuthMethods)
 	}
+	// The secret joins the form before the request is built, so the body, its
+	// length and GetBody (which a 307/308 replay reads) all describe the same
+	// form.
+	if method == clientauth.Post {
+		form.Set("client_secret", secret)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -137,22 +148,13 @@ func newRequest(ctx context.Context, p Params, secret, code, verifier string) (*
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	switch method {
-	case clientauth.Basic:
+	if method == clientauth.Basic {
 		// The secret goes in the Authorization header, never in the body.
 		// RFC 6749 section 2.3.1 form-encodes both values before base64, and a
 		// compliant server decodes them: sent raw, a client id holding ":"
 		// splits in the wrong place and a secret holding "+" or "%2F" arrives
 		// altered.
 		req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(secret))
-	case clientauth.Post:
-		form.Set("client_id", p.ClientID)
-		form.Set("client_secret", secret)
-		// Reissue the request body after we mutate the form.
-		req.Body, req.ContentLength, err = clientauth.FormBody(form)
-		if err != nil {
-			return nil, fmt.Errorf("%w: build request body: %w", p.Errs.Exchange, err)
-		}
 	}
 	return req, nil
 }
@@ -178,9 +180,10 @@ func decode(p Params, body []byte) (*Tokens, error) {
 		if rawDesc, ok := probe["error_description"]; ok {
 			_ = json.Unmarshal(rawDesc, &desc)
 		}
-		if len(desc) > exchangeErrorMaxLen {
-			desc = desc[:exchangeErrorMaxLen] + "…"
-		}
+		// Both strings are the provider's. Clip them to printable text of a
+		// bounded size: the message ends up in the caller's logs.
+		code = safetext.Clip(code, exchangeCodeMaxLen)
+		desc = safetext.Clip(desc, exchangeErrorMaxLen)
 		switch {
 		case desc != "":
 			return nil, fmt.Errorf("%w: provider returned %s: %s", p.Errs.Exchange, code, desc)

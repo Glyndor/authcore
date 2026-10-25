@@ -43,6 +43,7 @@ jobs:
           {"package":"./auth/oauth/internal/jwks/fetch","func":"FuzzGet"},
           {"package":"./auth/oauth/internal/redirect","func":"FuzzCheck"},
           {"package":"./auth/oauth/internal/urlcheck","func":"FuzzRequireHTTPS"},
+          {"package":"./auth/oauth/internal/safetext","func":"FuzzClip"},
           {"package":"./auth/oauth/internal/apple","func":"FuzzClientSecret"},
           {"package":"./auth/jwt/internal/rotation","func":"FuzzRotate"},
           {"package":"./auth/totp/internal/otpauth","func":"FuzzURI"},
