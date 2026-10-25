@@ -57,11 +57,8 @@ func FuzzFetch(f *testing.F) {
 		if err := dec.Decode(&ref); err != nil {
 			t.Fatalf("accepted a body that encoding/json rejects: %v", err)
 		}
-		// Exactly one value: nothing but whitespace may follow it. The one
-		// shape tolerated here is a run of closing brackets, which Fetch lets
-		// through today (json.Decoder.More is false before '}' and ']'). Remove this
-		// allowance when Fetch rejects them.
-		rest := bytes.Trim(body[dec.InputOffset():], " \t\r\n}]")
+		// Exactly one value: nothing but whitespace may follow it.
+		rest := bytes.Trim(body[dec.InputOffset():], " \t\r\n")
 		if len(rest) != 0 {
 			t.Fatalf("accepted a body with %q after the profile", rest)
 		}

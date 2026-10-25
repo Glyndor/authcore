@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,7 +56,9 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", errUserInfo, err)
 	}
-	if dec.More() {
+	// More reports false before a closing bracket, so it would let {"id":1}}
+	// through; the next token must be the end of the input.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%w: trailing data after JSON value", errUserInfo)
 	}
 	// A literal "null" is not a user object. Refuse it instead of returning an
