@@ -52,5 +52,6 @@ jobs:
           {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"},
           {"package":"./tests/hostile/jwt","func":"FuzzVerifyAccessTokenAgreesWithReference"},
           {"package":"./tests/hostile/password","func":"FuzzVerifyMatchesReferenceArgon2"},
-          {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"}
+          {"package":"./tests/hostile/password","func":"FuzzNormalisationEquivalence"},
+          {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"}
         ]
