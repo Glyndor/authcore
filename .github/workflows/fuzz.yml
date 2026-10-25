@@ -78,5 +78,7 @@ jobs:
           {"package":"./tests/hostile/keymanager","func":"FuzzOpenWithHostileFile"},
           {"package":"./tests/hostile/field","func":"FuzzOracleAgreement"},
           {"package":"./tests/hostile/field","func":"FuzzBlindIndexBoundary"},
-          {"package":"./tests/hostile/credential","func":"FuzzFramingAgainstOracle"}
+          {"package":"./tests/hostile/credential","func":"FuzzFramingAgainstOracle"},
+          {"package":"./tests/hostile/apikey","func":"FuzzHashAgainstOracle"},
+          {"package":"./tests/hostile/apikey","func":"FuzzParseIDIsExactOrRefuses"}
         ]
