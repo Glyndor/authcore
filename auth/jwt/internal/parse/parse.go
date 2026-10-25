@@ -40,6 +40,9 @@ func Access[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.
 	if err := checkTokenString(tokenStr); err != nil {
 		return nil, err
 	}
+	if err := checkObjectKeys(tokenStr); err != nil {
+		return nil, err
+	}
 	var c claims.Access[T]
 	_, err := gjwt.ParseWithClaims(
 		tokenStr, &c,
@@ -69,6 +72,9 @@ func Access[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.
 // leeway is added to the expiration window to tolerate small clock skew between servers.
 func Refresh(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, issuer, audience string, leeway time.Duration) (*claims.Refresh, error) {
 	if err := checkTokenString(tokenStr); err != nil {
+		return nil, err
+	}
+	if err := checkObjectKeys(tokenStr); err != nil {
 		return nil, err
 	}
 	var c claims.Refresh
