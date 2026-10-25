@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/jwt/internal/claims"
@@ -131,6 +132,14 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	// failed VerifyAccessToken with "jwt: token is invalid".
 	if err := keymanager.ValidateMaterial(keys.PrivateKey(), keys.PublicKey(), secret); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+
+	// The kid travels in a JSON header, and encoding/json writes every invalid
+	// UTF-8 byte as U+FFFD. A Provider whose id holds such a byte would sign
+	// tokens whose header names a different id from the one in the key set, so
+	// every token it issued would fail its own verification.
+	if !utf8.ValidString(keys.KeyID()) {
+		return nil, fmt.Errorf("%w: provider key id is not valid UTF-8", ErrInvalidConfig)
 	}
 
 	j := &JWT[T]{
