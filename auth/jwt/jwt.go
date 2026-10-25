@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
@@ -147,7 +148,7 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 		log:             logger,
 		priv:            keys.PrivateKey(),
 		pub:             keys.PublicKey(),
-		secret:          secret,
+		secret:          bytes.Clone(secret),
 		kid:             keys.KeyID(),
 		clock:           clock.New(p.Config().Timezone),
 		primaryAudience: resolved.Audience[0], // validateConfig guarantees len >= 1
