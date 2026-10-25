@@ -109,3 +109,14 @@ func TestNew_keyStoreBypassesKeysDirValidation(t *testing.T) {
 		t.Errorf("KeyStore must bypass KeysDir validation, got %v", err)
 	}
 }
+
+func TestNewKeyStoreFromKeys_refusesPatternedMaterial(t *testing.T) {
+	priv, pub, secret := genMaterial(t)
+	if _, err := authcore.NewKeyStoreFromKeys(priv, pub, make([]byte, 32)); err == nil {
+		t.Error("an all-zero refresh secret was accepted")
+	}
+	weak := ed25519.NewKeyFromSeed(make([]byte, 32))
+	if _, err := authcore.NewKeyStoreFromKeys(weak, weak.Public().(ed25519.PublicKey), secret); err == nil {
+		t.Error("an all-zero signing seed was accepted")
+	}
+}

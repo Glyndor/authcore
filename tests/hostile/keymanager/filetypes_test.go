@@ -229,7 +229,7 @@ func TestHostile_FileTypes_capBoundaryIsExact(t *testing.T) {
 }
 
 func TestHostile_FileTypes_refreshSecretShapes(t *testing.T) {
-	good := strings.Repeat("ab", 32)
+	good := "9f2c7a41d83be5106ac9347fe20b6d58c14a97e3b05d28f6710ec4a93b8d5f26"
 	cases := []struct {
 		name    string
 		content string

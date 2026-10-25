@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+
+	"github.com/Glyndor/authcore/internal/keymanager/dirguard"
 )
 
-// CheckDir ensures KeysDir exists (creating it if possible).
+// CheckDir ensures KeysDir exists (creating it if possible). A KeysDir that is
+// itself a symbolic link is refused before anything is created.
 //
 // It deliberately does NOT probe for writability. A read-only KeysDir is a
 // valid and recommended deployment: pre-generated keys mounted read-only into
@@ -19,6 +22,9 @@ import (
 // surfaces a clear write error (wrapped as ErrKeyManager); when the keys are
 // already present, no write happens and a read-only mount loads fine.
 func CheckDir(dir string) error {
+	if err := dirguard.Refuse(dir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("cannot create keys directory %q: %w", dir, err)
 	}
@@ -26,8 +32,9 @@ func CheckDir(dir string) error {
 }
 
 // CheckLoadOnlyDir checks that dir exists and is a directory, without
-// creating it. The check uses os.Stat, which follows symlinks: that is what a
-// Kubernetes Secret mount needs (the Secret volume is a tree of symlinks).
+// creating it. dir itself must not be a symlink, but the files inside it may
+// be: a Kubernetes Secret volume is a tree of symlinks, so the existence check
+// uses os.Stat.
 //
 // The zero value of KeysDir is replaced by applyDefaults before validateConfig
 // runs in New, so by the time this function is called dir is non-empty.
@@ -36,6 +43,9 @@ func CheckDir(dir string) error {
 // config-side counterpart of the load-only keymanager error: both messages
 // point at restoring the three key files from a backup.
 func CheckLoadOnlyDir(dir string) error {
+	if err := dirguard.Refuse(dir); err != nil {
+		return err
+	}
 	fi, err := os.Stat(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

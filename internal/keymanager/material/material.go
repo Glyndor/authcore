@@ -48,7 +48,11 @@ func Validate(priv ed25519.PrivateKey, pub ed25519.PublicKey, secret []byte) err
 	if l := len(secret); l != layout.RefreshSecretLen {
 		return fmt.Errorf("refresh secret has wrong length: got %d, want %d", l, layout.RefreshSecretLen)
 	}
-	return nil
+	// Last, so a malformed set is reported as malformed first.
+	if err := CheckSeed(priv); err != nil {
+		return err
+	}
+	return CheckSecret(secret)
 }
 
 // KeyID derives a stable identifier from a public key.

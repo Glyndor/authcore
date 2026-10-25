@@ -145,3 +145,36 @@ func TestIncompleteLoad_listsBothSidesAndSaysNoneWhenEmpty(t *testing.T) {
 		t.Errorf("nothing missing should read none: %v", full)
 	}
 }
+
+func TestDegenerateMaterial_namesTheRuleAndNoBytes(t *testing.T) {
+	err := DegenerateMaterial("refresh secret", "it repeats a block")
+	for _, want := range []string{"refresh secret", "it repeats a block", "random"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in: %v", want, err)
+		}
+	}
+	assertNoDestructiveAdvice(t, err)
+}
+
+func TestSecretMismatchAndSymlinkKeysDir_sayHowToRecover(t *testing.T) {
+	mismatch := SecretMismatch("/keys")
+	if !strings.Contains(mismatch.Error(), "secret_binding") {
+		t.Errorf("no way out in: %v", mismatch)
+	}
+	assertNoDestructiveAdvice(t, mismatch)
+	link := SymlinkKeysDir("/keys")
+	if !strings.Contains(link.Error(), "filepath.EvalSymlinks") {
+		t.Errorf("no way out in: %v", link)
+	}
+	assertNoDestructiveAdvice(t, link)
+}
+
+func TestKeysChangedWhileReading_saysNothingWasWrittenAndWhatToDo(t *testing.T) {
+	err := KeysChangedWhileReading("/keys")
+	for _, want := range []string{`"/keys"`, "nothing was written", "start again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in: %v", want, err)
+		}
+	}
+	assertNoDestructiveAdvice(t, err)
+}

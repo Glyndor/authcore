@@ -36,3 +36,11 @@ var FaultAt = func(point string) error { return nil }
 // Fault consults FaultAt for point. Call sites use it so they never read the
 // variable directly.
 func Fault(point string) error { return FaultAt(point) }
+
+// AfterKeyRead is a test seam for the stability check of keyload.Files. It is
+// called once the file with the given index (0 private key, 1 public key,
+// 2 refresh secret) has been read in the given attempt, before the next file
+// is opened and before any path is looked at again. A test uses it to replace
+// the key set at an exact point of the read, which a timing race can only hit
+// by chance. Production callers must leave it nil.
+var AfterKeyRead func(attempt, file int)

@@ -98,6 +98,44 @@ func SymlinkTarget(dst string, linkErr error) error {
 			"directory: %w", dst, linkErr)
 }
 
+// SymlinkKeysDir reports a key directory whose last path component is a
+// symbolic link. The operator resolves it once, or mounts the volume at the
+// path itself; nothing here asks for a key file to be deleted.
+func SymlinkKeysDir(dir string) error {
+	return fmt.Errorf(
+		"key directory %q is a symbolic link; authcore does not create, "+
+			"tighten or write into a directory through a link. Pass the "+
+			"resolved path instead (filepath.EvalSymlinks(%q) returns it), or "+
+			"mount the volume at %q itself. Links in the parent components of "+
+			"the path are fine",
+		dir, dir, dir)
+}
+
+// DegenerateMaterial reports key material that cannot have come from a random
+// generator. what names the item and why the rule it broke; neither carries
+// any byte of the material. The advice is to produce a fresh value, and it is
+// stated plainly that anything derived from the old one must be migrated,
+// since the secret is the root of stored hashes and encrypted columns.
+func DegenerateMaterial(what, why string) error {
+	return fmt.Errorf(
+		"the %s is not random-looking (%s); it cannot have come from a random "+
+			"generator and is guessable. Replace it with 32 bytes from a "+
+			"cryptographic random source; values derived from the old one "+
+			"(refresh-token hashes, API-key hashes, auth/field data) must be "+
+			"migrated or reissued", what, why)
+}
+
+// KeysChangedWhileReading reports key files that were replaced while the three
+// were being read, on every attempt. Nothing was written. The way out is to
+// let the replacement finish and start again.
+func KeysChangedWhileReading(dir string) error {
+	return fmt.Errorf(
+		"the key files in %q changed while they were being read, on every attempt; "+
+			"nothing was written. Wait for whatever is replacing them (a key "+
+			"rotation, a refreshed secret volume) to finish, then start again",
+		dir)
+}
+
 // NoHardLinks reports a filesystem that cannot give the hard-link
 // guarantee authcore needs to publish keys safely. If the caller had already
 // published the private key, the staging directory is preserved so a helper

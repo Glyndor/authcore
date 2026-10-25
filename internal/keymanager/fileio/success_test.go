@@ -49,3 +49,23 @@ func TestFileBytesIfExists_returnsTheBytesOfARegularFile(t *testing.T) {
 		t.Fatalf("FileBytesIfExists = %q, %v, %v; want abc, true, nil", data, ok, err)
 	}
 }
+
+func TestReadCappedFile_readsAnOpenFileAndLeavesItOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := OpenRegular(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	got, err := ReadCappedFile(f, path)
+	if err != nil || string(got) != "secret" {
+		t.Fatalf("ReadCappedFile = %q, %v; want %q", got, err, "secret")
+	}
+	if _, err := f.Stat(); err != nil {
+		t.Errorf("the descriptor was closed: %v", err)
+	}
+}

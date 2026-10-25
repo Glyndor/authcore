@@ -84,6 +84,11 @@ Every line of that file matters:
   on 2026-09-25 with podup 5.10.0 and Podman 5.7.0.
 - `read_only: true` makes the container filesystem immutable. The keys volume
   is mounted read-only at `/run/authcore`.
+- `AUTHCORE_KEYS_DIR` must be the mount point itself, not a symbolic link to
+  it: a `KeysDir` that is a link is refused at startup (see
+  [key management](key-management.md#keysdir-must-not-be-a-symbolic-link)).
+  The compose file above mounts the volume directly at `/run/authcore`, so it
+  is unaffected.
 - `AUTHCORE_KEYS_DIR` is just an environment variable. authcore does **not**
   read it; the application reads it and passes the value to `Config.KeysDir`:
 

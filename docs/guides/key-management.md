@@ -19,6 +19,26 @@ private key to "regenerate" it, and do not delete `refresh_secret.key` to
 make the directory appear empty. That destroys secrets the rest of the
 deployment still depends on.
 
+## `KeysDir` must not be a symbolic link
+
+`KeysDir` has to name the directory itself. If its last path component is a
+symbolic link, `New` (with or without `RequireExistingKeys`) and
+`authcore-keygen -out` refuse it before creating, tightening or writing
+anything, and the error says how to proceed:
+
+- pass the resolved path: `filepath.EvalSymlinks(dir)` returns it, or
+- mount the volume at the `KeysDir` path itself instead of linking to it.
+
+Only the last component is checked. A link in a parent directory is fine, so
+`/var/lib/app/keys` keeps working where `/var` is a link (as on macOS, where it
+points to `/private/var`). The key files inside the directory may still be
+links, which is how a Kubernetes Secret volume is laid out.
+
+This is a change from versions that followed a symlinked `KeysDir`: such a
+setup now fails at startup with the error above and needs the one-line fix.
+Before, `New` also changed the mode of the link's target, which is the reason
+for the refusal.
+
 authcore warns (and never refuses or chmods) when `ed25519_private.pem` or
 `refresh_secret.key` is readable by group or others on the load paths. The
 Podman default mount without an explicit `mode` is 0444 and the Kubernetes
@@ -100,6 +120,66 @@ secret, so it reveals nothing about the secret.
 - The binding protects against mistakes and partial overwrites. Someone who can
   rewrite both the key files and `metadata.json` already controls the
   directory, and no marker can defend against that.
+
+### What the checks cannot see
+
+The checks above compare the files in the directory with each other. A directory
+restored **entirely** from an older backup (keys, refresh secret and
+`metadata.json` together) is consistent with itself, so it loads without a
+warning and authcore carries on with the older set: tokens and column keys of
+the newer set stop working, and nothing in the directory says the set is old.
+Keep track of which set is current outside the directory (the key id is printed
+by `authcore-keygen` and recorded in `metadata.json`).
+
+A start reads the three files one after another. To keep a replacement that
+lands in the middle of a start from pairing the signing key of one set with the
+refresh secret of another, the start reads the three files through open file
+descriptors and, once all are read, checks that each path still leads to the
+very file its descriptor holds (same device and inode, after following links).
+If any path leads somewhere else, the read is thrown away and repeated, up
+to three times with a short pause; a set that is still changing after that is
+refused with an error that says nothing was written, and the next start loads
+whatever has settled. This also catches a volume that goes from one set to
+another and back while the files are read, which two looks at the paths alone
+cannot. Nothing is written by this check, so it is the same in load-only mode.
+
+This covers a replacement that is atomic from the reader's side, such as a
+mounted secret volume that retargets one link to refresh all its files. It
+cannot tell that a directory was left half replaced and stayed that way: that
+state is on disk, and only the recorded binding recognises it (sets written
+before the binding existed have none until their first start records it).
+Replace the files of a set while no process is starting: stop the process,
+replace the set as a whole, then start it.
+
+## The key material must look random
+
+The refresh secret and the signing key's 32-byte seed are refused, wherever
+they come from (the key directory, `NewKeyStoreFromKeys`, `NewKeyStoreFromPEM`
+or a custom `KeyStore`), when they match a pattern no random generator
+produces:
+
+- every byte the same (all zeros, all `0xff`);
+- a constant step from one byte to the next, such as `00 01 02 ...` or
+  `1f 1e 1d ...`;
+- one block of bytes repeated through the whole value (at least two copies,
+  the last possibly cut short);
+- fewer than 12 different byte values.
+
+The last threshold is a calculation, not a taste. Thirty-two uniformly random
+bytes hold about 30 different values, and the probability that they hold 11 or
+fewer is about 6e-26, below 2^-80. A secret produced by authcore itself, or by
+any sound generator (`openssl rand -hex 32`, `crypto/rand`), is never refused.
+
+The check exists because a provisioning script that writes a placeholder, or a
+file zeroed by mistake, would otherwise give every hash and encrypted column a
+publicly known key without a single warning. The error names the rule and never
+contains the bytes. Replace the value with 32 bytes from a cryptographic random
+source. If the refused value is already in use, what depends on it (stored
+refresh-token and API-key hashes, `auth/field` columns) has to be migrated or
+reissued; see the section on the refresh secret below.
+
+This is a minor breaking change: a key directory that holds such a value, and
+that started before, now fails to start with this error.
 
 ## Load-only in production
 

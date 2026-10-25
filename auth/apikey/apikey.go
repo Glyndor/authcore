@@ -41,6 +41,7 @@
 package apikey
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -137,7 +138,7 @@ func New(p authcore.Provider, cfg ...Config) (*APIKey, error) {
 	a := &APIKey{
 		cfg:         resolved,
 		log:         logger,
-		secret:      secret,
+		secret:      bytes.Clone(secret),
 		initialised: true,
 	}
 	a.log.Info("apikey: module initialised (prefix=%s)", resolved.Prefix)

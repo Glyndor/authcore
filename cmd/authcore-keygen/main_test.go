@@ -404,3 +404,29 @@ func TestStderrLoggerWarn(t *testing.T) {
 		t.Fatalf("Warn wrote %q, want %q", got, want)
 	}
 }
+
+// TestRefusesASymlinkAsOut covers a -out that is a link: the tool names the
+// link and writes nothing through it.
+func TestRefusesASymlinkAsOut(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "keys")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	code, stdout, stderr := runKeygen(t, []string{"-out", link})
+
+	if code != exitFailure || stdout != "" {
+		t.Fatalf("exit code %d, stdout %q; want %d and nothing", code, stdout, exitFailure)
+	}
+	if !strings.Contains(stderr, "symbolic link") {
+		t.Errorf("stderr does not name the link: %q", stderr)
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Errorf("the link target received %v", entries)
+	}
+}

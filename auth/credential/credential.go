@@ -51,6 +51,7 @@
 package credential
 
 import (
+	"bytes"
 	"crypto/rand" //nolint:gosec // CSPRNG draws for tokens
 	"crypto/subtle"
 	"encoding/base64"
@@ -165,7 +166,7 @@ func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
 	c := &Credential{
 		cfg:         resolved,
 		log:         logger,
-		secret:      secret,
+		secret:      bytes.Clone(secret),
 		clock:       clock.New(p.Config().Timezone),
 		initialised: true,
 	}

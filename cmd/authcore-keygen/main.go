@@ -42,6 +42,7 @@ import (
 	"path/filepath"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
+	"github.com/Glyndor/authcore/internal/keymanager/dirguard"
 )
 
 // usage is the multi-line usage banner written to stderr on a usage error.
@@ -119,6 +120,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// the operator's error, not a silently-created tree.
 	if err := os.Mkdir(absOut, newDirMode); err != nil {
 		if errors.Is(err, fs.ErrExist) {
+			if refusal := dirguard.Refuse(absOut); refusal != nil {
+				_, _ = fmt.Fprintf(stderr, "authcore-keygen: %v\n", refusal)
+				return exitFailure
+			}
 			_, _ = fmt.Fprintf(stderr,
 				"authcore-keygen: %s already exists; authcore-keygen never "+
 					"writes into an existing directory. Pick a new path; an "+
