@@ -38,6 +38,11 @@ const exchangeCodeMaxLen = 128
 // callback parameter from being copied to the token endpoint.
 const authCodeMaxLen = 8 << 10
 
+// expiresInMax caps the lifetime Do reports: ten years in seconds. No real
+// token lives that long, and the cap keeps a caller's seconds-to-Duration
+// conversion from overflowing.
+const expiresInMax = 10 * 365 * 24 * 3600
+
 // Errors carries the sentinel errors Do wraps its failures with. They are
 // owned by the public oauth package (ErrExchange and ErrNoIDToken).
 type Errors struct {
@@ -207,6 +212,10 @@ func decode(p Params, body []byte) (*Tokens, error) {
 	if strings.TrimSpace(tok.AccessToken) == "" || tok.TokenType == "" {
 		return nil, fmt.Errorf("%w: response missing access_token or token_type", p.Errs.Exchange)
 	}
+	if tok.ExpiresIn < 0 {
+		return nil, fmt.Errorf("%w: response carries a negative expires_in", p.Errs.Exchange)
+	}
+	tok.ExpiresIn = min(tok.ExpiresIn, expiresInMax)
 	// An ID token is required only for an OIDC provider (one that has a JWKS
 	// and an issuer check to validate it against). A plain-OAuth2 provider
 	// (GitHub, Discord) returns no id_token, since identity comes from UserInfo,

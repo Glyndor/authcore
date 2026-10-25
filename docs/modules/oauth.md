@@ -268,6 +268,10 @@ RFC 6749 section 3.2 requires of a token endpoint request.
 - A token response whose `access_token` is only whitespace is refused with
   `ErrExchange`, like a missing one. A valid token is returned exactly as the
   provider sent it, never trimmed.
+- `Tokens.ExpiresIn` is in seconds, `0` when the provider sent none (unknown).
+  A negative `expires_in` is refused with `ErrExchange`. A value above ten
+  years (315360000 seconds) is clamped to ten years, so `time.Duration(ExpiresIn) * time.Second`
+  cannot overflow. A string or fractional `expires_in` is still refused, as before.
 
 ## What it guarantees
 
