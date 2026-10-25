@@ -96,7 +96,7 @@ look-alike of an existing address, apply your own policy before you store it.
 For example, restrict the local part to ASCII, or reject a local part that mixes
 scripts. The domain does not have this problem: it is converted to punycode, so
 a look-alike domain is stored as its `xn--` form and is not equal to the real
-one. The behaviour is pinned by a test in `tests/hostile/identity`, so a change
+one. The behaviour is pinned by a test in `tests/hostile/identity/email`, so a change
 to it is a deliberate, visible one.
 
 ### Verifying a domain can receive email

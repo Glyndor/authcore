@@ -76,7 +76,7 @@ are accepted: they follow emoji and some CJK characters, so refusing them would
 reject passwords typed with an emoji keyboard. This is by design: a password
 is secret input, not an identifier, so two passwords that render alike but
 differ in bytes are different passwords, and the module does not fold them.
-The behaviour is pinned by a test in `tests/hostile/password`.
+The behaviour is pinned by a test in `tests/hostile/password/plaintext`.
 
 Validation checks length first, after NFC normalization. An input below
 `MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length
