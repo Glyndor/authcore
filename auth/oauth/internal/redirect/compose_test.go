@@ -138,8 +138,9 @@ func TestGuardClientDoesNotMutateCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	// caller supplies every field whose value must survive the copy.
+	callerTransport := &http.Transport{}
 	caller := &http.Client{
-		Transport: &http.Transport{},
+		Transport: callerTransport,
 		Timeout:   3 * time.Second,
 		Jar:       jar,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -159,8 +160,13 @@ func TestGuardClientDoesNotMutateCaller(t *testing.T) {
 	if caller.Timeout != 3*time.Second {
 		t.Errorf("caller Timeout = %v, want 3s", caller.Timeout)
 	}
-	if guarded.Transport != caller.Transport {
-		t.Error("copy discarded the caller's Transport")
+	// The copy carries a guarded clone of the caller's transport, not the
+	// caller's own, which must stay as it was.
+	if _, ok := guarded.Transport.(*http.Transport); !ok || guarded.Transport == caller.Transport {
+		t.Errorf("copy Transport = %T, want a clone of the caller's *http.Transport", guarded.Transport)
+	}
+	if caller.Transport != callerTransport {
+		t.Error("caller Transport was replaced")
 	}
 	if guarded.Timeout != caller.Timeout {
 		t.Errorf("copy Timeout = %v, want %v", guarded.Timeout, caller.Timeout)

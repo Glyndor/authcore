@@ -44,6 +44,12 @@ type IDClaims struct {
 // AuthCodeURL request. nonce must be the non-empty
 // value you stored; passing the wrong or an empty nonce fails closed.
 //
+// A token that lists critical header extensions ("crit") is refused, since
+// none is understood. The base64 spelling of a token is canonical, but an
+// ECDSA (ES*) signature has a second valid encoding of the same token, so do
+// not use the token string as the key of a blocklist or replay cache; key it
+// on the nonce or the "jti" claim.
+//
 // On any failure it returns ErrIDTokenInvalid (wrapped). Never expose the
 // wrapped detail to the end user.
 func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDClaims, error) {

@@ -99,6 +99,20 @@ type Config struct {
 	// the predicate tight (a fixed pattern), and if you must restrict to certain
 	// tenants, additionally check the "tid" claim via IDClaims.Raw.
 	IssuerValidator func(issuer string) bool
+
+	// AllowPrivateNetwork lifts the destination policy. By default New refuses
+	// an endpoint written as a private, link-local, unspecified or
+	// cloud-metadata address (a loopback endpoint stays accepted, the
+	// development exception), and the client refuses to connect to a host
+	// name that resolves to such an address, which also stops DNS rebinding.
+	// The check covers redirects too. It applies to the default client and to
+	// a *http.Transport you supply in HTTPClient, which is copied with its
+	// dialing wrapped; any other RoundTripper is yours to check. A proxy named
+	// by the transport or the environment is trusted to resolve its target.
+	//
+	// Set it only for an on-premises provider that really lives on an internal
+	// network.
+	AllowPrivateNetwork bool
 }
 
 // defaultScopes are requested when Config.Scopes is empty.
@@ -129,10 +143,11 @@ func applyDefaults(cfg Config) Config {
 	// call, so a caller mutating its slice after New would change how an
 	// existing client authenticates, and race with a concurrent Exchange.
 	cfg.Provider.AuthMethods = append([]string(nil), cfg.Provider.AuthMethods...)
+	policy := redirect.Policy{AllowPrivate: cfg.AllowPrivateNetwork}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = redirect.NewClient()
+		cfg.HTTPClient = policy.NewClient()
 	} else {
-		cfg.HTTPClient = redirect.GuardClient(cfg.HTTPClient)
+		cfg.HTTPClient = policy.Guard(cfg.HTTPClient)
 	}
 	return cfg
 }
@@ -203,6 +218,25 @@ func validateConfig(cfg Config) error {
 		}
 		if err := urlcheck.RequireHTTPS(label, raw); err != nil {
 			return err
+		}
+	}
+	// None of the endpoints may sit on an internal address unless the operator
+	// said the provider lives there. A loopback endpoint stays accepted: it is
+	// the development exception above, typed by the developer, and the
+	// provider's own document cannot bring one in (Discover refuses it).
+	if !cfg.AllowPrivateNetwork {
+		for label, raw := range map[string]string{
+			"provider auth URL":     cfg.Provider.AuthURL,
+			"provider token URL":    cfg.Provider.TokenURL,
+			"provider JWKS URL":     cfg.Provider.JWKSURL,
+			"provider userinfo URL": cfg.Provider.UserInfoURL,
+		} {
+			if raw == "" {
+				continue
+			}
+			if err := urlcheck.RequireExternal(label, raw, true); err != nil {
+				return err
+			}
 		}
 	}
 	// The authorization URL is the one the user is sent to. A fragment on it

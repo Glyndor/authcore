@@ -65,7 +65,9 @@ mod, _ := oauth.New(auth, oauth.Config{ClientID: id, ClientSecret: secret, Redir
 ```
 
 Discovery enforces that the document's issuer matches the one you asked for, so
-a substituted document cannot redirect the client to attacker endpoints.
+a substituted document cannot redirect the client to attacker endpoints, and it
+refuses endpoints that are not https or that sit on an internal address (see
+[On-premises providers](#on-premises-providers) if yours do).
 
 ### Multi-tenant providers (Azure AD common)
 
@@ -276,18 +278,42 @@ RFC 6749 section 3.2 requires of a token endpoint request.
 - **Safe redirects.** The default HTTP client refuses redirects that are
   cross-origin (the token POST replays the client secret on a 307/308),
   downgrade to `http`, or target a loopback, link-local or private IP
-  literal (SSRF; `isPrivateHost` only inspects IP literals, so a
-  same-host https redirect to a hostname like `localhost` passes that
-  check, and a same-host redirect is not refused by the cross-origin
-  rule either, so a request that begins on `https://localhost` may be
-  redirected to another path on `https://localhost`). The library's
-  redirect policy always runs, on the default client and on any client
-  you pass in: `Config.HTTPClient` is composed with that policy, not
-  used in place of it. Your client's Transport, Timeout and Jar are
-  preserved, and a `CheckRedirect` you provide is only invoked for
-  redirects the library's redirect rule has already accepted. A client
-  that allows cross-origin redirects still has them refused by the
-  library before yours is consulted.
+  literal. A same-origin hop (a 307/308 from `/token` to `/token2`, say) is
+  followed. The library's redirect policy always runs, on the default client
+  and on any client you pass in: `Config.HTTPClient` is composed with that
+  policy, not used in place of it. Your client's Timeout and Jar are
+  preserved, and a `CheckRedirect` you provide is only invoked for redirects
+  the library's redirect rule has already accepted.
+- **No internal destinations.** An endpoint on a private, link-local,
+  unspecified or cloud-metadata address, or one that carries credentials in
+  the URL (`https://user:pass@host`), is refused: by `Discover` for anything
+  the provider's document advertises, and by `New` for the endpoints you
+  configure. The default client also refuses to connect to a host name that
+  resolves to such an address, which covers DNS rebinding and redirects. Two
+  exceptions stay: a loopback endpoint you write yourself in `Config`, and,
+  for `Discover`, loopback endpoints when the issuer is itself loopback (a
+  local development provider).
+- **Provider text in errors is bounded and printable.** The `error` and
+  `error_description` a provider returns, and every other remote string an
+  error quotes, are stripped of control characters and cut to a few hundred
+  bytes, so `err.Error()` is safe to log.
+
+### On-premises providers
+
+A provider whose endpoints really live on a private network is refused by
+default. Opt in, knowing that you are lifting the protection above for that
+client:
+
+```go
+p, err := oauth.Discover(ctx, "https://idp.corp.internal", nil, oauth.AllowPrivateNetwork())
+mod, _ := oauth.New(auth, oauth.Config{ /* ... */, Provider: p, AllowPrivateNetwork: true})
+```
+
+The connection check covers the default client and a `*http.Transport` you
+pass in `Config.HTTPClient` (copied, with its dialing wrapped; yours is not
+modified). A proxy named by that transport or by the proxy environment
+variables is trusted to resolve its target. Any other `RoundTripper` cannot be
+inspected, so keeping it off internal addresses is yours.
 
 ## What is yours
 
