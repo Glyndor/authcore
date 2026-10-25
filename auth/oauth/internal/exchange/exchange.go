@@ -33,6 +33,11 @@ const exchangeErrorMaxLen = 512
 // RFC 6749 defines are a few words long.
 const exchangeCodeMaxLen = 128
 
+// authCodeMaxLen caps the authorization code Do forwards. Real providers issue
+// codes of a few hundred bytes at most; the bound only keeps an unbounded
+// callback parameter from being copied to the token endpoint.
+const authCodeMaxLen = 8 << 10
+
 // Errors carries the sentinel errors Do wraps its failures with. They are
 // owned by the public oauth package (ErrExchange and ErrNoIDToken).
 type Errors struct {
@@ -65,6 +70,9 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 	// the caller (forgot to read the cookie, swapped two variables).
 	if code == "" {
 		return nil, fmt.Errorf("%w: code must not be empty", p.Errs.Exchange)
+	}
+	if len(code) > authCodeMaxLen {
+		return nil, fmt.Errorf("%w: code is longer than %d bytes", p.Errs.Exchange, authCodeMaxLen)
 	}
 	if verifier == "" {
 		return nil, fmt.Errorf("%w: code_verifier must not be empty", p.Errs.Exchange)

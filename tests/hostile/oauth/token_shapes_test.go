@@ -152,8 +152,7 @@ func TestHostile_TokenResponse_anIDTokenThatIsNotAJWTNeverVerifies(t *testing.T)
 }
 
 // The authorization code is the one value an attacker places in the token
-// request without the library's help. It travels as a form value, at any
-// size, intact and alone.
+// request without the library's help. It travels as a form value, up to the length bound, intact and alone.
 func TestHostile_TokenRequest_aHostileCodeArrivesIntactAndAlone(t *testing.T) {
 	var mu sync.Mutex
 	var form url.Values
@@ -174,8 +173,7 @@ func TestHostile_TokenRequest_aHostileCodeArrivesIntactAndAlone(t *testing.T) {
 		"percent and plus":      "a%2Fb+c%00%zz",
 		"form syntax":           "a=b&grant_type=password&client_secret=x",
 		"leading and trailing":  "  code\n",
-		"one megabyte":          strings.Repeat("c", 1<<20),
-		"four megabytes":        strings.Repeat("c", 4<<20),
+		"at the length bound":   strings.Repeat("c", 8<<10),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _ = c.Exchange(ctx(t), code, "verifier")

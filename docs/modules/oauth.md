@@ -260,6 +260,12 @@ flow with PKCE (S256) whose token response carries an `id_token`, verified with
 nonce. Meta shows the token request as a GET; this client sends a POST, which
 RFC 6749 section 3.2 requires of a token endpoint request.
 
+## Input and response bounds
+
+- `Exchange` refuses an authorization code longer than 8 KiB with `ErrExchange`
+  before any request is made. Real providers issue codes of a few hundred bytes.
+  This is a change from earlier versions, which forwarded a code of any length.
+
 ## What it guarantees
 
 - **PKCE S256 always.** The `plain` method is never offered, so a downgrade
