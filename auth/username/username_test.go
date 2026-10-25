@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/username/internal/reserved"
 )
 
 // ---- test helpers -----------------------------------------------------------
@@ -199,9 +200,9 @@ func TestValidateAndNormalize_invalidCharacters(t *testing.T) {
 
 func TestValidateAndNormalize_reservedName(t *testing.T) {
 	m := newMod(t)
-	for _, reserved := range defaultReservedNames {
-		if _, err := m.ValidateAndNormalize(reserved); !errors.Is(err, ErrInvalidUsername) {
-			t.Errorf("ValidateAndNormalize(%q): expected ErrInvalidUsername for reserved name, got %v", reserved, err)
+	for _, name := range reserved.Defaults {
+		if _, err := m.ValidateAndNormalize(name); !errors.Is(err, ErrInvalidUsername) {
+			t.Errorf("ValidateAndNormalize(%q): expected ErrInvalidUsername for reserved name, got %v", name, err)
 		}
 	}
 }

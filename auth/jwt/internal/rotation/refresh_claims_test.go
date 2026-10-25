@@ -30,7 +30,7 @@ func TestRotateTokens_refusesMissingExpAndFutureIat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// mapJWTError collapses the reason into ErrTokenInvalid, so the
+	// errmap.Map collapses the reason into ErrTokenInvalid, so the
 	// untouched token rotating below is what shows each refusal was the
 	// claim under test.
 	for name, mutate := range map[string]func(*claims.Refresh){

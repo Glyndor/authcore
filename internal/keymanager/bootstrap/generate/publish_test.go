@@ -86,7 +86,7 @@ func TestInterruptedInitRestarts(t *testing.T) {
 	}
 }
 
-// These cover low-level branches: createStagingSet's CSPRNG failure,
+// These cover low-level branches: createset.Create's CSPRNG failure,
 // New's symlink preflight, and syncDir's Open failure path. Each test
 // restores any package variable it changes via t.Cleanup.
 
@@ -174,7 +174,7 @@ func TestNew_readOnlyDirectoryCannotWriteGitignore(t *testing.T) {
 	}
 }
 
-// These cover linkKeys branches that the existing coverage tests do not
+// These cover Link branches that the existing coverage tests do not
 // exercise: the second-or-third slot refuses on a different-bytes concurrent
 // link (and keeps the staging directory as recovery material), and the
 // concurrent-identical branch where a helper has already linked the same

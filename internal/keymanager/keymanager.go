@@ -34,7 +34,7 @@ import (
 	"crypto/ed25519"
 
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap"
-	"github.com/Glyndor/authcore/internal/keymanager/keyload"
+	"github.com/Glyndor/authcore/internal/keymanager/keyload/loadonly"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/material"
 	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
@@ -186,7 +186,7 @@ func (km *KeyManager) Dir() string {
 // All errors returned here are wrapped by the disk store in keystore.go,
 // which itself wraps ErrKeyManager around them.
 func Load(dir string, log logger) (*KeyManager, error) {
-	priv, pub, secret, err := keyload.LoadOnly(dir, log)
+	priv, pub, secret, err := loadonly.Load(dir, log)
 	if err != nil {
 		return nil, err
 	}

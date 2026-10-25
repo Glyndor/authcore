@@ -1,12 +1,14 @@
 package recoverytest_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/recovery/recoverytest"
+	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
 
 func TestSeedKeysWritesACompleteSet(t *testing.T) {
@@ -61,4 +63,44 @@ func TestRecordingLogCountsAndMatches(t *testing.T) {
 	}
 	recoverytest.SilentLog{}.Info("x")
 	recoverytest.SilentLog{}.Warn("x")
+}
+
+func TestListStagingDirsSkipsSymlinksAndFiles(t *testing.T) {
+	recoverytest.PosixOnly(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, layout.StagingPrefix+"real"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, layout.StagingPrefix+"file"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir, filepath.Join(dir, layout.StagingPrefix+"link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "unrelated"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := recoverytest.ListStagingDirs(t, dir)
+	if len(got) != 1 || got[0] != layout.StagingPrefix+"real" {
+		t.Fatalf("ListStagingDirs = %v, want only the real staging directory", got)
+	}
+}
+
+func TestWithLinkFileInstallsAndRestoresTheSeam(t *testing.T) {
+	recoverytest.PosixOnly(t)
+	sentinel := errors.New("no links")
+	t.Run("installed", func(t *testing.T) {
+		recoverytest.WithLinkFile(t, func(string, string) error { return sentinel })
+		if err := seams.LinkFile("a", "b"); !errors.Is(err, sentinel) {
+			t.Fatalf("LinkFile = %v, want the sentinel", err)
+		}
+	})
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := seams.LinkFile(src, filepath.Join(dir, "dst")); err != nil {
+		t.Fatalf("the seam was not restored: %v", err)
+	}
 }

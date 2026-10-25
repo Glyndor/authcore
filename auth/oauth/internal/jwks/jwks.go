@@ -5,24 +5,21 @@ package jwks
 import (
 	"context"
 	"crypto"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/jwk"
+	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/candidate"
+	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/fetch"
 )
 
 const (
 	// jwksTTL bounds how long a fetched key set is trusted before a refresh.
 	jwksTTL = time.Hour
-	// jwksMaxBytes caps a JWKS response so a hostile endpoint cannot exhaust memory.
-	jwksMaxBytes = 1 << 20
 	// minRefreshInterval throttles refreshes triggered by an unknown kid. Without
 	// it, a flood of tokens carrying bogus kids would force one outbound JWKS GET
 	// per verification (request amplification). A genuine key rotation is still
@@ -30,23 +27,9 @@ const (
 	minRefreshInterval = time.Minute
 )
 
-type jwksDoc struct {
-	Keys []jwk.JWK `json:"keys"`
-}
-
 // Candidate is a parsed JWK paired with the metadata needed to enforce the
-// per-key alg/use/key_ops restrictions at selection time. Two candidates may
-// share a kid (RFC 7517 permits an RSA key and an EC key under one kid) and
-// the verifier picks by token alg.
-type Candidate struct {
-	// Pub is the parsed public key.
-	Pub    crypto.PublicKey
-	alg    string
-	use    string
-	keyOps map[string]struct{}
-	// Issuer is the JWK "issuer" member, "" when the key carries none.
-	Issuer string
-}
+// per-key restrictions at selection time. See package candidate.
+type Candidate = candidate.Candidate
 
 // Cache fetches and caches a provider's signing keys. Per kid, the cache
 // holds a slice of candidates so two providers sharing a kid (e.g. an RSA and
@@ -124,7 +107,7 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 
 	now := c.now()
 	if ok && now.Before(expires) {
-		return pickCandidate(c.errs.Fetch, candidates, kid, alg)
+		return candidate.Pick(c.errs.Fetch, candidates, kid, alg)
 	}
 
 	// Skip an unknown kid only while a recent failed refresh is still inside
@@ -155,7 +138,7 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 	if err != nil {
 		if ok {
 			if now.Before(expires) {
-				return pickCandidate(c.errs.Fetch, candidates, kid, alg) // known set inside its TTL: serve it on a transient JWKS outage
+				return candidate.Pick(c.errs.Fetch, candidates, kid, alg) // known set inside its TTL: serve it on a transient JWKS outage
 			}
 			// Past expiry: fail closed. A withdrawn key must not remain usable
 			// while the provider is unreachable.
@@ -175,120 +158,20 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 			return Candidate{}, fmt.Errorf("%w: unknown kid %q", c.errs.Fetch, kid)
 		}
 	}
-	return pickCandidate(c.errs.Fetch, candidates, kid, alg)
-}
-
-// pickCandidate walks candidates and returns the first one whose declared
-// alg/use/key_ops match the token's alg. kid is carried only so the error
-// message names the right value; the matching itself depends on alg.
-func pickCandidate(errFetch error, candidates []Candidate, kid, alg string) (Candidate, error) {
-	for _, cand := range candidates {
-		if !cand.matches(alg) {
-			continue
-		}
-		return cand, nil
-	}
-	if kid == "" {
-		return Candidate{}, fmt.Errorf("%w: no candidate matches alg %q", errFetch, alg)
-	}
-	return Candidate{}, fmt.Errorf("%w: no candidate for kid %q matches alg %q", errFetch, kid, alg)
-}
-
-// matches reports whether the Candidate may verify a token signed with alg,
-// applying the JWK's declared alg/use/key_ops restrictions. A key published
-// with alg:"RS256" cannot verify PS256 (RFC 8725 §3.1); a key with
-// key_ops:["encrypt"] cannot verify signatures at all (RFC 7517 §4.3).
-func (cand Candidate) matches(alg string) bool {
-	if cand.alg != "" && cand.alg != alg {
-		return false
-	}
-	if cand.use != "" && cand.use != "sig" {
-		return false
-	}
-	if len(cand.keyOps) > 0 {
-		if _, ok := cand.keyOps["verify"]; !ok {
-			return false
-		}
-	}
-	return true
+	return candidate.Pick(c.errs.Fetch, candidates, kid, alg)
 }
 
 // refresh fetches the JWKS and replaces the cached key set. An HTTP 200 with
 // zero usable keys is treated as an authoritative empty set: the cache is
 // replaced with it, so lookups fail closed rather than matching an old key.
 func (c *Cache) refresh(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
+	set, err := fetch.Get(ctx, c.http, c.url, c.errs.Fetch, c.recordAttempt)
 	if err != nil {
-		return fmt.Errorf("%w: build request: %w", c.errs.Fetch, err)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		// Do not treat a cancellation of the caller's context as a refresh
-		// failure. Return the context error without recording lastAttempt, so
-		// the next caller with a live context can try again immediately
-		// instead of being blocked by a minute-long cooldown.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		c.recordAttempt()
-		return fmt.Errorf("%w: %w", c.errs.Fetch, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, jwksMaxBytes))
-	if err != nil {
-		c.recordAttempt()
-		return fmt.Errorf("%w: read: %w", c.errs.Fetch, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.recordAttempt()
-		return fmt.Errorf("%w: status %d", c.errs.Fetch, resp.StatusCode)
-	}
-
-	var doc jwksDoc
-	if err := json.Unmarshal(body, &doc); err != nil {
-		c.recordAttempt()
-		return fmt.Errorf("%w: decode: %w", c.errs.Fetch, err)
-	}
-
-	keys := make(map[string][]Candidate, len(doc.Keys))
-	var anon []Candidate
-	for _, k := range doc.Keys {
-		// Only signature keys are eligible. A key explicitly published for
-		// encryption must never be selected to verify a token signature.
-		if k.Use != "" && k.Use != "sig" {
-			continue
-		}
-		pub, err := jwk.Parse(k)
-		if err != nil {
-			continue // skip keys we cannot use (unsupported type/curve); others remain usable
-		}
-		cand := Candidate{Pub: pub, alg: k.Alg, use: k.Use, Issuer: k.Issuer}
-		if len(k.KeyOps) > 0 {
-			cand.keyOps = make(map[string]struct{}, len(k.KeyOps))
-			for _, op := range k.KeyOps {
-				cand.keyOps[op] = struct{}{}
-			}
-		}
-		if k.Kid != "" {
-			keys[k.Kid] = append(keys[k.Kid], cand)
-		} else {
-			anon = append(anon, cand)
-		}
-	}
-
-	// Treat an empty key set as authoritative. The provider publishes that the
-	// keys are gone: replace the cache with the empty set rather than serving
-	// the previous entry, so lookups fail closed.
-	anonAvailable := len(anon) == 1 && len(keys) == 0
-	if anonAvailable {
-		keys[""] = anon
+		return err
 	}
 	c.mu.Lock()
-	c.keys = keys
-	c.anonAvailable = anonAvailable
+	c.keys = set.Keys
+	c.anonAvailable = set.AnonAvailable
 	c.expiresAt = c.now().Add(jwksTTL)
 	c.lastAttempt = c.now()
 	c.mu.Unlock()

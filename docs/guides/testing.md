@@ -121,13 +121,17 @@ authcore/
 │
 ├── internal/
 │   ├── clock/           # Timezone-aware Clock: injected for deterministic tests
-│   ├── keystore/        # KeyStore contract checks, keys directory checks, disk loader
+│   ├── keystore/
+│   │   ├── contract/    # The checks New runs on what a KeyStore returned
+│   │   ├── keysdir/     # Config.KeysDir checks: create, or load-only
+│   │   └── disk/        # The default disk store over the key manager
 │   ├── logging/         # The built-in stdlib and noop loggers
 │   └── keymanager/      # Ed25519 + HMAC key generation, persistence, validation
 │       ├── bootstrap/   # New: prepare the directory, then generate, recover or load
-│       ├── keyload/     # Reading a key set back from disk, and the load-only entry point
-│       ├── staging/     # Writing a fresh key set: staging directory, then hard links
-│       ├── recovery/    # Finishing or refusing an interrupted publish (leftovers/: report, wait/: wait for the winner)
+│       ├── keyload/     # Reading a key set back from disk (loadonly/: the load-only entry point; keyloadtest/: test support)
+│       ├── staging/     # Publishing a fresh key set (createset/: staging directory, linkkeys/: hard links, preflight/: symlink refusal; stagingtest/: test support)
+│       ├── recovery/    # Finishing or refusing an interrupted publish (match/: find the staging, complete/: link it into place, leftovers/: report, wait/: wait for the winner)
+│       ├── redact/      # Secret-free rendering behind the facade's fmt.Formatter
 │       ├── metadata/    # metadata.json: the on-disk layout marker
 │       ├── fsguard/     # Classifying managed files; exclusive create; set inspection
 │       ├── fileio/      # Size-capped read, durable write, directory sync
@@ -142,7 +146,7 @@ authcore/
 │   ├── jwt/             # JSON Web Token authentication (EdDSA / Ed25519)
 │   │   └── internal/
 │   │       ├── issue/        # Signing the access and refresh pair of a session
-│   │       ├── parse/        # Token shape, signature, key selection and registered claims
+│   │       ├── parse/        # Token shape, signature and registered claims (errmap/: golang-jwt errors to sentinels, keyfunc/: EdDSA key selection by kid)
 │   │       ├── verify/       # Token kind and denylist check on top of a parsed token
 │   │       ├── rotation/     # Exchanging a refresh token for a new pair
 │   │       ├── refreshhash/  # HMAC-SHA256 digest of a refresh token and its comparison
@@ -153,11 +157,18 @@ authcore/
 │   │       ├── vkey/         # Refusing public keys that cannot be trusted
 │   │       └── jwttest/      # Test-only fixtures: keys, provider, a clock-driven rig
 │   ├── password/        # Argon2id password hashing (internal/: kdf, phc, policy)
-│   ├── email/           # Email validation, normalization, DNS MX verification (internal/: errs, localpart, normalize, syntax, mx)
+│   ├── email/           # Email validation, normalization, DNS MX verification (internal/: errs, localpart, normalize, syntax, mx; mx/internal/: cache, domain, answer)
 │   ├── totp/            # TOTP codes and recovery codes (internal/: hotp, secret, otpauth, recovery, verifier)
-│   ├── username/        # Username validation, normalization, reserved name blocklist
-│   ├── apikey/          # Opaque API keys (HMAC-SHA256 keyed hash)
+│   ├── username/        # Username validation, normalization (internal/reserved: the blocklist)
+│   ├── apikey/          # Opaque API keys (internal/: format, digest)
+│   ├── credential/      # Single-use, time-bound tokens (internal/: binding, expiry)
+│   ├── field/           # Field encryption and blind index (internal/: kdf, seal, blind)
 │   └── oauth/           # OpenID Connect / OAuth2 client (social login)
+│       └── internal/
+│           ├── idtoken/      # ID token verification (claimread/: typed claim readers, keyissuer/: the signing key's issuer)
+│           ├── jwks/         # Signing-key cache: TTL, refresh cooldown, selection (candidate/: per-key restrictions, fetch/: download and size cap, jwk/: JWK parsing)
+│           ├── discovery/ exchange/ userinfo/ apple/ clientauth/ issuer/ pkce/ redirect/ urlcheck/ presets/   # the rest of the flow
+│           └── oauthtest/    # Test-only fixtures: provider, keys, client
 │
 └── examples/
     ├── modules/         # One standalone module per auth package
@@ -185,6 +196,6 @@ authcore/
 | `…/auth/apikey` | public | Opaque API key generation and verification |
 | `…/auth/oauth` | public | OpenID Connect / OAuth2 client |
 | `…/internal/clock` | internal | Shared time abstraction |
-| `…/internal/keystore` | internal | KeyStore contract checks and the disk loader |
+| `…/internal/keystore/contract`, `/keysdir`, `/disk` | internal | KeyStore contract checks, keys directory checks, the disk loader |
 | `…/internal/logging` | internal | Built-in stdlib and noop loggers |
 | `…/internal/keymanager` | internal | Key generation and persistence |

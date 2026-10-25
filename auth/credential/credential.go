@@ -51,28 +51,22 @@
 package credential
 
 import (
-	"crypto/hmac"
 	"crypto/rand" //nolint:gosec // CSPRNG draws for tokens
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	"hash"
 	"time"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/credential/internal/binding"
+	"github.com/Glyndor/authcore/auth/credential/internal/expiry"
 	"github.com/Glyndor/authcore/internal/clock"
 )
 
 // Compile-time assertion: *Credential must satisfy authcore.Module.
 var _ authcore.Module = (*Credential)(nil)
 
-const (
-	tokenLen   = 32 // 256 bits of CSPRNG output per token
-	futureSkew = time.Minute
-)
+const tokenLen = 32 // 256 bits of CSPRNG output per token
 
 // Credential is the credential module.
 //
@@ -277,7 +271,7 @@ func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt
 	matched := subtle.ConstantTimeCompare([]byte(candidate), []byte(storedHash)) == 1
 
 	elapsed := c.clock.Now().Sub(issuedAt)
-	expired := elapsed > c.cfg.TTL || elapsed < -futureSkew
+	expired := expiry.Expired(elapsed, c.cfg.TTL)
 
 	if !matched {
 		return ErrInvalidCredential
@@ -304,17 +298,5 @@ func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt
 // subject at Verify time produces a different candidate hash and a clean
 // comparison failure.
 func (c *Credential) computeHash(purpose, subject, token string) string {
-	mac := hmac.New(sha256.New, c.secret)
-	writeField(mac, purpose)
-	writeField(mac, subject)
-	writeField(mac, token)
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// writeField writes s to h prefixed by its length as a big-endian uint32.
-func writeField(h hash.Hash, s string) {
-	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(s)))
-	_, _ = h.Write(n[:])
-	_, _ = h.Write([]byte(s))
+	return binding.Hash(c.secret, purpose, subject, token)
 }

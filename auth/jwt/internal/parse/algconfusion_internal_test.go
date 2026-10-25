@@ -18,12 +18,12 @@ import (
 // happily, and every token can be forged.
 //
 // This asserts the outcome, and it passes even with the alg check in
-// eddsaKeyFunc deleted — golang-jwt refuses the key on its own, because
+// keyfunc.EdDSA deleted — golang-jwt refuses the key on its own, because
 // ed25519.PublicKey is a named type that does not assert to []byte and its HMAC
 // verifier accepts nothing else. That second layer is real but incidental: it
 // holds only while the keyfunc returns ed25519.PublicKey, and a refactor to
-// return []byte(pub) would remove it silently. TestEddsaKeyFunc_rejectsANonEdDSAAlg
-// below is what pins the check itself.
+// return []byte(pub) would remove it silently. TestEdDSA_rejectsANonEdDSAAlg
+// in the keyfunc package is what pins the check itself.
 func TestVerifyAccessToken_refusesAnHS256TokenSignedWithThePublicKey(t *testing.T) {
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -59,67 +59,5 @@ func TestVerifyAccessToken_refusesAnHS256TokenSignedWithThePublicKey(t *testing.
 	}
 	if !strings.Contains(err.Error(), "invalid") {
 		t.Logf("rejected, though not as ErrTokenInvalid: %v", err)
-	}
-}
-
-// The alg check has to be asserted directly. mapJWTError collapses everything
-// into ErrTokenInvalid, so from outside there is no way to tell a token refused
-// for its algorithm from one refused for a bad signature — which is why
-// deleting the check leaves the end-to-end tests green.
-func TestEddsaKeyFunc_rejectsANonEdDSAAlg(t *testing.T) {
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	const kid = "k1"
-	fn := eddsaKeyFunc(map[string]ed25519.PublicKey{kid: pub})
-
-	for name, method := range map[string]gjwt.SigningMethod{
-		"HS256": gjwt.SigningMethodHS256,
-		"RS256": gjwt.SigningMethodRS256,
-		"none":  gjwt.SigningMethodNone,
-	} {
-		t.Run(name, func(t *testing.T) {
-			tok := gjwt.New(method)
-			tok.Header["kid"] = kid
-
-			key, err := fn(tok)
-			if err == nil {
-				t.Fatalf("alg %s must be refused before any key is handed out, got key %T", name, key)
-			}
-			if !strings.Contains(err.Error(), "unexpected alg") {
-				t.Fatalf("refused for the wrong reason: %v", err)
-			}
-			if key != nil {
-				t.Fatalf("no key may be returned alongside the rejection, got %T", key)
-			}
-		})
-	}
-}
-
-func TestEddsaKeyFunc_returnsTheKeyForEdDSA(t *testing.T) {
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	const kid = "k1"
-	fn := eddsaKeyFunc(map[string]ed25519.PublicKey{kid: pub})
-
-	tok := gjwt.New(gjwt.SigningMethodEdDSA)
-	tok.Header["kid"] = kid
-
-	key, err := fn(tok)
-	if err != nil {
-		t.Fatalf("EdDSA must be accepted: %v", err)
-	}
-	// The concrete type matters: it is what stops golang-jwt handing these
-	// bytes to an HMAC verifier. Returning []byte here would be a silent
-	// downgrade.
-	got, ok := key.(ed25519.PublicKey)
-	if !ok {
-		t.Fatalf("keyfunc must return ed25519.PublicKey, got %T", key)
-	}
-	if !got.Equal(pub) {
-		t.Fatal("keyfunc returned a different key")
 	}
 }

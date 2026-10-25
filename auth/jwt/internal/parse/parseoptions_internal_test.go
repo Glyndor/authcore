@@ -83,7 +83,7 @@ func TestVerifyAccessToken_refusesATokenWithNoExpiry(t *testing.T) {
 	if !errors.Is(err, jwterr.ErrTokenInvalid) {
 		t.Fatalf("a token with no exp claim = %v, want ErrTokenInvalid; it would never expire", err)
 	}
-	// mapJWTError collapses the reason, so the acceptance twin is what
+	// errmap.Map collapses the reason, so the acceptance twin is what
 	// shows the refusal was the missing claim: the same token with an exp
 	// verifies. Until 2026-09-25 the fixture's jti was "jti", which #443's
 	// shape check refused first, so this test stayed green with

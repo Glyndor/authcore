@@ -7,7 +7,7 @@ import (
 	"crypto/ed25519"
 
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap"
-	"github.com/Glyndor/authcore/internal/keymanager/keyload"
+	"github.com/Glyndor/authcore/internal/keymanager/keyload/loadonly"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/material"
 )
@@ -35,7 +35,7 @@ func New(dir string, log layout.Logger) (*KeyManager, error) {
 
 // Load is keymanager.Load without the wrapper.
 func Load(dir string, log layout.Logger) (*KeyManager, error) {
-	priv, pub, secret, err := keyload.LoadOnly(dir, log)
+	priv, pub, secret, err := loadonly.Load(dir, log)
 	if err != nil {
 		return nil, err
 	}

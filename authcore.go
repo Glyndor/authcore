@@ -43,7 +43,7 @@ import (
 	"fmt"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
-	"github.com/Glyndor/authcore/internal/keystore"
+	"github.com/Glyndor/authcore/internal/keystore/contract"
 )
 
 // Compile-time proof that *AuthCore satisfies Provider.
@@ -111,7 +111,7 @@ func New(cfg Config) (*AuthCore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
 	}
-	if err := keystore.Validate(keys); err != nil {
+	if err := contract.Validate(keys); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
 	}
 

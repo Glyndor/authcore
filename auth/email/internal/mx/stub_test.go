@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
 )
 
 // stubResolver satisfies Resolver with deterministic, in-process behaviour.
@@ -68,3 +70,9 @@ func withBlockingStub(mx []*net.MX, err error) *stubResolver {
 // newVerifier returns a Verifier on the default resolver and the default
 // five-minute TTL; tests that need DNS control replace its resolver.
 func newVerifier() *Verifier { return New(net.DefaultResolver, 5*time.Minute) }
+
+// primeCache directly writes a cache entry, bypassing DNS, so we can test
+// cache hit behaviour without network access.
+func primeCache(m *Verifier, domain string, hasMX bool, ttl time.Duration) {
+	m.cache.Store(domain, cache.Entry{HasMX: hasMX, ExpiresAt: time.Now().Add(ttl)})
+}

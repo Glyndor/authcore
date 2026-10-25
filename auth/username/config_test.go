@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Glyndor/authcore/auth/username/internal/reserved"
 )
 
 // modWith builds a Username with the requested Config, using the cheapest
@@ -157,10 +159,10 @@ func TestReservedSet_extraIsAdded(t *testing.T) {
 
 func TestReservedSet_emptyConfigEqualsBuiltIn(t *testing.T) {
 	// The zero Config{} must produce the same set as the original
-	// defaultReservedNames - this is the additive guarantee.
+	// reserved.Defaults - this is the additive guarantee.
 	got := reservedSet(Config{})
-	want := make(map[string]struct{}, len(defaultReservedNames))
-	for _, n := range defaultReservedNames {
+	want := make(map[string]struct{}, len(reserved.Defaults))
+	for _, n := range reserved.Defaults {
 		want[n] = struct{}{}
 	}
 	for name := range want {
@@ -170,7 +172,7 @@ func TestReservedSet_emptyConfigEqualsBuiltIn(t *testing.T) {
 	}
 	for name := range got {
 		if _, ok := want[name]; !ok {
-			t.Errorf("zero Config{} added a name %q that is not in defaultReservedNames", name)
+			t.Errorf("zero Config{} added a name %q that is not in reserved.Defaults", name)
 		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 
 	gjwt "github.com/golang-jwt/jwt/v5"
 
+	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/claimread"
+	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/keyissuer"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
 )
 
@@ -137,7 +139,7 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	// iss against it. Without this, a key scoped to the consumer tenant
 	// verified a token claiming any other tenant under AzureMultiTenantIssuer
 	// (measured 2026-09-25).
-	if err := checkKeyIssuer(p.Invalid, signer.Issuer, claims); err != nil {
+	if err := keyissuer.Check(p.Invalid, signer.Issuer, claims); err != nil {
 		return nil, err
 	}
 
@@ -147,12 +149,12 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	}
 
 	out := &Claims{
-		Subject:       StringClaim(claims, "sub"),
-		Issuer:        StringClaim(claims, "iss"),
+		Subject:       claimread.String(claims, "sub"),
+		Issuer:        claimread.String(claims, "iss"),
 		Audience:      aud,
-		Email:         StringClaim(claims, "email"),
-		EmailVerified: BoolClaim(claims, "email_verified"),
-		Name:          StringClaim(claims, "name"),
+		Email:         claimread.String(claims, "email"),
+		EmailVerified: claimread.Bool(claims, "email_verified"),
+		Name:          claimread.String(claims, "name"),
 		Raw:           claims,
 	}
 	if out.Subject == "" {
@@ -176,7 +178,7 @@ func checkBinding(p Params, claims gjwt.MapClaims, nonce string) ([]string, erro
 	// library's configuration says the caller trusts a second audience, so a
 	// multi-audience token is refused rather than accepted on the strength of
 	// "azp" alone. An explicit allowlist can lift this later.
-	aud := AudienceClaim(claims)
+	aud := claimread.Audience(claims)
 	if len(aud) != 1 || aud[0] != p.ClientID {
 		return nil, fmt.Errorf("%w: audience does not match client id", p.Invalid)
 	}
@@ -192,8 +194,20 @@ func checkBinding(p Params, claims gjwt.MapClaims, nonce string) ([]string, erro
 
 	// OIDC Core §2 requires "iat" as a NumericDate; WithIssuedAt only validates
 	// it when present, so enforce presence and numeric type explicitly.
-	if _, ok := NumericClaim(claims, "iat"); !ok {
+	if _, ok := claimread.Numeric(claims, "iat"); !ok {
 		return nil, fmt.Errorf("%w: missing or non-numeric iat", p.Invalid)
 	}
 	return aud, nil
+}
+
+// notCompactJWS reports whether r can appear in a compact JWS: the base64url
+// alphabet and the "." separating its three segments.
+func notCompactJWS(r rune) bool {
+	switch {
+	case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		return false
+	case r == '-', r == '_', r == '.':
+		return false
+	}
+	return true
 }

@@ -120,7 +120,7 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 	}()
 
 	// Wait until A has linked its private key AND exactly one staging
-	// directory is present. The fault hook runs after linkKeys' first
+	// directory is present. The fault hook runs after Link' first
 	// linkFile returns, so observing the linked file means A is about to
 	// enter (or already inside) the hook. By the time the test proceeds
 	// to call B's New, B will see a partial directory and take the
