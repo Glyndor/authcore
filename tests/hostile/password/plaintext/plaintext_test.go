@@ -1,4 +1,6 @@
-package password_test
+// Package plaintext attacks the password itself: invisible characters, sizes,
+// Unicode normalisation and policy bounds.
+package plaintext
 
 import (
 	"errors"
@@ -9,6 +11,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore/auth/password"
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // Characters that look like nothing, or that change how neighbours render, are
@@ -16,8 +19,8 @@ import (
 // differ by an invisible byte, and a control byte cannot reach a downstream
 // parser.
 func TestHostile_Plaintext_invisibleAndControlCharactersAreRefused(t *testing.T) {
-	m := newModule(t, lowCost())
-	if err := m.ValidatePolicy(strong); err != nil {
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
+	if err := m.ValidatePolicy(hostiletest.Strong); err != nil {
 		t.Fatalf("control: %v", err)
 	}
 	cases := map[string]string{
@@ -56,7 +59,7 @@ func TestHostile_Plaintext_invisibleAndControlCharactersAreRefused(t *testing.T)
 	}
 	for name, r := range cases {
 		t.Run(name, func(t *testing.T) {
-			pw := strong[:6] + r + strong[6:]
+			pw := hostiletest.Strong[:6] + r + hostiletest.Strong[6:]
 			if err := m.ValidatePolicy(pw); !errors.Is(err, password.ErrWeakPassword) || !errors.Is(err, password.ErrNonPrintableCharacter) {
 				t.Fatalf("ValidatePolicy = %v, want ErrWeakPassword wrapping ErrNonPrintableCharacter", err)
 			}
@@ -70,7 +73,7 @@ func TestHostile_Plaintext_invisibleAndControlCharactersAreRefused(t *testing.T)
 // The length limit counts characters, after normalization, and the pair of
 // boundaries is exact. A huge input is refused without a hashing cost.
 func TestHostile_Plaintext_lengthBoundsAreExactAndCheap(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	pad := func(n int) string { return "Aa1!" + strings.Repeat("x", n-4) }
 
 	for n, ok := range map[int]bool{11: false, 12: true, 64: true, 65: false} {
@@ -127,7 +130,7 @@ func utf8Len(s string) int { return len([]rune(s)) }
 // keyboard or OS composes a character. The module does not go further and fold
 // compatibility forms, which would merge passwords that differ.
 func TestHostile_Plaintext_normalizationFoldsCanonicalFormsOnly(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	composed := "Caf\u00e9-Mu\u00f1oz-9"
 	decomposed := norm.NFD.String(composed)
 	if composed == decomposed {
@@ -171,15 +174,15 @@ func TestHostile_Plaintext_normalizationFoldsCanonicalFormsOnly(t *testing.T) {
 // passwords of accounts created under an older, weaker policy. What Verify
 // must still do with a hostile plaintext is return, not panic.
 func TestHostile_Plaintext_verifyNeverPanicsOnAnyBytes(t *testing.T) {
-	m := newModule(t, lowCost())
-	hash, _ := m.Hash(strong)
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
+	hash, _ := m.Hash(hostiletest.Strong)
 	for name, pw := range map[string]string{
 		"empty":         "",
 		"NUL":           "\x00",
 		"only NULs":     strings.Repeat("\x00", 4096),
 		"invalid UTF-8": "\xff\xfe\xfd",
 		"one MiB":       strings.Repeat("A", 1<<20),
-		"bidi":          "\u202e" + strong,
+		"bidi":          "\u202e" + hostiletest.Strong,
 	} {
 		ok, err := m.Verify(pw, hash)
 		if ok || err != nil {
@@ -190,7 +193,7 @@ func TestHostile_Plaintext_verifyNeverPanicsOnAnyBytes(t *testing.T) {
 
 // Each character class the policy asks for is demanded on its own.
 func TestHostile_Plaintext_everyRequiredClassIsEnforced(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	for name, tc := range map[string]struct{ pw, reason string }{
 		"no upper":  {"correct-horse-9", "uppercase"},
 		"no lower":  {"CORRECT-HORSE-9", "lowercase"},
@@ -214,10 +217,10 @@ func TestHostile_Plaintext_everyRequiredClassIsEnforced(t *testing.T) {
 // it passed in, or another goroutine that flips it afterwards, cannot loosen
 // a module that is already serving.
 func TestHostile_Plaintext_policyFlagsAreSnapshottedAtConstruction(t *testing.T) {
-	cfg := lowCost()
+	cfg := hostiletest.LowCost()
 	cfg.RequireUpper, cfg.RequireLower = password.Bool(true), password.Bool(true)
 	cfg.RequireDigit, cfg.RequireSymbol = password.Bool(true), password.Bool(true)
-	m := newModule(t, cfg)
+	m := hostiletest.NewModule(t, cfg)
 
 	*cfg.RequireUpper, *cfg.RequireLower, *cfg.RequireDigit, *cfg.RequireSymbol = false, false, false, false
 
@@ -241,14 +244,14 @@ func TestHostile_Plaintext_costAndPolicyBoundsAreEnforcedAtConstruction(t *testi
 		"max length 1025":       {MaxLength: 1025},
 		"max length huge":       {MaxLength: 1 << 30},
 	} {
-		if _, err := password.New(newProvider(t), cfg); !errors.Is(err, password.ErrInvalidConfig) {
+		if _, err := password.New(hostiletest.NewProvider(t), cfg); !errors.Is(err, password.ErrInvalidConfig) {
 			t.Errorf("%s: password.New = %v, want ErrInvalidConfig", name, err)
 		}
 	}
-	if _, err := password.New(newProvider(t), password.Config{Memory: 8 * 1024, Iterations: 20, MinLength: 8, MaxLength: 1024}); err != nil {
+	if _, err := password.New(hostiletest.NewProvider(t), password.Config{Memory: 8 * 1024, Iterations: 20, MinLength: 8, MaxLength: 1024}); err != nil {
 		t.Errorf("control: the extremes that are allowed were refused: %v", err)
 	}
-	if _, err := password.New(newProvider(t), password.Config{}, password.Config{}); !errors.Is(err, password.ErrInvalidConfig) {
+	if _, err := password.New(hostiletest.NewProvider(t), password.Config{}, password.Config{}); !errors.Is(err, password.ErrInvalidConfig) {
 		t.Errorf("two configs: %v, want ErrInvalidConfig", err)
 	}
 }

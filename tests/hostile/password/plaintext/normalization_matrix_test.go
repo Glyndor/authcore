@@ -1,9 +1,11 @@
-package password_test
+package plaintext
 
 import (
 	"testing"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // Passwords where the four Unicode forms differ, or where composition has
@@ -31,7 +33,7 @@ var normalizationSamples = []string{
 // agrees with that rule. A module that normalised only one side, or folded
 // compatibility forms, breaks it.
 func TestHostile_NormalizationMatrix_verifyAgreesWithNFCEquality(t *testing.T) {
-	m := newModule(t, relaxed(64))
+	m := hostiletest.NewModule(t, hostiletest.Relaxed(64))
 	forms := map[string]norm.Form{"NFC": norm.NFC, "NFD": norm.NFD, "NFKC": norm.NFKC, "NFKD": norm.NFKD}
 
 	spellings := func(s string) []string {
@@ -80,7 +82,7 @@ func TestHostile_NormalizationMatrix_verifyAgreesWithNFCEquality(t *testing.T) {
 // normalisation tables cannot silently redefine them: these pairs are one
 // password, and these are not.
 func TestHostile_NormalizationMatrix_knownPairs(t *testing.T) {
-	m := newModule(t, relaxed(64))
+	m := hostiletest.NewModule(t, hostiletest.Relaxed(64))
 	same := [][2]string{
 		{"Café pass 12", "Cafe\u0301 pass 12"},
 		{"Ångstrom 123", "Ångstrom 123"},

@@ -1,6 +1,10 @@
-package password_test
+package plaintext
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
+)
 
 // CONTRACT, not a defect: variation selectors are accepted in a password and
 // are not folded. A password is secret input, not an identifier, so
@@ -12,14 +16,14 @@ import "testing"
 // this test fails because the module changed either way, update
 // docs/modules/password.md in the same change.
 func TestContract_Password_variationSelectorsAreAcceptedAndNotFolded(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	for name, sel := range map[string]string{
 		"VS16 emoji presentation": "\ufe0f",
 		"VS1 text presentation":   "\ufe00",
 		"supplementary VS17":      "\U000e0100",
 		"Mongolian FVS1":          "\u180b",
 	} {
-		withSel := strong + sel
+		withSel := hostiletest.Strong + sel
 		if err := m.ValidatePolicy(withSel); err != nil {
 			t.Errorf("%s: refused (%v); the contract is that it is accepted", name, err)
 			continue
@@ -31,7 +35,7 @@ func TestContract_Password_variationSelectorsAreAcceptedAndNotFolded(t *testing.
 		if ok, err := m.Verify(withSel, hash); err != nil || !ok {
 			t.Errorf("%s: own password does not verify: %v, %v", name, ok, err)
 		}
-		if ok, _ := m.Verify(strong, hash); ok {
+		if ok, _ := m.Verify(hostiletest.Strong, hash); ok {
 			t.Errorf("%s: the password without the selector verified; the contract is that it does not fold", name)
 		}
 	}

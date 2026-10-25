@@ -1,24 +1,25 @@
-package password_test
+package ceiling
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/password"
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // A stored hash does not choose what a login costs: one asking for more than
 // the module accepts is refused before any key is derived.
 func TestHostile_Verify_costAboveTheCeilingIsRefused(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	for name, params := range map[string]string{
 		"memory":      "m=2097152,t=1,p=1",
 		"iterations":  "m=8192,t=9,p=1",
 		"parallelism": "m=8192,t=1,p=9",
 		"parse limit": "m=4194304,t=20,p=255",
 	} {
-		hash := "$argon2id$v=19$" + params + "$" + enc(16) + "$" + enc(32)
-		ok, err := m.Verify(strong, hash)
+		hash := "$argon2id$v=19$" + params + "$" + hostiletest.Enc(16) + "$" + hostiletest.Enc(32)
+		ok, err := m.Verify(hostiletest.Strong, hash)
 		if ok || !errors.Is(err, password.ErrInvalidHash) {
 			t.Errorf("%s: Verify = %v, %v; want a refusal", name, ok, err)
 		}
@@ -29,14 +30,14 @@ func TestHostile_Verify_costAboveTheCeilingIsRefused(t *testing.T) {
 // 1 GiB for 20 passes is about 13 s of one core. The product of memory and
 // passes is refused before any key is derived, so these calls return at once.
 func TestHostile_Verify_memoryTimesIterationsIsRefused(t *testing.T) {
-	m := newModule(t, password.DefaultConfig())
+	m := hostiletest.NewModule(t, password.DefaultConfig())
 	for name, params := range map[string]string{
 		"1 GiB x 20":  "m=1048576,t=20,p=1",
 		"1 GiB x 5":   "m=1048576,t=5,p=16",
 		"512 MiB x 9": "m=524288,t=9,p=1",
 	} {
-		hash := "$argon2id$v=19$" + params + "$" + enc(16) + "$" + enc(32)
-		ok, err := m.Verify(strong, hash)
+		hash := "$argon2id$v=19$" + params + "$" + hostiletest.Enc(16) + "$" + hostiletest.Enc(32)
+		ok, err := m.Verify(hostiletest.Strong, hash)
 		if ok || !errors.Is(err, password.ErrInvalidHash) {
 			t.Errorf("%s: Verify = %v, %v; want a refusal", name, ok, err)
 		}

@@ -1,4 +1,4 @@
-package password_test
+package phc
 
 // The reference here is golang.org/x/crypto/argon2 called directly, with the
 // PHC string written and read by hand. A hash the module makes must be the
@@ -15,15 +15,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore/auth/password"
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
-
-// refHash writes the PHC string for plaintext under the given cost and salt,
-// the way every Argon2 implementation does.
-func refHash(plaintext string, m, t uint32, p uint8, salt []byte) string {
-	key := argon2.IDKey([]byte(norm.NFC.String(plaintext)), salt, t, m, p, 32)
-	b64 := base64.RawStdEncoding
-	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", m, t, p, b64.EncodeToString(salt), b64.EncodeToString(key))
-}
 
 // refParse reads the cost, salt and key back out of a PHC string.
 func refParse(t testing.TB, hash string) (m, it uint32, p uint8, salt, key []byte) {
@@ -50,13 +43,13 @@ func refParse(t testing.TB, hash string) (m, it uint32, p uint8, salt, key []byt
 // password, under the salt and cost it recorded.
 func TestHostile_Reference_moduleHashesAreTheReferenceHashes(t *testing.T) {
 	for _, cfg := range []password.Config{
-		lowCost(),
+		hostiletest.LowCost(),
 		{Memory: 8 * 1024, Iterations: 3, Parallelism: 4},
 		{Memory: 9 * 1024, Iterations: 2, Parallelism: 255},
 		{Memory: 16 * 1024, Iterations: 1, Parallelism: 2},
 	} {
-		m := newModule(t, cfg)
-		for _, pw := range []string{strong, "Café-Muñoz-9", "Decomposed-e\u0301-9!", "日本語-Passw0rd-A!"} {
+		m := hostiletest.NewModule(t, cfg)
+		for _, pw := range []string{hostiletest.Strong, "Café-Muñoz-9", "Decomposed-e\u0301-9!", "日本語-Passw0rd-A!"} {
 			hash, err := m.Hash(pw)
 			if err != nil {
 				t.Fatalf("Hash(%q): %v", pw, err)
@@ -77,16 +70,16 @@ func TestHostile_Reference_moduleHashesAreTheReferenceHashes(t *testing.T) {
 // including the corners of the parallelism range, and a different password
 // does not.
 func TestHostile_Reference_referenceHashesVerifyInTheModule(t *testing.T) {
-	m := newModule(t, password.Config{Memory: 8 * 1024, Iterations: 1, Parallelism: 1})
+	m := hostiletest.NewModule(t, password.Config{Memory: 8 * 1024, Iterations: 1, Parallelism: 1})
 	salt := []byte("0123456789abcdef")
 	for _, mem := range []uint32{8192, 9000} {
 		for _, it := range []uint32{1, 2, 8} {
 			for _, par := range []uint8{1, 8} {
-				hash := refHash(strong, mem, it, par, salt)
-				if ok, err := m.Verify(strong, hash); err != nil || !ok {
+				hash := hostiletest.RefHash(hostiletest.Strong, mem, it, par, salt)
+				if ok, err := m.Verify(hostiletest.Strong, hash); err != nil || !ok {
 					t.Errorf("m=%d t=%d p=%d: Verify = %v, %v", mem, it, par, ok, err)
 				}
-				if ok, err := m.Verify(strong+"x", hash); err != nil || ok {
+				if ok, err := m.Verify(hostiletest.Strong+"x", hash); err != nil || ok {
 					t.Errorf("m=%d t=%d p=%d: a different password verified or errored: %v, %v", mem, it, par, ok, err)
 				}
 			}
@@ -98,11 +91,11 @@ func TestHostile_Reference_referenceHashesVerifyInTheModule(t *testing.T) {
 // each under its own password and never under the other's: the salt is part of
 // the input but not a substitute for the password.
 func TestHostile_Reference_aSharedSaltDoesNotMixAccounts(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	salt := []byte("shared-salt-0000")
 	alice, bob := "Alice-Passw0rd-1!", "Bobby-Passw0rd-2!"
-	hashA := refHash(alice, 8192, 1, 1, salt)
-	hashB := refHash(bob, 8192, 1, 1, salt)
+	hashA := hostiletest.RefHash(alice, 8192, 1, 1, salt)
+	hashB := hostiletest.RefHash(bob, 8192, 1, 1, salt)
 	if hashA == hashB {
 		t.Fatal("test bug: two passwords gave one hash")
 	}

@@ -1,4 +1,5 @@
-package password_test
+// Package ceiling attacks the cost ceiling Verify enforces on stored hashes.
+package ceiling
 
 import (
 	"errors"
@@ -6,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/password"
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // The Verify ceiling is a multiple of the configured cost, so its edges are
@@ -13,7 +15,7 @@ import (
 // any key is derived. The module is configured at the floor (8 MiB, 1 pass,
 // 1 lane), where the multiples are 8 passes and 8 lanes.
 func TestHostile_Ceiling_edgesAreExactForPassesAndLanes(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	salt := []byte("0123456789abcdef")
 	for _, tc := range []struct {
 		name    string
@@ -34,13 +36,13 @@ func TestHostile_Ceiling_edgesAreExactForPassesAndLanes(t *testing.T) {
 	} {
 		var hash string
 		if tc.accept {
-			hash = refHash(strong, tc.mem, tc.it, tc.par, salt)
+			hash = hostiletest.RefHash(hostiletest.Strong, tc.mem, tc.it, tc.par, salt)
 		} else {
 			// Refused hashes must not be derived at all: build the string
 			// without computing the key (a 1 GiB derivation is seconds).
-			hash = fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", tc.mem, tc.it, tc.par, enc(16), enc(32))
+			hash = fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", tc.mem, tc.it, tc.par, hostiletest.Enc(16), hostiletest.Enc(32))
 		}
-		ok, err := m.Verify(strong, hash)
+		ok, err := m.Verify(hostiletest.Strong, hash)
 		switch {
 		case tc.accept && (err != nil || !ok):
 			t.Errorf("%s: Verify = %v, %v; want true, nil", tc.name, ok, err)
@@ -53,13 +55,13 @@ func TestHostile_Ceiling_edgesAreExactForPassesAndLanes(t *testing.T) {
 // Raising the module's own cost raises the ceiling with it, to the edge and no
 // further: a module at 2 passes accepts 16 and refuses 17.
 func TestHostile_Ceiling_followsTheConfiguredCost(t *testing.T) {
-	m := newModule(t, password.Config{Memory: 8 * 1024, Iterations: 2, Parallelism: 1})
+	m := hostiletest.NewModule(t, password.Config{Memory: 8 * 1024, Iterations: 2, Parallelism: 1})
 	salt := []byte("0123456789abcdef")
-	if ok, err := m.Verify(strong, refHash(strong, 8192, 16, 1, salt)); err != nil || !ok {
+	if ok, err := m.Verify(hostiletest.Strong, hostiletest.RefHash(hostiletest.Strong, 8192, 16, 1, salt)); err != nil || !ok {
 		t.Errorf("16 passes under a 2-pass module: %v, %v", ok, err)
 	}
-	over := "$argon2id$v=19$m=8192,t=17,p=1$" + enc(16) + "$" + enc(32)
-	if ok, err := m.Verify(strong, over); ok || !errors.Is(err, password.ErrInvalidHash) {
+	over := "$argon2id$v=19$m=8192,t=17,p=1$" + hostiletest.Enc(16) + "$" + hostiletest.Enc(32)
+	if ok, err := m.Verify(hostiletest.Strong, over); ok || !errors.Is(err, password.ErrInvalidHash) {
 		t.Errorf("17 passes under a 2-pass module: %v, %v; want ErrInvalidHash", ok, err)
 	}
 }

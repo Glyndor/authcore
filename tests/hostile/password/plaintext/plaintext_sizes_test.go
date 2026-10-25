@@ -1,4 +1,4 @@
-package password_test
+package plaintext
 
 import (
 	"errors"
@@ -7,22 +7,15 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/password"
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
-
-func relaxed(maxLen int) password.Config {
-	cfg := lowCost()
-	cfg.MinLength, cfg.MaxLength = 8, maxLen
-	cfg.RequireUpper, cfg.RequireLower = password.Bool(false), password.Bool(false)
-	cfg.RequireDigit, cfg.RequireSymbol = password.Bool(false), password.Bool(false)
-	return cfg
-}
 
 // bcrypt reads at most 72 bytes of its input, so two passwords that agree on
 // the first 72 bytes are one password there. Argon2id hashes everything, and
 // the module must not truncate on the way in: a long passphrase that differs
 // only at the end is a different password at every length that matters.
 func TestHostile_Sizes_noPrefixTruncationAtAnyBoundary(t *testing.T) {
-	m := newModule(t, relaxed(1024))
+	m := hostiletest.NewModule(t, hostiletest.Relaxed(1024))
 	for _, n := range []int{71, 72, 73, 127, 128, 129, 255, 256, 257, 1023, 1024} {
 		pw := strings.Repeat("p", n-1) + "a"
 		hash, err := m.Hash(pw)
@@ -48,7 +41,7 @@ func TestHostile_Sizes_noPrefixTruncationAtAnyBoundary(t *testing.T) {
 // Bounds are in runes, not bytes: 1024 four-byte characters (4 KiB) fit, 1025
 // do not, and an ASCII password at 1024 fits at a quarter of the bytes.
 func TestHostile_Sizes_policyCountsRunesAtTheMaximum(t *testing.T) {
-	m := newModule(t, relaxed(1024))
+	m := hostiletest.NewModule(t, hostiletest.Relaxed(1024))
 	for name, tc := range map[string]struct {
 		pw string
 		ok bool
@@ -81,9 +74,9 @@ func TestHostile_Sizes_policyCountsRunesAtTheMaximum(t *testing.T) {
 // size: a megabyte of input is hashed in full, matches the reference's hash of
 // it, and costs the same order of time as a short password.
 func TestHostile_Sizes_verifyHandlesAMegabytePlaintext(t *testing.T) {
-	m := newModule(t, lowCost())
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	big := strings.Repeat("0123456789abcdef", 1<<16) // 1 MiB
-	hash := refHash(big, 8192, 1, 1, []byte("0123456789abcdef"))
+	hash := hostiletest.RefHash(big, 8192, 1, 1, []byte("0123456789abcdef"))
 
 	start := time.Now()
 	ok, err := m.Verify(big, hash)

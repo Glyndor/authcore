@@ -1,9 +1,11 @@
-package password_test
+package timing
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // STATISTICAL PROPERTY, not a deterministic one, marked as such.
@@ -21,7 +23,7 @@ func TestHostile_Timing_lengthOfThePasswordsDoesNotMoveTheTime(t *testing.T) {
 	if testing.Short() {
 		t.Skip("statistical timing check")
 	}
-	m := newModule(t, relaxed(1024))
+	m := hostiletest.NewModule(t, hostiletest.Relaxed(1024))
 	short, long := "Sh0rt-pass-1!", strings.Repeat("Long-pass-9!", 80) // 13 and 960 runes
 	hashShort, err := m.Hash(short)
 	if err != nil {

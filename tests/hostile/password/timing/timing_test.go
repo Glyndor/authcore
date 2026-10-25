@@ -1,9 +1,13 @@
-package password_test
+// Package timing checks that verification cost does not depend on whether the
+// password is right or on its length.
+package timing
 
 import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/Glyndor/authcore/tests/hostile/password/hostiletest"
 )
 
 // STATISTICAL PROPERTY, not a deterministic one.
@@ -18,8 +22,8 @@ func TestHostile_Timing_rightAndWrongPasswordsCostTheSame(t *testing.T) {
 	if testing.Short() {
 		t.Skip("statistical timing check")
 	}
-	m := newModule(t, lowCost())
-	hash, err := m.Hash(strong)
+	m := hostiletest.NewModule(t, hostiletest.LowCost())
+	hash, err := m.Hash(hostiletest.Strong)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,9 +32,9 @@ func TestHostile_Timing_rightAndWrongPasswordsCostTheSame(t *testing.T) {
 	wrongEarly := make([]time.Duration, 0, samples)
 	wrongLate := make([]time.Duration, 0, samples)
 	for i := 0; i < samples; i++ {
-		right = append(right, timeVerify(t, m.Verify, strong, hash))
-		wrongEarly = append(wrongEarly, timeVerify(t, m.Verify, "X"+strong[1:], hash))
-		wrongLate = append(wrongLate, timeVerify(t, m.Verify, strong[:len(strong)-1]+"X", hash))
+		right = append(right, timeVerify(t, m.Verify, hostiletest.Strong, hash))
+		wrongEarly = append(wrongEarly, timeVerify(t, m.Verify, "X"+hostiletest.Strong[1:], hash))
+		wrongLate = append(wrongLate, timeVerify(t, m.Verify, hostiletest.Strong[:len(hostiletest.Strong)-1]+"X", hash))
 	}
 	r := median(right)
 	for name, other := range map[string][]time.Duration{"wrong first character": wrongEarly, "wrong last character": wrongLate} {
