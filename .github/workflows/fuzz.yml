@@ -42,6 +42,7 @@ jobs:
           {"package":"./auth/field","func":"FuzzEncryptDecrypt"},
           {"package":"./auth/totp/internal/verifier","func":"FuzzVerify"},
           {"package":"./auth/totp/internal/recovery","func":"FuzzVerifyRecoveryCode"},
+          {"package":"./internal/keymanager/material","func":"FuzzCheckSecret"},
           {"package":"./internal/keymanager","func":"FuzzFromPEM"},
           {"package":"./internal/keymanager/pemcodec","func":"FuzzDecodePEMBlock"},
           {"package":"./internal/keymanager/pemcodec","func":"FuzzDecodeEd25519PEM"},
