@@ -168,3 +168,13 @@ func TestSecretMismatchAndSymlinkKeysDir_sayHowToRecover(t *testing.T) {
 	}
 	assertNoDestructiveAdvice(t, link)
 }
+
+func TestKeysChangedWhileReading_saysNothingWasWrittenAndWhatToDo(t *testing.T) {
+	err := KeysChangedWhileReading("/keys")
+	for _, want := range []string{`"/keys"`, "nothing was written", "start again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in: %v", want, err)
+		}
+	}
+	assertNoDestructiveAdvice(t, err)
+}

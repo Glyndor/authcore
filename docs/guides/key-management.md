@@ -131,9 +131,22 @@ the newer set stop working, and nothing in the directory says the set is old.
 Keep track of which set is current outside the directory (the key id is printed
 by `authcore-keygen` and recorded in `metadata.json`).
 
-Replace key files while no process is starting, not during a start. A start
-reads the three files one after another, and an operator who rotates them in
-the same moment can leave a process with files from two sets. Stop the process,
+A start reads the three files one after another. To keep a replacement that
+lands in the middle of a start from pairing the signing key of one set with the
+refresh secret of another, the start looks at the identity of the files (device,
+inode, size and modification time, after following links) before and after
+reading them. If any of them changed, the read is thrown away and repeated, up
+to three times with a short pause; a set that is still changing after that is
+refused with an error that says nothing was written, and the next start loads
+whatever has settled. Nothing is written by this check, so it is the same in
+load-only mode.
+
+This covers a replacement that is atomic from the reader's side, such as a
+mounted secret volume that retargets one link to refresh all its files. It
+cannot tell that a directory was left half replaced and stayed that way: that
+state is on disk, and only the recorded binding recognises it (sets written
+before the binding existed have none until their first start records it).
+Replace the files of a set while no process is starting: stop the process,
 replace the set as a whole, then start it.
 
 ## The key material must look random

@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Glyndor/authcore/internal/keymanager/fileio"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/material"
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
 	"github.com/Glyndor/authcore/internal/keymanager/pemcodec"
+	"github.com/Glyndor/authcore/internal/keymanager/refusals"
 )
 
 // ----- Ed25519 key pair -------------------------------------------------------
@@ -103,31 +105,64 @@ func Check(dir string) error {
 }
 
 // Files loads the three key files from dir through the validators above:
-// size cap, PEM parse, pair consistency and secret length all apply. It warns,
+// size cap, PEM parse, pair consistency and secret length all apply. The read
+// is repeated, a bounded number of times, when a file changes while the three
+// are being read (see stable.go); a set that never settles is refused. It warns,
 // without ever refusing or changing a mode, when the private key or the refresh
 // secret is readable by group or others.
 //
 // The loading path tolerates a read-only KeysDir: symlinks are followed by
 // os.Stat and the size cap is honoured.
 func Files(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey, []byte, error) {
-	privPath := filepath.Join(dir, layout.FilePrivateKey)
-	pubPath := filepath.Join(dir, layout.FilePublicKey)
-	secretPath := filepath.Join(dir, layout.FileRefreshSecret)
+	paths := []string{
+		filepath.Join(dir, layout.FilePrivateKey),
+		filepath.Join(dir, layout.FilePublicKey),
+		filepath.Join(dir, layout.FileRefreshSecret),
+	}
 
-	priv, pub, err := loadEd25519(privPath, pubPath)
+	var lastErr error
+	for attempt := 0; attempt < readAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryPause)
+		}
+		before, beforeErr := snapshot(paths)
+		priv, pub, secret, err := readSet(paths)
+		if afterRead != nil {
+			afterRead(attempt)
+		}
+		after, afterErr := snapshot(paths)
+		if beforeErr == nil && afterErr == nil && same(before, after) {
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			// Warn (never refuse, never chmod) when the private key or the
+			// refresh secret is readable by group or others. The public key
+			// is omitted by design: it is meant to be shared, so the same bit
+			// pattern on it is not a finding.
+			modecheck.WarnIfReadableByOthers(paths[0], log)
+			modecheck.WarnIfReadableByOthers(paths[2], log)
+			return priv, pub, secret, nil
+		}
+		lastErr = err
+	}
+	// The files kept changing, or could not be inspected. A read that failed
+	// for its own reason (a missing file, a bad key) says why; a read that
+	// worked but could not be vouched for does not.
+	if lastErr != nil {
+		return nil, nil, nil, lastErr
+	}
+	return nil, nil, nil, refusals.KeysChangedWhileReading(dir)
+}
+
+// readSet reads and validates the three files once.
+func readSet(paths []string) (ed25519.PrivateKey, ed25519.PublicKey, []byte, error) {
+	priv, pub, err := loadEd25519(paths[0], paths[1])
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("ed25519 key pair: %w", err)
 	}
-	secret, err := loadRefreshSecret(secretPath)
+	secret, err := loadRefreshSecret(paths[2])
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("refresh secret: %w", err)
 	}
-
-	// Warn (never refuse, never chmod) when the private key or the refresh
-	// secret is readable by group or others. The public key is omitted by
-	// design: it is meant to be shared, so the same bit pattern on it is
-	// not a finding.
-	modecheck.WarnIfReadableByOthers(privPath, log)
-	modecheck.WarnIfReadableByOthers(secretPath, log)
 	return priv, pub, secret, nil
 }
