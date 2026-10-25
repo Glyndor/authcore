@@ -272,6 +272,12 @@ RFC 6749 section 3.2 requires of a token endpoint request.
   A negative `expires_in` is refused with `ErrExchange`. A value above ten
   years (315360000 seconds) is clamped to ten years, so `time.Duration(ExpiresIn) * time.Second`
   cannot overflow. A string or fractional `expires_in` is still refused, as before.
+- `UserInfo` refuses a profile with more than 16384 JSON tokens (keys, values and
+  brackets) or nested deeper than 32 levels, with `ErrUserInfo`. Real profiles
+  have a few dozen tokens. The check runs before decoding, and the cost of one
+  call is now at most about 6 times the size of the body (it was up to 61
+  times). The values it returns are unchanged: numbers are still exact
+  `json.Number`.
 
 ## What it guarantees
 
