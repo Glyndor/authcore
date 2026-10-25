@@ -49,6 +49,9 @@ func Access[T any](tokenStr string, keys map[string]ed25519.PublicKey, now time.
 	if err != nil {
 		return nil, errmap.Map(err)
 	}
+	if err := checkDates(c.RegisteredClaims); err != nil {
+		return nil, err
+	}
 	if !tokenid.IsUUIDv7(c.Subject) {
 		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", jwterr.ErrTokenInvalid)
 	}
@@ -76,6 +79,9 @@ func Refresh(tokenStr string, keys map[string]ed25519.PublicKey, now time.Time, 
 	)
 	if err != nil {
 		return nil, errmap.Map(err)
+	}
+	if err := checkDates(c.RegisteredClaims); err != nil {
+		return nil, err
 	}
 	if !tokenid.IsUUIDv7(c.Subject) {
 		return nil, fmt.Errorf("%w: sub claim is not a UUID v7", jwterr.ErrTokenInvalid)

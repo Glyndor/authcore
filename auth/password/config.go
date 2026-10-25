@@ -118,6 +118,34 @@ func (c Config) phcParams() phc.Params {
 	return phc.Params{Memory: c.Memory, Iterations: c.Iterations, Parallelism: c.Parallelism}
 }
 
+// The ceiling Verify puts on the cost a stored hash may ask for. A hash string
+// the application did not write (an import, a corrupted row, a hostile write
+// to the column) must not be able to pick the memory and CPU a login spends,
+// so Verify accepts a stored cost only up to a multiple of the configured one,
+// and never above an absolute limit.
+const (
+	// verifyMemoryFactor is how many times the configured Memory a stored hash
+	// may use. Hashes made with a lower work factor than today's keep verifying.
+	verifyMemoryFactor = 128
+
+	// verifyPassFactor is the same multiple for Iterations and Parallelism.
+	verifyPassFactor = 8
+
+	// verifyMaxMemory is the absolute ceiling on Memory, in KiB (1 GiB), which
+	// applies whatever the configured value: 128 times the default would be
+	// 8 GiB.
+	verifyMaxMemory = 1024 * 1024
+)
+
+// verifyCeiling is the highest cost Verify accepts from a stored hash, derived
+// from c. It is never above the limits phc.Parse enforces.
+func (c Config) verifyCeiling() phc.Params {
+	mem := min(uint64(c.Memory)*verifyMemoryFactor, verifyMaxMemory, phc.MaxMemory)
+	iter := min(uint64(c.Iterations)*verifyPassFactor, phc.MaxIterations)
+	par := min(uint64(c.Parallelism)*verifyPassFactor, 255)
+	return phc.Params{Memory: uint32(mem), Iterations: uint32(iter), Parallelism: uint8(par)}
+}
+
 // ptr is a tiny helper so DefaultConfig can take the address of a true
 // literal without a temporary local. It is intentionally unexported.
 func ptr[T any](v T) *T { return &v }

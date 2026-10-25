@@ -18,8 +18,13 @@ import (
 // accents), two mailboxes could share one (U+212A KELVIN SIGN lowercases to
 // "k", U+0130 to "i"), and control, format and line-separator characters
 // travelled into the stored value. Each of those is refused now; the ASCII
-// controls were already refused by net/mail.
+// controls were already refused by net/mail. A byte sequence that is not valid
+// UTF-8 is refused too: lowercasing rewrote every bad byte as U+FFFD, so
+// distinct inputs shared one canonical form.
 func Canonical(local string) (string, error) {
+	if !utf8.ValidString(local) {
+		return "", errs.Invalid(fmt.Errorf("local part is not valid UTF-8"))
+	}
 	local = norm.NFC.String(local)
 	for _, r := range local {
 		switch {
