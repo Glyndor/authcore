@@ -77,3 +77,19 @@ func RecoverPartial(dir string, log layout.Logger) error {
 	}
 	return refusals.Inconsistent(dir)
 }
+
+// RefuseConflict returns the two-initialisations refusal when a published key
+// file differs from the same file in a staging directory that holds the
+// published private key. Starting again after such a refusal finds the same
+// files, so the answer must be the same: the conflict is read from the
+// directory, not remembered by the process that first saw it.
+func RefuseConflict(dir string) error {
+	name, err := match.Conflict(dir)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		return refusals.TwoInits(dir, name)
+	}
+	return nil
+}

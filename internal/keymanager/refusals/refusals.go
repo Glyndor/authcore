@@ -18,8 +18,10 @@ func TwoInits(dir, name string) error {
 	return fmt.Errorf(
 		"key directory %q holds %s from two different initialisations; "+
 			"the published bytes do not match the staged bytes; "+
-			"refusing to write or delete any further files in this directory",
-		dir, name)
+			"refusing to write or delete any further files in this directory; "+
+			"the .staging-* directory next to them holds the set that was being "+
+			"published, so decide which %s is the genuine one before removing either",
+		dir, name, name)
 }
 
 // Inconsistent is the message returned when a partial set has no

@@ -24,6 +24,7 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/metadata"
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
+	"github.com/Glyndor/authcore/internal/keymanager/recovery"
 	"github.com/Glyndor/authcore/internal/keymanager/recovery/leftovers"
 	"github.com/Glyndor/authcore/internal/keymanager/refusals"
 )
@@ -90,6 +91,10 @@ func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 	if state != fsguard.SetComplete {
 		present, missing := fsguard.PresentAndMissing(dir)
 		return nil, nil, nil, refusals.IncompleteLoad(dir, present, missing)
+	}
+
+	if err := recovery.RefuseConflict(dir); err != nil {
+		return nil, nil, nil, err
 	}
 
 	priv, pub, secret, err := keyload.Files(dir, log)
