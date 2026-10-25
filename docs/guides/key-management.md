@@ -19,6 +19,26 @@ private key to "regenerate" it, and do not delete `refresh_secret.key` to
 make the directory appear empty. That destroys secrets the rest of the
 deployment still depends on.
 
+## `KeysDir` must not be a symbolic link
+
+`KeysDir` has to name the directory itself. If its last path component is a
+symbolic link, `New` (with or without `RequireExistingKeys`) and
+`authcore-keygen -out` refuse it before creating, tightening or writing
+anything, and the error says how to proceed:
+
+- pass the resolved path: `filepath.EvalSymlinks(dir)` returns it, or
+- mount the volume at the `KeysDir` path itself instead of linking to it.
+
+Only the last component is checked. A link in a parent directory is fine, so
+`/var/lib/app/keys` keeps working where `/var` is a link (as on macOS, where it
+points to `/private/var`). The key files inside the directory may still be
+links, which is how a Kubernetes Secret volume is laid out.
+
+This is a change from versions that followed a symlinked `KeysDir`: such a
+setup now fails at startup with the error above and needs the one-line fix.
+Before, `New` also changed the mode of the link's target, which is the reason
+for the refusal.
+
 authcore warns (and never refuses or chmods) when `ed25519_private.pem` or
 `refresh_secret.key` is readable by group or others on the load paths. The
 Podman default mount without an explicit `mode` is 0444 and the Kubernetes

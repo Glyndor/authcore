@@ -216,3 +216,22 @@ func TestLoadOnly_reportsLeftoverStagingDirectories(t *testing.T) {
 		t.Errorf("no leftover warning: %q", log.Warnings)
 	}
 }
+
+func TestLoadOnly_refusesASymlinkedDirectory(t *testing.T) {
+	target := t.TempDir()
+	keyloadtest.WriteSet(t, target)
+	link := filepath.Join(t.TempDir(), "keys")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	before := listing(t, target)
+
+	_, _, _, err := Load(link, keyloadtest.SilentLog{})
+
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Load through a symlinked directory = %v, want the symbolic link refusal", err)
+	}
+	if got := listing(t, target); fmt.Sprint(got) != fmt.Sprint(before) {
+		t.Errorf("the target changed: %v -> %v", before, got)
+	}
+}

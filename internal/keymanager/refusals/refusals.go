@@ -98,6 +98,19 @@ func SymlinkTarget(dst string, linkErr error) error {
 			"directory: %w", dst, linkErr)
 }
 
+// SymlinkKeysDir reports a key directory whose last path component is a
+// symbolic link. The operator resolves it once, or mounts the volume at the
+// path itself; nothing here asks for a key file to be deleted.
+func SymlinkKeysDir(dir string) error {
+	return fmt.Errorf(
+		"key directory %q is a symbolic link; authcore does not create, "+
+			"tighten or write into a directory through a link. Pass the "+
+			"resolved path instead (filepath.EvalSymlinks(%q) returns it), or "+
+			"mount the volume at %q itself. Links in the parent components of "+
+			"the path are fine",
+		dir, dir, dir)
+}
+
 // NoHardLinks reports a filesystem that cannot give the hard-link
 // guarantee authcore needs to publish keys safely. If the caller had already
 // published the private key, the staging directory is preserved so a helper

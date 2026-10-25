@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/Glyndor/authcore/internal/keymanager/dirguard"
 	"github.com/Glyndor/authcore/internal/keymanager/fsguard"
 	"github.com/Glyndor/authcore/internal/keymanager/keyload"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
@@ -39,8 +40,10 @@ import (
 //
 // Behaviour:
 //
-//   - dir must exist as a directory; os.Stat follows symlinks, which a
-//     Kubernetes Secret mount depends on. A missing path or a non-directory
+//   - dir must not be a symbolic link itself (its parent components may be);
+//     the files inside it may be links, which a Kubernetes Secret mount
+//     depends on.
+//   - dir must exist as a directory. A missing path or a non-directory
 //     entry returns an error that names dir and lists the three filenames a
 //     complete set needs.
 //   - metadata.json, when present, is read with metadata.Read; a missing file
@@ -63,6 +66,9 @@ import (
 // All errors returned here are wrapped by the disk store in keystore.go,
 // which itself wraps ErrKeyManager around them.
 func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey, []byte, error) {
+	if err := dirguard.Refuse(dir); err != nil {
+		return nil, nil, nil, err
+	}
 	fi, err := os.Stat(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

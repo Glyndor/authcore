@@ -86,6 +86,9 @@ type secretMaterial struct {
 // matching staging directory is refused with advice that never asks the
 // operator to delete refresh_secret.key.
 //
+// dir must not be a symbolic link: New refuses it before creating, tightening
+// or writing anything. Links in its parent components are not refused.
+//
 // dir is used verbatim: New does not append ".authcore" or any other
 // subdirectory, and Dir returns the value as passed in (no resolution to
 // an absolute path). Callers who want the keys inside a ".authcore"
@@ -162,8 +165,10 @@ func (km *KeyManager) Dir() string {
 //
 // Behaviour:
 //
-//   - dir must exist as a directory; os.Stat follows symlinks, which a
-//     Kubernetes Secret mount depends on. A missing path or a non-directory
+//   - dir must not be a symbolic link itself (its parent components may be);
+//     the files inside it may be links, which a Kubernetes Secret mount
+//     depends on.
+//   - dir must exist as a directory. A missing path or a non-directory
 //     entry returns an error that names dir and lists the three filenames a
 //     complete set needs.
 //   - metadata.json, when present, is read with readMetadata; a missing file

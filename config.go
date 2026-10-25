@@ -32,6 +32,10 @@ type Config struct {
 	// The directory is created automatically on first use. A .gitignore is
 	// written inside it to prevent accidental commits of key material.
 	//
+	// KeysDir must name the directory itself: a symbolic link as its last path
+	// component is refused. Pass the resolved path (filepath.EvalSymlinks) or
+	// mount the volume at the path. Links in parent components are accepted.
+	//
 	// Ignored when KeyStore is set.
 	KeysDir string
 
