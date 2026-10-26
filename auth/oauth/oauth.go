@@ -58,7 +58,16 @@ type Client struct {
 }
 
 // New creates an OIDC Client for a single provider.
+//
+// New returns a wrapped ErrInvalidConfig when the provider is unusable (a nil
+// interface or a Logger() that returns nil) or when cfg is invalid.
 func New(p authcore.Provider, cfg Config) (*Client, error) {
+	if p == nil {
+		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
+	}
+	if p.Logger() == nil {
+		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
+	}
 	cfg = applyDefaults(cfg)
 	if err := validateConfig(cfg); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)

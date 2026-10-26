@@ -129,20 +129,38 @@ func New(cfg Config) (*AuthCore, error) {
 
 // Config returns a copy of the active configuration.
 // Sub-modules should call this to read shared settings.
+//
+// A nil *AuthCore, left behind by a New whose error was ignored, returns the
+// zero Config.
 func (a *AuthCore) Config() Config {
+	if a == nil {
+		return Config{}
+	}
 	return a.config
 }
 
 // Logger returns the active Logger.
 // Sub-modules must use this logger rather than creating their own so that
 // all output flows through a single, user-configured sink.
+//
+// A nil *AuthCore returns a nil Logger; every module constructor refuses it
+// with its ErrInvalidConfig.
 func (a *AuthCore) Logger() Logger {
+	if a == nil {
+		return nil
+	}
 	return a.log
 }
 
 // Keys returns the library's managed cryptographic material.
 // Sub-modules use this to obtain the Ed25519 signing key and the HMAC
 // refresh secret without needing direct file-system access.
+//
+// A nil *AuthCore returns nil Keys; every module constructor refuses it with
+// its ErrInvalidConfig.
 func (a *AuthCore) Keys() Keys {
+	if a == nil {
+		return nil
+	}
 	return a.keys
 }
