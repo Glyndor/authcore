@@ -38,6 +38,9 @@ printAndWipe(enr.RecoveryCodes) // 10 codes by default
 db.StoreTOTP(userID, enr.Secret, enr.RecoveryHashes)
 ```
 
+`Enroll` returns an error wrapping `ErrInvalidConfig` when the account name is
+empty or only white space, since the authenticator would show an unnamed entry.
+
 The `URI` is an `otpauth://totp/...` URI per the de-facto cross-vendor
 standard. It encodes the secret, the issuer (if configured) and the
 account name; the algorithm (`SHA1`), digit count (`6`) and time step
@@ -145,7 +148,8 @@ diagnosis would disappear in the logs.
 Recovery codes are one-time backdoor codes the user can redeem if they
 have lost their authenticator device. They are minted at enrollment,
 hashed before storage, and must be deleted from the user's record after
-successful use.
+successful use. `VerifyRecoveryCode` never matches a code that is empty once
+hyphens and spaces are removed, even against the hash of the empty code.
 
 ```go
 hashes := db.GetRecoveryHashes(userID)

@@ -6,6 +6,7 @@ import (
 	//nolint:gosec // HMAC-SHA1 is the TOTP interoperability baseline; SHA1 collision attacks do not apply to HMAC
 
 	"fmt"
+	"strings"
 
 	"github.com/Glyndor/authcore/auth/totp/internal/otpauth"
 	"github.com/Glyndor/authcore/auth/totp/internal/recovery"
@@ -41,9 +42,15 @@ type Enrollment struct {
 // as a printable list). An empty Config.Issuer means the URI is built
 // without the issuer parameter and the label, and the authenticator
 // displays only the account name.
+//
+// An accountName that is empty or only white space returns an error wrapping
+// ErrInvalidConfig: the authenticator would show an unnamed entry.
 func (t *TOTP) Enroll(accountName string) (*Enrollment, error) {
 	if t == nil || !t.initialised {
 		return nil, ErrNotInitialised
+	}
+	if strings.TrimSpace(accountName) == "" {
+		return nil, fmt.Errorf("%w: account name is empty", ErrInvalidConfig)
 	}
 	shared, err := secret.New()
 	if err != nil {

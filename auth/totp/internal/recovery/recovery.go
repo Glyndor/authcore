@@ -69,6 +69,9 @@ func Normalize(code string) string {
 // candidate is the keyed hash of the normalised code, so the spelling the
 // user types (hyphens, spaces, case) does not matter.
 func Find(key []byte, code string, storedHashes []string) (int, bool) {
+	if Normalize(code) == "" {
+		return 0, false
+	}
 	candidate := Hash(key, Normalize(code))
 	var matchedIdx int
 	var matched byte

@@ -28,7 +28,8 @@ func (t *TOTP) HashRecoveryCode(code string) (string, error) {
 //
 // Verification normalises code on the way in (hyphens and spaces are
 // stripped, letters are uppercased), so users can read codes off a
-// printout with any grouping they like.
+// printout with any grouping they like. A code that is empty once normalised
+// never matches, not even the hash of the empty code.
 func (t *TOTP) VerifyRecoveryCode(code string, storedHashes []string) (int, bool) {
 	if t == nil || !t.initialised {
 		return 0, false
