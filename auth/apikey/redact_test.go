@@ -2,6 +2,7 @@ package apikey_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -37,5 +38,18 @@ func TestRedactedRenderings(t *testing.T) {
 	slog.New(slog.NewTextHandler(&buf, nil)).Info("x", "m", &m, "n", nilPtr)
 	if got := buf.String(); !bytes.Contains(buf.Bytes(), []byte("m=apikey.APIKey{redacted}")) || !bytes.Contains(buf.Bytes(), []byte("n=<nil>")) {
 		t.Errorf("slog = %q", got)
+	}
+}
+
+func TestAPIKey_nilReceiverRefusesEveryCall(t *testing.T) {
+	var m *apikey.APIKey
+	if _, err := m.Generate(); !errors.Is(err, apikey.ErrNotInitialised) {
+		t.Errorf("Generate: %v", err)
+	}
+	if _, err := m.Hash("k"); !errors.Is(err, apikey.ErrNotInitialised) {
+		t.Errorf("Hash: %v", err)
+	}
+	if m.Verify("k", "h") {
+		t.Error("Verify accepted a key")
 	}
 }
