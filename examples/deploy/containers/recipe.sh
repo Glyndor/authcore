@@ -75,6 +75,40 @@ wait_running() {
     return 1
 }
 
+# assert_hardening asserts that every running container of the project carries
+# the settings compose.yaml asks for, as the engine recorded them (the capability
+# set that is left, not the list that was dropped), and that the
+# healthcheck command succeeds inside the container. A setting the engine
+# silently ignored would otherwise pass for hardening.
+assert_hardening() {
+    local project_name="$1"
+    local cid fmt out
+    for cid in $(podman ps --filter "label=${label}=${project_name}" --filter status=running --format '{{.ID}}'); do
+        fmt='{{.HostConfig.ReadonlyRootfs}}|{{.EffectiveCaps}}|{{.HostConfig.SecurityOpt}}|{{.HostConfig.Privileged}}|{{.Config.Healthcheck.Test}}'
+        out="$(podman inspect --format "$fmt" "$cid")"
+        case "$out" in
+        true\|\[\]\|*no-new-privileges*\|false\|*-check*) ;;
+        *)
+            echo "assert_hardening: container $cid is not hardened as compose.yaml asks: $out" >&2
+            return 1
+            ;;
+        esac
+        if [ "$(podman inspect --format '{{.HostConfig.PidsLimit}}' "$cid")" -le 0 ]; then
+            echo "assert_hardening: container $cid has no pids limit" >&2
+            return 1
+        fi
+        if [ "$(podman inspect --format '{{.HostConfig.Memory}}' "$cid")" -le 0 ]; then
+            echo "assert_hardening: container $cid has no memory limit" >&2
+            return 1
+        fi
+        if ! podman healthcheck run "$cid"; then
+            echo "assert_hardening: the healthcheck of container $cid failed" >&2
+            return 1
+        fi
+    done
+    echo "ok: replicas of $project_name are read-only, drop all capabilities and pass their healthcheck"
+}
+
 # assert_logs_key_id asserts that exactly $want distinct containers of the
 # project are running, that each printed the line "key id <id>", and that none
 # logged a warning or an error. On failure it prints every container's
@@ -171,6 +205,7 @@ PROBE_UID="$uid" PROBE_GID="$gid" KEYS_VOLUME="$vol" \
     podup -p "$project" -f examples/deploy/containers/compose.yaml up -d
 wait_running "$project" 3 60
 assert_logs_key_id "$project" 3 "$key_id"
+assert_hardening "$project"
 
 echo "== step 7: recreate via down -v preserves the external volume"
 PROBE_UID="$uid" PROBE_GID="$gid" KEYS_VOLUME="$vol" \
