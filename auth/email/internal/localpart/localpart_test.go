@@ -75,3 +75,40 @@ func TestCanonical_refusesBytesThatAreNotUTF8(t *testing.T) {
 		t.Errorf("valid multibyte: %q, %v", got, err)
 	}
 }
+
+// Canonical returns a fixed point: running it on its own output changes
+// nothing. A capital letter followed by combining marks composes only after
+// it is lowercased, so a single NFC pass before lowercasing left two
+// spellings for one mailbox.
+func TestCanonical_isAFixedPoint(t *testing.T) {
+	for name, in := range map[string]string{
+		"capital with two combining marks": "T\u0308\u0301",
+		"precomposed accent":               "Jos\u00e9",
+		"decomposed accent":                "Jose\u0301",
+		"plain":                            "User.Name",
+	} {
+		first, err := localpart.Canonical(in)
+		if err != nil {
+			t.Errorf("%s: %v, want accepted", name, err)
+			continue
+		}
+		second, err := localpart.Canonical(first)
+		if err != nil || second != first {
+			t.Errorf("%s: %+q then %+q (%v), want the same spelling", name, first, second, err)
+		}
+	}
+}
+
+func TestCanonical_refusesSpaceSeparators(t *testing.T) {
+	for name, in := range map[string]string{
+		"thin space":            "ab\u2009cd",
+		"no-break space":        "ab\u00a0cd",
+		"ideographic space":     "ab\u3000cd",
+		"narrow no-break space": "ab\u202fcd",
+	} {
+		_, err := localpart.Canonical(in)
+		if !errors.Is(err, email.ErrInvalidEmail) || !strings.Contains(err.Error(), "invisible or control character") {
+			t.Errorf("%s: %v, want the invisible-character refusal", name, err)
+		}
+	}
+}
