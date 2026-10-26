@@ -62,6 +62,17 @@ func newCredModel(t *testing.T, seed uint64) *credModel {
 	return m
 }
 
+// issuedAgo is the instant age before now. It waits for the clock to tick first:
+// Windows clocks are coarse, two reads can be equal, and the elapsed time at
+// Verify would then be exactly age, where the model expects it to be past it, as
+// the call's own latency makes it elsewhere.
+func issuedAgo(age time.Duration) time.Time {
+	start := time.Now()
+	for !time.Now().After(start) {
+	}
+	return start.Add(-age)
+}
+
 func (m *credModel) issue() {
 	s := slot{pick(m.r, purposes), pick(m.r, subjects)}
 	issued, err := m.mod.Issue(s.purpose, s.subject)
@@ -90,12 +101,7 @@ func (m *credModel) redeem(at slot, token string) {
 	case !ok:
 		err = hostiletest.ErrNoRow
 	default:
-		start := time.Now()
-		issuedAt := start.Add(-(m.now - m.rows[at].at))
-		// Windows clocks are coarse: wait for a tick so the elapsed time
-		// is past the age, as the call's own latency makes it elsewhere.
-		for !time.Now().After(start) {
-		}
+		issuedAt := issuedAgo(m.now - m.rows[at].at)
 		if err = m.mod.Verify(at.purpose, at.subject, token, row.Hash, issuedAt); err == nil && !table.Consume(at.subject, row.Hash) {
 			err = hostiletest.ErrConsumed
 		}
@@ -122,7 +128,7 @@ func (m *credModel) crossed(x, y slot) {
 		return
 	}
 	row, _ := m.tables[x.purpose].Get(x.subject)
-	issuedAt := time.Now().Add(-(m.now - px.at))
+	issuedAt := issuedAgo(m.now - px.at)
 	err := m.mod.Verify(y.purpose, y.subject, px.token, row.Hash, issuedAt)
 	want := x == y && m.now-px.at < credTTL
 	m.tr.add("crossed row %v at endpoint %v -> %v", x, y, err == nil)
