@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -155,6 +156,9 @@ func TestSync_TempFileNameCarriesSixteenHexDigits(t *testing.T) {
 // The directory is synced after the rename; when that fails the write is
 // reported (as a warning, by design), not swallowed.
 func TestSync_ReportsAFailedDirectorySyncAfterTheRename(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
@@ -189,6 +193,9 @@ func TestSync_WritesAFileThatEndsWithANewline(t *testing.T) {
 // A directory that cannot take the temp file is reported as that, not as a
 // failed rename of a file that was never written.
 func TestSync_ReportsAnUnwritableDirectoryAsAFailedWrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode, so a directory cannot be made unwritable this way")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}

@@ -123,6 +123,9 @@ func TestWritesANewKeySet(t *testing.T) {
 // that no longer exists, so Getwd returns ENOENT, and run() refuses rather
 // than guessing at a path.
 func TestFilepathAbsError(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("Windows refuses to delete the working directory, and macOS still resolves a removed one, so Getwd never fails here")
+	}
 	origCwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("setup Getwd: %v", err)

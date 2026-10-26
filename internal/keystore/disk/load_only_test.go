@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestLoadOnlyMissingKeysDirReturnsErrInvalidConfig(t *testing.T) {
 	if !errors.Is(err, authcore.ErrInvalidConfig) {
 		t.Errorf("expected the error to wrap ErrInvalidConfig, got %v", err)
 	}
-	if !strings.Contains(err.Error(), missing) {
+	if !strings.Contains(err.Error(), strconv.Quote(missing)) { // the message quotes the path with %q
 		t.Errorf("error should name the missing path %q, got: %v", missing, err)
 	}
 	if _, statErr := os.Stat(missing); !errors.Is(statErr, os.ErrNotExist) {

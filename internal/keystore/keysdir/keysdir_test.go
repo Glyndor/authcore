@@ -3,6 +3,7 @@ package keysdir_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -40,6 +41,9 @@ func TestCheckLoadOnlyDir(t *testing.T) {
 		{"stat fails otherwise", filepath.Join(file, "under"), "inspect key directory"},
 	}
 	for _, c := range cases {
+		if c.name == "stat fails otherwise" && runtime.GOOS == "windows" {
+			continue // Windows reports a path below a regular file as not found, not as a failed stat
+		}
 		err := keysdir.CheckLoadOnlyDir(c.dir)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: CheckLoadOnlyDir = %v, want error containing %q", c.name, err, c.want)
@@ -71,7 +75,7 @@ func TestChecksRefuseASymlinkedKeysDir(t *testing.T) {
 			t.Errorf("%s on a symlink = %v, want the symbolic link refusal", name, err)
 		}
 	}
-	if fi, err := os.Stat(real); err != nil || fi.Mode().Perm() != 0o755 {
+	if fi, err := os.Stat(real); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755) { // Windows reports a synthetic mode
 		t.Errorf("the link target was changed: %v %v", fi, err)
 	}
 }

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 )
@@ -40,6 +42,9 @@ func FuzzReportStagingName(f *testing.F) {
 	f.Fuzz(func(t *testing.T, suffix string) {
 		if strings.ContainsAny(suffix, "/\x00") || len(layout.StagingPrefix+suffix) > 255 {
 			t.Skip("not a valid directory entry name")
+		}
+		if runtime.GOOS == "windows" && (!utf8.ValidString(suffix) || strings.HasSuffix(suffix, ".") || strings.HasSuffix(suffix, " ") || strings.ContainsAny(suffix, `<>:"|?*\`)) {
+			t.Skip("Windows rewrites or refuses this directory name, so the entry the test creates is not the one it names")
 		}
 		dir := t.TempDir()
 		staging := filepath.Join(dir, layout.StagingPrefix+suffix)

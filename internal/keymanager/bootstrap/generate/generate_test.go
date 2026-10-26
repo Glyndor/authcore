@@ -2,6 +2,7 @@ package generate_test
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,6 +14,9 @@ import (
 // parent that cannot even be opened, for a reason other than permissions, stops
 // the first run instead of being waved through with a warning.
 func TestFresh_unopenableParentStopsTheFirstRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure")
+	}
 	dir := filepath.Join(t.TempDir(), "missing-parent", "keys")
 	log := &bootstraptest.Recorder{}
 	_, _, _, err := generate.Fresh(dir, nil, log)

@@ -37,6 +37,9 @@ func TestSymlinks(t *testing.T) {
 // Lstat failing for a reason other than "absent" is refused too: the slot
 // cannot be shown to be empty.
 func TestSymlinks_unclassifiableSlotIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports a path below a regular file as not found (ERROR_PATH_NOT_FOUND) instead of not a directory, so the error this test pins cannot occur")
+	}
 	dir := t.TempDir()
 	notADir := filepath.Join(dir, "file")
 	if err := os.WriteFile(notADir, []byte("x"), 0600); err != nil {

@@ -276,6 +276,9 @@ func TestKeyFileLinkedToAnEndlessStreamIsRefused(t *testing.T) {
 // A KeysDir below a regular file cannot be inspected at all. New and Load
 // report that, naming the directory, instead of treating it as absent.
 func TestKeysDirBelowARegularFileIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports a path below a regular file as not found (ERROR_PATH_NOT_FOUND) instead of not a directory, so the error this test pins cannot occur")
+	}
 	base := t.TempDir()
 	file := filepath.Join(base, "not-a-directory")
 	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
