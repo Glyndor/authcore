@@ -50,20 +50,30 @@ func TestMain(m *testing.M) {
 // header when it is not empty.
 type call func(method, path, body, bearer string) (int, map[string]any)
 
-// newExample builds the same app main serves, with keys in a directory that is
+// newTestApp builds the same app main serves, with keys in a directory that is
 // removed when the test ends.
-func newExample(t *testing.T) call {
+func newTestApp(t *testing.T) *fiber.App {
 	t.Helper()
 
 	cfg := authcore.DefaultConfig()
 	cfg.EnableLogs = false
 	cfg.KeysDir = t.TempDir()
 
-	pwdMod, jwtMod, err := newModules(cfg)
+	pwdMod, jwtMod, emailMod, err := newModules(cfg)
 	if err != nil {
 		t.Fatalf("newModules: %v", err)
 	}
-	app := newApp(pwdMod, jwtMod)
+	app, err := newApp(pwdMod, jwtMod, emailMod)
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	return app
+}
+
+// newExample returns a call function bound to a fresh app.
+func newExample(t *testing.T) call {
+	t.Helper()
+	app := newTestApp(t)
 
 	return func(method, path, body, bearer string) (int, map[string]any) {
 		req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))

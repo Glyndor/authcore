@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -13,6 +14,14 @@ import (
 )
 
 func main() {
+	if err := run(os.Stdout); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run is the whole example. It writes to w, so the tests read what a user would
+// see, and returns an error where the demo used to exit.
+func run(w io.Writer) error {
 	// -------------------------------------------------------------------------
 	// Setup: initialise authcore and the username module.
 	// username.New requires no extra arguments — all rules are fixed.
@@ -22,12 +31,12 @@ func main() {
 
 	auth, err := authcore.New(authcore.Config{KeysDir: dir})
 	if err != nil {
-		log.Fatalf("authcore: %v", err)
+		return fmt.Errorf("authcore: %w", err)
 	}
 
 	userMod, err := username.New(auth)
 	if err != nil {
-		log.Fatalf("username module: %v", err)
+		return fmt.Errorf("username module: %w", err)
 	}
 
 	// -------------------------------------------------------------------------
@@ -35,7 +44,7 @@ func main() {
 	// It lowercases, trims whitespace, and validates in one atomic step.
 	// The returned string is the canonical form — always store and query this.
 	// -------------------------------------------------------------------------
-	fmt.Println("=== ValidateAndNormalize ===")
+	fmt.Fprintln(w, "=== ValidateAndNormalize ===")
 
 	cases := []string{
 		"  Alice_123  ", // valid — normalized to lowercase + trimmed
@@ -55,9 +64,9 @@ func main() {
 		if err != nil {
 			// errors.Unwrap(err).Error() returns just the rule that failed —
 			// safe to return directly in a 400 response.
-			fmt.Printf("rejected  %-20q → %s\n", raw, errors.Unwrap(err).Error())
+			fmt.Fprintf(w, "rejected  %-20q → %s\n", raw, errors.Unwrap(err).Error())
 		} else {
-			fmt.Printf("accepted  %-20q → %q\n", raw, normalized)
+			fmt.Fprintf(w, "accepted  %-20q → %q\n", raw, normalized)
 		}
 	}
 
@@ -65,30 +74,32 @@ func main() {
 	// Example 2: registration flow.
 	// Normalize once, store the canonical form, use it for every lookup.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Registration flow ===")
+	fmt.Fprintln(w, "\n=== Registration flow ===")
 
 	raw := "  Alice_Dev99  " // user input from HTTP request
 	normalized, err := userMod.ValidateAndNormalize(raw)
 	if err != nil {
-		fmt.Printf("rejected: %v\n", errors.Unwrap(err))
-		return
+		fmt.Fprintf(w, "rejected: %v\n", errors.Unwrap(err))
+		return nil
 	}
 
 	// Store normalized — always lowercase, trimmed, validated.
 	// "  Alice_Dev99  " → "alice_dev99" — consistent for every future lookup.
-	fmt.Printf("raw input  : %q\n", raw)
-	fmt.Printf("stored as  : %q\n", normalized)
+	fmt.Fprintf(w, "raw input  : %q\n", raw)
+	fmt.Fprintf(w, "stored as  : %q\n", normalized)
 
 	// -------------------------------------------------------------------------
 	// Example 3: error handling — ErrInvalidUsername wraps the specific reason.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Error handling ===")
+	fmt.Fprintln(w, "\n=== Error handling ===")
 
 	_, err = userMod.ValidateAndNormalize("admin")
 	if errors.Is(err, username.ErrInvalidUsername) {
-		fmt.Printf("ErrInvalidUsername: %v\n", err)
-		fmt.Printf("reason only       : %v\n", errors.Unwrap(err)) // safe for 400 response
+		fmt.Fprintf(w, "ErrInvalidUsername: %v\n", err)
+		fmt.Fprintf(w, "reason only       : %v\n", errors.Unwrap(err)) // safe for 400 response
 	}
+
+	return nil
 }
 
 func tempDir() (string, func()) {
