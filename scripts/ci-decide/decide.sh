@@ -40,12 +40,25 @@ if [ -z "${BASE:-}" ] || [ -z "${HEAD:-}" ]; then
 	say true "no base or head commit"
 	exit 0
 fi
-if ! files="$(git diff --name-only "${BASE}...${HEAD}" 2>/dev/null)"; then
+# NUL-separated and with quoting off: by default git prints a path with a
+# character it does not like (a non-ASCII letter, a tab) inside double quotes
+# with escapes, and that line would no longer match the include pattern, so a
+# relevant file could make the whole check skip. A path that contains a newline
+# is split in two by the conversion below, and each half is read as its own path;
+# that can only turn a skip into a run, never the other way.
+if ! files="$(git -c core.quotePath=false diff --name-only -z "${BASE}...${HEAD}" 2>/dev/null | tr '\0' '\n')"; then
 	say true "could not read the diff"
 	exit 0
 fi
 if [ -z "$files" ]; then
 	say true "empty diff"
+	exit 0
+fi
+
+# Belt and braces: if any line still starts with a double quote the path was
+# printed in git's quoted form and cannot be matched reliably, so run.
+if printf '%s\n' "$files" | grep -q '^"'; then
+	say true "a path came back quoted"
 	exit 0
 fi
 

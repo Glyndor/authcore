@@ -38,7 +38,7 @@ jobs:
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          INCLUDE: '^[^/]+\.go$|^(auth|internal|cmd)/.*\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
+          INCLUDE: '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
           EXCLUDE: ''
         run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
 

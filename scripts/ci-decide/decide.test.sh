@@ -57,11 +57,20 @@ h_doc="$(commit_change docs/guide.md)"
 h_test="$(commit_change auth/jwt/jwt_test.go)"
 h_code="$(commit_change auth/jwt/jwt.go)"
 h_both="$(commit_change docs/guide.md auth/jwt/jwt.go)"
+# Paths git would print quoted: a non-ASCII letter and a space.
+h_utf8="$(commit_change "auth/jwt/ñ.go")"
+h_space="$(commit_change "auth/jwt/with space.go")"
+h_utf8_doc="$(commit_change "docs/ñ.md")"
 
 expect false pull_request synchronize "$h_doc" "$code" "$notest"
 expect false pull_request synchronize "$h_test" "$code" "$notest"
 expect true pull_request synchronize "$h_code" "$code" "$notest"
 expect true pull_request synchronize "$h_both" "$code" "$notest"
+# A relevant file whose name git would quote must still be seen as relevant.
+expect true pull_request synchronize "$h_utf8" "$code" "$notest"
+expect true pull_request synchronize "$h_space" "$code" "$notest"
+# And an irrelevant one with such a name is still irrelevant.
+expect false pull_request synchronize "$h_utf8_doc" "$code" "$notest"
 # Without an exclude the test file counts.
 expect true pull_request synchronize "$h_test" "$code"
 # Fail open: other events, label changes, a missing or unreadable range.

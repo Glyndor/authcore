@@ -61,7 +61,7 @@ jobs:
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          INCLUDE: '^tests/hostile/|^[^/]+\.go$|^(auth|internal|cmd)/.*\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
+          INCLUDE: '^tests/hostile/|\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
           EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$'
         run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
 
