@@ -6,6 +6,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   develop-only:
     uses: Glyndor/.github/.github/workflows/main-guard.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0

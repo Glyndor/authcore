@@ -9,7 +9,39 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Tells the lint job whether any Go source, module file or lint config
+  # changed (standards/ci, "A check costs what it learns").
+  # It always runs and always succeeds; on anything other than a pull request,
+  # on a label change, and whenever it cannot tell, it answers "run".
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test the decision script
+        run: bash scripts/ci-decide/decide.test.sh
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          INCLUDE: '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
+          EXCLUDE: ''
+        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+
   go:
     uses: Glyndor/.github/.github/workflows/go-ci.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
@@ -49,6 +81,8 @@ jobs:
   # checksum mismatch fails the step before the binary runs.
   lint:
     name: golangci-lint
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     # The analysis took 2.4 s locally on 2026-09-27; five minutes also covers
     # the download. Tighten it after the first runs have been read.

@@ -29,13 +29,46 @@ on:
 permissions:
   contents: read
 
+# Cost, measured on 2026-10-26: 123 s of job time per run. The suite is a
+# property of the production code and of its own files, so a pull request that
+# changes only docs, CI or unit tests has nothing for it: `decide` skips it.
+# The same suite also runs once inside the shared Go CI on every pull request,
+# so this workflow adds only the repeat and the shuffle, which is what it is for.
+
 concurrency:
-  group: hostile-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Tells the suite whether the hostile tests, or the code they attack, changed.
+  # It always runs and always succeeds; on anything other than a pull request,
+  # on a label change, and whenever it cannot tell, it answers "run".
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          INCLUDE: '^tests/hostile/|\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
+          EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$'
+        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+
   hostile:
     name: hostile suite
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     # The suite took about 13 s per pass on a developer machine on
     # 2026-10-25, so two passes plus the race build fit in well under a
