@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	gjwt "github.com/golang-jwt/jwt/v5"
-
+	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/oauth"
 	"github.com/Glyndor/authcore/auth/oauth/internal/oauthtest"
+	gjwt "github.com/golang-jwt/jwt/v5"
 )
 
 // ---- AuthCodeURL ------------------------------------------------------------
@@ -190,5 +190,37 @@ func TestUserInfo_noURLConfigured(t *testing.T) {
 	_, err := oauthtest.NewClient(t, srv).UserInfo(context.Background(), "x")
 	if !errors.Is(err, oauth.ErrNoUserInfo) {
 		t.Fatalf("expected ErrNoUserInfo on an OIDC client, got %v", err)
+	}
+}
+
+type noLogger struct{ oauthtest.FakeProvider }
+
+func (noLogger) Logger() authcore.Logger { return nil }
+
+func TestNew_rejectsAnUnusableProvider(t *testing.T) {
+	cfg := oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()}
+	for name, p := range map[string]authcore.Provider{"nil": nil, "no logger": noLogger{}} {
+		if _, err := oauth.New(p, cfg); !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Errorf("%s: got %v, want ErrInvalidConfig", name, err)
+		}
+	}
+}
+
+func TestClient_unbuiltRefusesEveryCall(t *testing.T) {
+	ctx := context.Background()
+	var nilClient *oauth.Client
+	for name, c := range map[string]*oauth.Client{"nil": nilClient, "zero": {}} {
+		if _, err := c.AuthCodeURL(); !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Errorf("%s AuthCodeURL: %v", name, err)
+		}
+		if _, err := c.Exchange(ctx, "c", "v"); !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Errorf("%s Exchange: %v", name, err)
+		}
+		if _, err := c.UserInfo(ctx, "t"); !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Errorf("%s UserInfo: %v", name, err)
+		}
+		if _, err := c.VerifyIDToken(ctx, "t", "n"); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+			t.Errorf("%s VerifyIDToken: %v", name, err)
+		}
 	}
 }
