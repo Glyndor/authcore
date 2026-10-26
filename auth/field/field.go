@@ -209,7 +209,7 @@ func (f *Field) Name() string { return "field" }
 // that was never constructed by New cannot emit ciphertext derived
 // from an empty AES key.
 func (f *Field) Encrypt(plaintext string) (string, error) {
-	if !f.initialised {
+	if f == nil || !f.initialised {
 		return "", ErrNotInitialised
 	}
 	return f.sealer.Seal(plaintext)
@@ -231,7 +231,7 @@ func (f *Field) Encrypt(plaintext string) (string, error) {
 // module that was never constructed by New cannot claim to read
 // data it has no key to read.
 func (f *Field) Decrypt(ciphertext string) (string, error) {
-	if !f.initialised {
+	if f == nil || !f.initialised {
 		return "", ErrNotInitialised
 	}
 	plain, err := f.sealer.Open(ciphertext)
@@ -262,7 +262,7 @@ func (f *Field) Decrypt(ciphertext string) (string, error) {
 // module that was never constructed by New cannot emit an index
 // derived from an empty key under an empty context.
 func (f *Field) BlindIndex(value string) (string, error) {
-	if !f.initialised {
+	if f == nil || !f.initialised {
 		return "", ErrNotInitialised
 	}
 	return blind.Index(f.idxKey, f.context, value), nil

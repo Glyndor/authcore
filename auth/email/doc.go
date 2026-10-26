@@ -38,6 +38,20 @@
 //	if err != nil { ... }
 //	user := db.FindByEmail(normalized)
 //
+// # Confusable characters in the local part
+//
+// The local part is opaque. It is brought to NFC and lowercased, and invisible
+// and control characters are refused, but characters that merely look alike are
+// not folded: "\u0430lice@example.com" (Cyrillic "a") and "alice@example.com"
+// (Latin "a") are two different, both valid, canonical addresses. That is the
+// design, not an oversight: only the receiving mail server can say which
+// spellings reach the same mailbox, and RFC 5321 treats the local part as
+// opaque, so the module has no sound rule to fold them by. An application that
+// needs robust uniqueness or wants to block look-alike impersonation must apply
+// its own policy before storing the address, for example restrict the local
+// part to ASCII, or reject a mix of scripts. The domain is different: IDNA
+// converts it to punycode, so a look-alike domain shows up as an "xn--" name.
+//
 // # Domain MX verification
 //
 // VerifyDomain performs an optional DNS MX lookup to confirm the domain can

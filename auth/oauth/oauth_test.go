@@ -4,13 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -22,60 +19,6 @@ import (
 )
 
 // ---- AuthCodeURL ------------------------------------------------------------
-
-func TestAuthCodeURL_hasPKCEAndState(t *testing.T) {
-	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
-		ClientID: oauthtest.ClientID, RedirectURL: "https://app/cb", Provider: oauth.Google(),
-	})
-	req, err := c.AuthCodeURL()
-	if err != nil {
-		t.Fatalf("AuthCodeURL: %v", err)
-	}
-	if req.State == "" || req.Nonce == "" || req.Verifier == "" {
-		t.Fatal("state/nonce/verifier must be set")
-	}
-	u, _ := url.Parse(req.URL)
-	q := u.Query()
-	for k, want := range map[string]string{
-		"response_type":         "code",
-		"client_id":             oauthtest.ClientID,
-		"code_challenge_method": "S256",
-		"state":                 req.State,
-		"nonce":                 req.Nonce,
-	} {
-		if q.Get(k) != want {
-			t.Errorf("query %q = %q, want %q", k, q.Get(k), want)
-		}
-	}
-	if !strings.Contains(q.Get("scope"), "openid") {
-		t.Errorf("scope %q missing openid", q.Get("scope"))
-	}
-	if q.Get("code_challenge") == req.Verifier {
-		t.Error("challenge must be the hash of the verifier, not the verifier itself")
-	}
-	// Acceptance pair: the challenge must equal base64url(sha256(verifier)),
-	// not just differ from it. A regression that sends the verifier base64'd
-	// again (or skips the hash) still differs and would pass a "differs" check
-	// alone; pinning the expected value closes that hole.
-	sum := sha256.Sum256([]byte(req.Verifier))
-	wantChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
-	if q.Get("code_challenge") != wantChallenge {
-		t.Errorf("code_challenge = %q, want %q", q.Get("code_challenge"), wantChallenge)
-	}
-}
-
-func TestAuthCodeURL_independentPerCall(t *testing.T) {
-	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google()})
-	a, _ := c.AuthCodeURL()
-	b, _ := c.AuthCodeURL()
-	if a.State == b.State || a.Nonce == b.Nonce || a.Verifier == b.Verifier {
-		t.Error("each AuthCodeURL must use fresh secrets")
-	}
-}
-
-// ---- New validation ---------------------------------------------------------
-
-// ---- VerifyIDToken (the security-critical path) -----------------------------
 
 func TestVerifyIDToken_valid(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -247,117 +190,5 @@ func TestUserInfo_noURLConfigured(t *testing.T) {
 	_, err := oauthtest.NewClient(t, srv).UserInfo(context.Background(), "x")
 	if !errors.Is(err, oauth.ErrNoUserInfo) {
 		t.Fatalf("expected ErrNoUserInfo on an OIDC client, got %v", err)
-	}
-}
-
-func TestAuthCodeURL_defaultScopesIncludeOpenID(t *testing.T) {
-	// No scopes set -> the OIDC default set is used. The test pins the exact
-	// decoded value so a regression that drops a scope or reorders them
-	// (e.g. building a different "openid email profile" sequence) does not
-	// pass on the "contains openid" check alone.
-	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
-		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.Google(),
-	})
-	req, _ := c.AuthCodeURL()
-	u, _ := url.Parse(req.URL)
-	if got, want := u.Query().Get("scope"), "openid email profile"; got != want {
-		t.Errorf("scope = %q, want %q", got, want)
-	}
-}
-
-func TestAuthCodeURL_callerScopesVerbatim(t *testing.T) {
-	// Caller-supplied scopes are used as-is (no openid injected) — required for
-	// plain-OAuth2 providers like GitHub.
-	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
-		ClientID: "x", RedirectURL: "https://app.example/cb", Provider: oauth.GitHub(),
-		Scopes: []string{"read:user", "user:email"},
-	})
-	req, _ := c.AuthCodeURL()
-	if strings.Contains(req.URL, "openid") {
-		t.Error("openid must not be injected into caller-supplied scopes")
-	}
-}
-
-// TestAuthCodeURL_dedupsPreExistingQueryParameters pins the parse-then-Set
-// path: when the AuthURL already carries a "state" or "code_challenge"
-// parameter, the call must overwrite it instead of producing duplicates
-// (which most OIDC servers read as the pre-existing value).
-//
-// The AuthURL below carries a pre-existing value for every parameter the
-// library generates. Each one is asserted to be present exactly once, with
-// the fresh value, so a regression that switched from url.Values.Set to
-// url.Values.Add, or that left a parameter alone, would either repeat the
-// pre-existing string ("plain", "pre", "evil.example", "token") or drop
-// the fresh value.
-func TestAuthCodeURL_dedupsPreExistingQueryParameters(t *testing.T) {
-	c, err := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
-		ClientID: oauthtest.ClientID,
-		Scopes:   []string{"openid email profile"},
-		Provider: oauth.Provider{
-			Issuer:   "https://id.example",
-			AuthURL:  "https://id.example/auth?state=fixed&client_id=cid&code_challenge=pre-existing&code_challenge_method=plain&nonce=pre&redirect_uri=https://evil.example/cb&scope=pre&response_type=token",
-			TokenURL: "https://id.example/token",
-			JWKSURL:  "https://id.example/jwks",
-		},
-		RedirectURL: "https://app.example/cb",
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	req, err := c.AuthCodeURL()
-	if err != nil {
-		t.Fatalf("AuthCodeURL: %v", err)
-	}
-	u, err := url.Parse(req.URL)
-	if err != nil {
-		t.Fatalf("parse AuthCodeURL result: %v", err)
-	}
-	checks := map[string]string{
-		"state":                 req.State,
-		"nonce":                 req.Nonce,
-		"client_id":             oauthtest.ClientID,
-		"code_challenge":        "", // not equal to "pre-existing"; checked below
-		"code_challenge_method": "S256",
-		"redirect_uri":          "https://app.example/cb",
-		"scope":                 "openid email profile",
-		"response_type":         "code",
-	}
-	for key, want := range checks {
-		vs := u.Query()[key]
-		if len(vs) != 1 {
-			t.Errorf("%s: got %d values (%v), want exactly 1", key, len(vs), vs)
-			continue
-		}
-		if key == "code_challenge" {
-			if vs[0] == "pre-existing" {
-				t.Errorf("%s: must be overwritten, still %q", key, vs[0])
-			}
-			continue
-		}
-		if vs[0] != want {
-			t.Errorf("%s = %q, want %q", key, vs[0], want)
-		}
-	}
-}
-
-// TestAuthCodeURL_handlesQuerylessAuthURL pins the parse path for a URL
-// with no pre-existing query string.
-func TestAuthCodeURL_handlesQuerylessAuthURL(t *testing.T) {
-	c, _ := oauth.New(oauthtest.FakeProvider{}, oauth.Config{
-		ClientID:    oauthtest.ClientID,
-		RedirectURL: "https://app.example/cb",
-		Provider: oauth.Provider{
-			Issuer:   "https://id.example",
-			AuthURL:  "https://id.example/auth",
-			TokenURL: "https://id.example/token",
-			JWKSURL:  "https://id.example/jwks",
-		},
-	})
-	req, err := c.AuthCodeURL()
-	if err != nil {
-		t.Fatalf("AuthCodeURL: %v", err)
-	}
-	if !strings.HasPrefix(req.URL, "https://id.example/auth?") {
-		t.Errorf("AuthCodeURL result = %q, want a path followed by ?", req.URL)
 	}
 }

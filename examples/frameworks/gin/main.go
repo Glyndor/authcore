@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/auth/jwt"
 	"github.com/Glyndor/authcore/auth/password"
 	"github.com/gin-gonic/gin"
@@ -31,28 +31,36 @@ type UserClaims struct {
 // ---- main -------------------------------------------------------------------
 
 func main() {
-	pwdMod, jwtMod, err := newModules(authcore.DefaultConfig())
+	pwdMod, jwtMod, emailMod, err := newModules(authcore.DefaultConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	r := newRouter(pwdMod, jwtMod)
+	r, err := newRouter(pwdMod, jwtMod, emailMod)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Println("listening on :3000")
-	log.Fatal(r.Run(":3000"))
+	log.Fatal(newServer(":3000", r).ListenAndServe())
 }
 
-// newModules initialises authcore from cfg and returns the two modules the
+// newModules initialises authcore from cfg and returns the three modules the
 // routes use. Call it once at startup and share the result between requests.
-func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], error) {
+func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], *email.Email, error) {
 	auth, err := authcore.New(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("authcore: %w", err)
+		return nil, nil, nil, fmt.Errorf("authcore: %w", err)
 	}
 
 	pwdMod, err := password.New(auth)
 	if err != nil {
-		return nil, nil, fmt.Errorf("password module: %w", err)
+		return nil, nil, nil, fmt.Errorf("password module: %w", err)
+	}
+
+	emailMod, err := email.New(auth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("email module: %w", err)
 	}
 
 	jwtCfg := jwt.DefaultConfig()
@@ -61,18 +69,26 @@ func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], 
 
 	jwtMod, err := jwt.New[UserClaims](auth, jwtCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("jwt module: %w", err)
+		return nil, nil, nil, fmt.Errorf("jwt module: %w", err)
 	}
 
-	return pwdMod, jwtMod, nil
+	return pwdMod, jwtMod, emailMod, nil
 }
 
 // newRouter builds the Gin engine with every route of the example wired to
-// pwdMod and jwtMod, over a fresh empty user store. main serves it, and the
+// the three modules, over a fresh empty user store. main serves it, and the
 // tests drive the same engine through net/http/httptest.
-func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engine {
+func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod *email.Email) (*gin.Engine, error) {
 	db := newStore()
 	r := gin.Default()
+	r.Use(hardening)
+
+	// Login verifies against this hash when the account does not exist, so an
+	// unknown address costs one Argon2id derivation like a wrong password.
+	decoy, err := pwdMod.Hash(decoyPassword)
+	if err != nil {
+		return nil, fmt.Errorf("decoy hash: %w", err)
+	}
 
 	// -------------------------------------------------------------------------
 	// POST /register
@@ -84,7 +100,15 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 			Password string `json:"password" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+			badBody(c, err)
+			return
+		}
+
+		// The canonical address is the key: without it "Ana@example.com" and
+		// "ana@example.com" are two accounts. ErrInvalidEmail is CLIENT-SAFE.
+		addr, err := emailMod.ValidateAndNormalize(req.Email)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errors.Unwrap(err).Error()})
 			return
 		}
 
@@ -108,7 +132,7 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 		// separate field: it can change, the subject cannot.
 		created := db.insert(user{
 			id:           newUserID(),
-			email:        req.Email,
+			email:        addr,
 			passwordHash: hash,
 		})
 		if !created {
@@ -136,17 +160,28 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 			Password string `json:"password" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+			badBody(c, err)
 			return
 		}
-
-		u, exists := db.findByEmail(req.Email)
-		if !exists {
+		if len(req.Password) > maxLoginPassword {
+			// Verify applies no length policy and hashes all of its input.
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
 
-		ok, err := pwdMod.Verify(req.Password, u.passwordHash)
+		// Unknown and malformed addresses take the same path as a wrong
+		// password: one Argon2id derivation, then the same 401.
+		hash := decoy
+		var u user
+		exists := false
+		if addr, addrErr := emailMod.ValidateAndNormalize(req.Email); addrErr == nil {
+			u, exists = db.findByEmail(addr)
+		}
+		if exists {
+			hash = u.passwordHash
+		}
+
+		ok, err := pwdMod.Verify(req.Password, hash)
 		if err != nil {
 			// ErrInvalidHash is INTERNAL — log it, return generic 401.
 			// %q quotes and escapes control characters so a hostile email
@@ -155,7 +190,7 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
-		if !ok {
+		if !ok || !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
@@ -188,9 +223,8 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 	// On success it stores the claims under the key "claims" for the handler.
 	// -------------------------------------------------------------------------
 	jwtMiddleware := func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		token, found := strings.CutPrefix(header, "Bearer ")
-		if !found || token == "" {
+		token, found := bearerToken(c.Request.Header.Values("Authorization"))
+		if !found {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 			return
 		}
@@ -236,7 +270,7 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 			RefreshToken string `json:"refresh_token" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+			badBody(c, err)
 			return
 		}
 
@@ -257,7 +291,8 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 		//    Nothing minted here may reach the client before step 3 succeeds.
 		newPair, err := jwtMod.RotateTokens(req.RefreshToken, UserClaims{Email: found.email})
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "could not rotate token"})
+			// Same answer as an unknown token: do not tell which one failed.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 			return
 		}
 
@@ -277,5 +312,5 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *gin.Engi
 		})
 	})
 
-	return r
+	return r, nil
 }

@@ -73,7 +73,10 @@ four `Require*` fields off:
 
 Variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF and U+180B to U+180D)
 are accepted: they follow emoji and some CJK characters, so refusing them would
-reject passwords typed with an emoji keyboard.
+reject passwords typed with an emoji keyboard. This is by design: a password
+is secret input, not an identifier, so two passwords that render alike but
+differ in bytes are different passwords, and the module does not fold them.
+The behaviour is pinned by a test in `tests/hostile/password/plaintext`.
 
 Validation checks length first, after NFC normalization. An input below
 `MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length
@@ -161,13 +164,35 @@ before it derives any key, for a hash that:
 | `Memory` | 128 times the configured `Memory`, and never above 1 GiB (1048576 KiB) |
 | `Iterations` | 8 times the configured `Iterations`, and never above 20 |
 | `Parallelism` | 8 times the configured `Parallelism`, and never above 255 |
+| `Memory` x `Iterations` | at most 4 GiB-passes (4194304 KiB-passes) |
 
 The multiples leave room for hashes made with a stronger work factor than
 today's configuration, for example after lowering `Memory` on a smaller host.
-The absolute 1 GiB limit applies whatever the configuration, so a hash cannot
-ask for more than that even when `Memory` is set high. A hash made with a
-work factor above the ceiling must be rehashed outside `Verify`, or the
-module configured with a higher `Memory`, `Iterations` or `Parallelism`.
+The absolute 1 GiB limit applies to a hash the module did not configure, so a
+hash cannot ask for more than that even when `Memory` is set high. A module
+configured with a `Memory` above 1 GiB, or with a `Memory` x `Iterations`
+product above 4 GiB-passes, raises those two limits to what it writes itself,
+so it always verifies its own hashes. A hash made with a work factor above the
+ceiling must be rehashed outside `Verify`, or the module configured with a
+higher `Memory`, `Iterations` or `Parallelism`.
+
+The three factor ceilings are applied one by one, so on their own they allow
+1 GiB for 20 passes. The product limit closes that gap. Measured on a 16-core
+x86-64 machine with `golang.org/x/crypto/argon2`:
+
+| Stored cost | Time (1 lane) | Peak RSS | Accepted by default |
+|---|---|---|---|
+| 64 MiB x 3 passes (library default) | 0.08 s | 68 MB | yes |
+| 1 GiB x 1 pass | 1.3 s | 1.05 GB | yes |
+| 1 GiB x 4 passes (the worst accepted) | 3.7 s | 1.05 GB | yes |
+| 1 GiB x 20 passes | 13.3 s | 1.05 GB | no, over the product limit |
+
+The worst hash a default module derives a key for therefore costs about 3.7 s
+of one core and 1 GiB. The OWASP password storage profiles and both RFC 9106
+recommendations are below the product limit; the RFC 9106 first
+recommendation (2 GiB, 1 pass) is above the default 1 GiB memory ceiling and
+verifies under a module configured with that `Memory`. Rate-limit the login
+endpoint regardless: a ceiling bounds one call, not the number of calls.
 
 > [!NOTE]
 > Both `Hash` and `Verify` normalise plaintext to **Unicode NFC** before

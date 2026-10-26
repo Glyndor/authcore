@@ -46,14 +46,19 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 		return nil, fmt.Errorf("%w: status %d", errUserInfo, resp.StatusCode)
 	}
 
-	// Decode with UseNumber so a 53-bit-plus integer id (e.g. 9007199254740993)
-	// does not collapse onto its neighbour via float64. A trailing-junk check
-	// follows the object so a body like {"id":1}garbage is refused, matching
-	// json.Unmarshal's strict behaviour.
+	// Walk the body's shape first, so one made of the shortest possible values
+	// is refused before the decoder allocates a value for each of them.
+	if err := checkShape(body); err != nil {
+		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
+	}
+	// Decode once, with UseNumber so a 53-bit-plus integer id (e.g.
+	// 9007199254740993) does not collapse onto its neighbour via float64. A
+	// trailing-junk check follows the object so a body like {"id":1}garbage is
+	// refused, matching json.Unmarshal's strict behaviour.
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
-	var raw json.RawMessage
-	if err := dec.Decode(&raw); err != nil {
+	var out map[string]any
+	if err := dec.Decode(&out); err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", errUserInfo, err)
 	}
 	// More reports false before a closing bracket, so it would let {"id":1}}
@@ -64,16 +69,8 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	// A literal "null" is not a user object. Refuse it instead of returning an
 	// empty map (the caller would otherwise treat the absence of data as
 	// success).
-	if string(raw) == "null" {
+	if out == nil {
 		return nil, fmt.Errorf("%w: response was null", errUserInfo)
-	}
-	// Re-decode the raw value with UseNumber preserved (json.Unmarshal ignores
-	// the decoder's option) so numeric claims arrive as json.Number.
-	dec2 := json.NewDecoder(bytes.NewReader(raw))
-	dec2.UseNumber()
-	var out map[string]any
-	if err := dec2.Decode(&out); err != nil {
-		return nil, fmt.Errorf("%w: decode: %w", errUserInfo, err)
 	}
 	// A 200 carrying an OAuth error object, or an empty object, is not a
 	// profile: both returned a nil error before 2026-09-25, and a caller

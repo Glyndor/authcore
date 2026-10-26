@@ -1,8 +1,8 @@
 package contract_test
 
 import (
-	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"errors"
 	"strings"
 	"testing"
@@ -37,9 +37,10 @@ func (s relabelStore) Load() (authcore.Keys, error) {
 // it. A custom non-empty id is accepted, since the derivation is the store's
 // business.
 func TestNew_refusesAnEmptyKeyID(t *testing.T) {
-	seed := bytes.Repeat([]byte{0x42}, ed25519.SeedSize)
-	priv := ed25519.NewKeyFromSeed(seed)
-	inner, err := authcore.NewKeyStoreFromKeys(priv, priv.Public().(ed25519.PublicKey), bytes.Repeat([]byte{0x11}, 32))
+	seed := sha256.Sum256([]byte("empty key id seed"))
+	priv := ed25519.NewKeyFromSeed(seed[:])
+	secret := sha256.Sum256([]byte("empty key id secret"))
+	inner, err := authcore.NewKeyStoreFromKeys(priv, priv.Public().(ed25519.PublicKey), secret[:])
 	if err != nil {
 		t.Fatal(err)
 	}

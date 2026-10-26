@@ -1,0 +1,57 @@
+name: Hostile
+
+# The adversarial suite under tests/hostile already runs once inside the shared
+# Go CI (`go test -race ./...`). This workflow runs it the way a flake or an
+# ordering bug would show itself: twice per process and in shuffled order, so
+# a test that only passes because another one ran first, or that leaves state
+# behind, fails here instead of on someone's laptop.
+#
+# It is its own file rather than a job in ci.yml because it also carries a
+# schedule. Time moves under these tests (JWKS caches, expiry, redirects), and
+# an advisory or a toolchain bump can change an outcome without a commit, so the
+# weekly run is the part that notices. schedule-freshness.yml watches
+# per-workflow-file runs, which is the other reason to keep it separate.
+#
+# The cron sits off the hour and away from the other weekly runs (pin watch
+# 05:17 Mon, audit 06:00 Mon, fuzz 07:00 Mon, containers 05:37 Tue).
+#
+# `-shuffle=on` only prints its seed under -v, which would bury the log, so the
+# step picks the seed itself and echoes it. Reproducing a failure is then
+# `go test -race -count=2 -shuffle=<seed> ./tests/hostile/...`.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "7 5 * * 3"  # Every Wednesday at 05:07 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hostile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hostile:
+    name: hostile suite
+    runs-on: ubuntu-latest
+    # The suite took about 13 s per pass on a developer machine on
+    # 2026-10-25, so two passes plus the race build fit in well under a
+    # minute; the bound is for a hung runner, not for the tests.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run the hostile suite
+        run: |
+          seed="$(date +%s)"
+          echo "shuffle seed: ${seed}"
+          go test -race -count=2 -shuffle="${seed}" ./tests/hostile/...

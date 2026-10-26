@@ -58,11 +58,14 @@ linters:
           - gosec
           - errcheck
 
-      # Test-support packages (oauthtest, bootstraptest, recoverytest, stagingtest, keyloadtest, jwttest)
+      # Test-support packages (oauthtest, bootstraptest, recoverytest, stagingtest, keyloadtest, jwttest, hostiletest)
       # hold fixtures that only _test.go files import. They are not named
       # *_test.go, so the rule above does not reach them, and gosec flags the
       # same controlled test inputs there (fixed fake secrets, copy helpers).
-      - path: "/(oauthtest|bootstraptest|recoverytest|stagingtest|keyloadtest|jwttest)/"
+      # tests/hostile/<module>/hostiletest hold the fixtures the hostile
+      # suites of one module share: temp files and fake secrets built from
+      # controlled paths, imported by the per-attack-class test packages.
+      - path: "/(oauthtest|bootstraptest|recoverytest|stagingtest|keyloadtest|jwttest|hostiletest)/"
         linters:
           - gosec
 

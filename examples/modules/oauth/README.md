@@ -41,3 +41,14 @@ Register `http://localhost:8080/callback` as the redirect URI with your provider
 > brevity. In production sign that cookie (and set `Secure`) or use a
 > server-side session, and serve over HTTPS. See the
 > [secure login recipe](../../../docs/guides/secure-login.md).
+
+## What the callback checks
+
+- `/login` and `/callback` answer only `GET` (and `POST` on `/callback` for a `form_post` provider such as Apple); every other method is a 405.
+- The redirect target, the client id and the redirect URI come from the library and the configuration, never from a request parameter.
+- The flow cookie is scoped to `/callback`, is spent on the first callback whatever its outcome, and a callback with an empty `state`, an empty verifier, or a repeated `state`/`code` parameter is refused before the code is exchanged.
+- For OIDC providers the nonce stored in the cookie must be the one inside the ID token.
+- A provider's `error` and `error_description`, and the text of a failed exchange, are never echoed to the page or written to the log.
+- Responses are `Cache-Control: no-store`, the server sets every timeout, and a form POST is capped at 16 KiB.
+
+The cookie is still a demo shortcut: it is neither signed nor bound to a server-side session, so whoever can plant a cookie for this host can choose the flow's state. Sign it, or keep the state on the server, before you copy this.

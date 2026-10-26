@@ -260,6 +260,25 @@ flow with PKCE (S256) whose token response carries an `id_token`, verified with
 nonce. Meta shows the token request as a GET; this client sends a POST, which
 RFC 6749 section 3.2 requires of a token endpoint request.
 
+## Input and response bounds
+
+- `Exchange` refuses an authorization code longer than 8 KiB with `ErrExchange`
+  before any request is made. Real providers issue codes of a few hundred bytes.
+  This is a change from earlier versions, which forwarded a code of any length.
+- A token response whose `access_token` is only whitespace is refused with
+  `ErrExchange`, like a missing one. A valid token is returned exactly as the
+  provider sent it, never trimmed.
+- `Tokens.ExpiresIn` is in seconds, `0` when the provider sent none (unknown).
+  A negative `expires_in` is refused with `ErrExchange`. A value above ten
+  years (315360000 seconds) is clamped to ten years, so `time.Duration(ExpiresIn) * time.Second`
+  cannot overflow. A string or fractional `expires_in` is still refused, as before.
+- `UserInfo` refuses a profile with more than 16384 JSON tokens (keys, values and
+  brackets) or nested deeper than 32 levels, with `ErrUserInfo`. Real profiles
+  have a few dozen tokens. The check runs before decoding, and the cost of one
+  call is now at most about 6 times the size of the body (it was up to 61
+  times). The values it returns are unchanged: numbers are still exact
+  `json.Number`.
+
 ## What it guarantees
 
 - **PKCE S256 always.** The `plain` method is never offered, so a downgrade

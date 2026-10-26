@@ -24,17 +24,26 @@ func endlessStream(t *testing.T) string {
 	return path
 }
 
-func TestReadCapped_refusesAStreamLongerThanTheCap(t *testing.T) {
+func TestReadCapped_refusesADeviceBeforeReadingIt(t *testing.T) {
 	_, err := ReadCapped(endlessStream(t))
-	if err == nil || !strings.Contains(err.Error(), streamRefusal) {
-		t.Fatalf("ReadCapped(/dev/zero) = %v, want the read-time refusal %q", err, streamRefusal)
-	}
-	// The Stat check words its refusal with the size it saw; this one must
-	// not have been it, or the read-time check is still untested.
-	if strings.Contains(err.Error(), "bytes, exceeds") {
-		t.Fatalf("refused by the Stat check, not the read-time check: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("ReadCapped(/dev/zero) = %v, want the regular-file refusal", err)
 	}
 }
+
+// A file that grows after the check streams past the cap; the read stops one
+// byte beyond it and refuses.
+func TestReadWithinCap_refusesAStreamLongerThanTheCap(t *testing.T) {
+	_, err := readWithinCap("grown", zeros{})
+	if err == nil || !strings.Contains(err.Error(), streamRefusal) {
+		t.Fatalf("readWithinCap(endless) = %v, want the read-time refusal %q", err, streamRefusal)
+	}
+}
+
+// zeros is a reader that never ends.
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) { return len(p), nil }
 
 // The pair on each side of the cap, from regular files: exactly the cap is
 // read whole, one byte more is refused by the Stat check.

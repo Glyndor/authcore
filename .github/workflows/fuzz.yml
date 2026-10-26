@@ -3,7 +3,20 @@ name: Fuzz
 on:
   schedule:
     - cron: "0 7 * * 1"  # Every Monday at 07:00 UTC
+  # A manual run can spend longer per target than the weekly smoke does. The
+  # weekly cron has no inputs, so it still gets the 60s default below. A fixed
+  # list of choices keeps free text out of the fuzztime flag.
   workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: How long to fuzz each target (go test -fuzztime)
+        type: choice
+        default: "60s"
+        options:
+          - "60s"
+          - "5m"
+          - "15m"
+          - "30m"
 
 permissions:
   contents: read
@@ -12,13 +25,14 @@ jobs:
   fuzz:
     uses: Glyndor/.github/.github/workflows/go-fuzz.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
-      fuzztime: "60s"
+      fuzztime: ${{ inputs.fuzztime || '60s' }}
       targets: >-
         [
           {"package":"./auth/email","func":"FuzzValidateAndNormalize"},
           {"package":"./auth/username","func":"FuzzValidateAndNormalize"},
           {"package":"./auth/jwt/internal/verify","func":"FuzzVerifyAccessToken"},
           {"package":"./auth/jwt/internal/tokenid","func":"FuzzIsUUIDv7"},
+          {"package":"./auth/jwt/internal/strictjson","func":"FuzzCheckAgreesWithDecoders"},
           {"package":"./auth/password/internal/policy","func":"FuzzValidatePolicy"},
           {"package":"./auth/password/internal/phc","func":"FuzzParsePHC"},
           {"package":"./auth/apikey","func":"FuzzParseID"},
@@ -28,6 +42,7 @@ jobs:
           {"package":"./auth/field","func":"FuzzEncryptDecrypt"},
           {"package":"./auth/totp/internal/verifier","func":"FuzzVerify"},
           {"package":"./auth/totp/internal/recovery","func":"FuzzVerifyRecoveryCode"},
+          {"package":"./internal/keymanager/material","func":"FuzzCheckSecret"},
           {"package":"./internal/keymanager","func":"FuzzFromPEM"},
           {"package":"./internal/keymanager/pemcodec","func":"FuzzDecodePEMBlock"},
           {"package":"./internal/keymanager/pemcodec","func":"FuzzDecodeEd25519PEM"},
@@ -49,5 +64,22 @@ jobs:
           {"package":"./auth/totp/internal/otpauth","func":"FuzzURI"},
           {"package":"./auth/totp/internal/secret","func":"FuzzDecode"},
           {"package":"./auth/email","func":"FuzzAcceptedAddressIsSafe"},
-          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"}
+          {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"},
+          {"package":"./tests/hostile/jwt/interop","func":"FuzzVerifyAccessTokenAgreesWithReference"},
+          {"package":"./tests/hostile/password/plaintext","func":"FuzzVerifyMatchesReferenceArgon2"},
+          {"package":"./tests/hostile/password/plaintext","func":"FuzzNormalisationEquivalence"},
+          {"package":"./auth/totp/internal/verifier","func":"FuzzVerifyStepWindow"},
+          {"package":"./tests/hostile/identity/email","func":"FuzzEmailCanonicalFixedPoint"},
+          {"package":"./tests/hostile/identity/email","func":"FuzzUsernameMatchesSpec"},
+          {"package":"./auth/oauth","func":"FuzzAuthCodeURL"},
+          {"package":"./auth/oauth/internal/exchange","func":"FuzzRequestFidelity"},
+          {"package":"./auth/oauth/internal/issuer","func":"FuzzIssuerPredicates"},
+          {"package":"./auth/oauth/internal/jwks/candidate","func":"FuzzPick"},
+          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"},
+          {"package":"./tests/hostile/keymanager/filetypes","func":"FuzzOpenWithHostileFile"},
+          {"package":"./tests/hostile/field","func":"FuzzOracleAgreement"},
+          {"package":"./tests/hostile/field","func":"FuzzBlindIndexBoundary"},
+          {"package":"./tests/hostile/credential","func":"FuzzFramingAgainstOracle"},
+          {"package":"./tests/hostile/apikey","func":"FuzzHashAgainstOracle"},
+          {"package":"./tests/hostile/apikey","func":"FuzzParseIDIsExactOrRefuses"}
         ]

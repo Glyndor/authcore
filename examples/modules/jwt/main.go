@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -20,6 +21,14 @@ type UserClaims struct {
 }
 
 func main() {
+	if err := run(os.Stdout); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run is the whole example. It writes to w, so the tests read what a user would
+// see, and returns an error where the demo used to exit.
+func run(w io.Writer) error {
 	// -------------------------------------------------------------------------
 	// Setup: initialise authcore and the JWT module.
 	// -------------------------------------------------------------------------
@@ -28,7 +37,7 @@ func main() {
 
 	auth, err := authcore.New(authcore.Config{KeysDir: dir})
 	if err != nil {
-		log.Fatalf("authcore: %v", err)
+		return fmt.Errorf("authcore: %w", err)
 	}
 
 	jwtCfg := jwt.DefaultConfig()
@@ -37,7 +46,7 @@ func main() {
 
 	jwtMod, err := jwt.New[UserClaims](auth, jwtCfg)
 	if err != nil {
-		log.Fatalf("jwt module: %v", err)
+		return fmt.Errorf("jwt module: %w", err)
 	}
 
 	// -------------------------------------------------------------------------
@@ -46,43 +55,43 @@ func main() {
 	// SessionID (pair.SessionID) is the JTI — store it in your session table.
 	// RefreshTokenHash is what you persist in the database, never the raw token.
 	// -------------------------------------------------------------------------
-	fmt.Println("=== Login: CreateTokens ===")
+	fmt.Fprintln(w, "=== Login: CreateTokens ===")
 
 	userID := "019600ab-1234-7000-8000-000000000001"
 	pair, err := jwtMod.CreateTokens(userID, UserClaims{Name: "Ana García", Role: "admin"})
 	if err != nil {
-		log.Fatalf("create tokens: %v", err)
+		return fmt.Errorf("create tokens: %w", err)
 	}
 
-	fmt.Printf("access token  : %s…\n", pair.AccessToken[:40])
-	fmt.Printf("access exp    : %s\n", pair.AccessTokenExpiresAt)
-	fmt.Printf("refresh exp   : %s\n", pair.RefreshTokenExpiresAt)
-	fmt.Printf("session ID    : %s\n", pair.SessionID)
-	fmt.Printf("refresh hash  : %s  ← store this in DB\n", pair.RefreshTokenHash[:16])
+	fmt.Fprintf(w, "access token  : %s…\n", pair.AccessToken[:40])
+	fmt.Fprintf(w, "access exp    : %s\n", pair.AccessTokenExpiresAt)
+	fmt.Fprintf(w, "refresh exp   : %s\n", pair.RefreshTokenExpiresAt)
+	fmt.Fprintf(w, "session ID    : %s\n", pair.SessionID)
+	fmt.Fprintf(w, "refresh hash  : %s  ← store this in DB\n", pair.RefreshTokenHash[:16])
 
 	// -------------------------------------------------------------------------
 	// Example 2: verify an access token on each authenticated request.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Authenticated request: VerifyAccessToken ===")
+	fmt.Fprintln(w, "\n=== Authenticated request: VerifyAccessToken ===")
 
 	claims, err := jwtMod.VerifyAccessToken(pair.AccessToken)
 	if err != nil {
-		log.Fatalf("verify access token: %v", err)
+		return fmt.Errorf("verify access token: %w", err)
 	}
 
-	fmt.Printf("subject  : %s\n", claims.Subject)
-	fmt.Printf("name     : %s\n", claims.Extra.Name)
-	fmt.Printf("role     : %s\n", claims.Extra.Role)
-	fmt.Printf("token id : %s\n", claims.TokenID)
+	fmt.Fprintf(w, "subject  : %s\n", claims.Subject)
+	fmt.Fprintf(w, "name     : %s\n", claims.Extra.Name)
+	fmt.Fprintf(w, "role     : %s\n", claims.Extra.Role)
+	fmt.Fprintf(w, "token id : %s\n", claims.TokenID)
 
 	// -------------------------------------------------------------------------
 	// Example 3: error handling on an expired or tampered token.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Error handling ===")
+	fmt.Fprintln(w, "\n=== Error handling ===")
 
 	_, err = jwtMod.VerifyAccessToken("not.a.valid.token")
 	if errors.Is(err, jwt.ErrTokenMalformed) {
-		fmt.Println("ErrTokenMalformed caught correctly")
+		fmt.Fprintln(w, "ErrTokenMalformed caught correctly")
 	}
 
 	// -------------------------------------------------------------------------
@@ -90,22 +99,24 @@ func main() {
 	// Verify the hash first (constant-time), then issue a new pair and replace
 	// the stored hash — both steps must succeed or roll back the transaction.
 	// -------------------------------------------------------------------------
-	fmt.Println("\n=== Token rotation: RotateTokens ===")
+	fmt.Fprintln(w, "\n=== Token rotation: RotateTokens ===")
 
 	storedHash := pair.RefreshTokenHash // what you loaded from the database
 
 	if !jwtMod.VerifyRefreshTokenHash(pair.RefreshToken, storedHash) {
-		log.Fatal("refresh token hash mismatch — possible token theft")
+		return errors.New("refresh token hash mismatch — possible token theft")
 	}
 
 	// Load fresh user data before issuing new claims.
 	newPair, err := jwtMod.RotateTokens(pair.RefreshToken, UserClaims{Name: "Ana García", Role: "admin"})
 	if err != nil {
-		log.Fatalf("rotate tokens: %v", err)
+		return fmt.Errorf("rotate tokens: %w", err)
 	}
 
-	fmt.Printf("new access token : %s…\n", newPair.AccessToken[:40])
-	fmt.Printf("new refresh hash : %s  ← replace old hash in DB\n", newPair.RefreshTokenHash[:16])
+	fmt.Fprintf(w, "new access token : %s…\n", newPair.AccessToken[:40])
+	fmt.Fprintf(w, "new refresh hash : %s  ← replace old hash in DB\n", newPair.RefreshTokenHash[:16])
+
+	return nil
 }
 
 func tempDir() (string, func()) {

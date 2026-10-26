@@ -13,6 +13,7 @@ import (
 
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap/generate"
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap/load"
+	"github.com/Glyndor/authcore/internal/keymanager/dirguard"
 	"github.com/Glyndor/authcore/internal/keymanager/fsguard"
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/internal/keymanager/metadata"
@@ -40,9 +41,17 @@ import (
 // matching staging directory is refused with advice that never asks the
 // operator to delete refresh_secret.key.
 //
+// dir must not be a symbolic link: Open refuses it before creating, tightening
+// or writing anything. Links in its parent components are not refused.
+//
 // dir is used verbatim: Open does not append ".authcore" or any other
 // subdirectory.
 func Open(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey, []byte, error) {
+	// Nothing below runs until the path is known to name the directory itself:
+	// MkdirAll, the chmod and every write would otherwise follow a link.
+	if err := dirguard.Refuse(dir); err != nil {
+		return nil, nil, nil, err
+	}
 	if _, err := os.Stat(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, nil, nil, fmt.Errorf("inspect key directory %q: %w", dir, err)
 	}

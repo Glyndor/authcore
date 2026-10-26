@@ -52,3 +52,26 @@ func TestCheckLoadOnlyDir(t *testing.T) {
 		t.Error("CheckLoadOnlyDir created the directory it was asked to inspect")
 	}
 }
+
+func TestChecksRefuseASymlinkedKeysDir(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	for name, check := range map[string]func(string) error{
+		"CheckDir": keysdir.CheckDir, "CheckLoadOnlyDir": keysdir.CheckLoadOnlyDir,
+	} {
+		if err := check(link); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+			t.Errorf("%s on a symlink = %v, want the symbolic link refusal", name, err)
+		}
+	}
+	if fi, err := os.Stat(real); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Errorf("the link target was changed: %v %v", fi, err)
+	}
+}

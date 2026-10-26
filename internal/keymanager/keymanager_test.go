@@ -64,7 +64,7 @@ func pemPair(t *testing.T) (privPEM, pubPEM []byte, priv ed25519.PrivateKey) {
 func TestPEMDecoders_acceptOneCanonicalBlockOnly(t *testing.T) {
 	privPEM, pubPEM, _ := pemPair(t)
 	otherPriv, _, _ := pemPair(t)
-	secret := []byte(strings.Repeat("k", 32))
+	secret := []byte("k3Qz9vLm2XaR7tYpB5nWd8GcHf4JsUe1")
 
 	if _, err := keymanager.FromPEM(privPEM, pubPEM, secret); err != nil {
 		t.Fatalf("the canonical pair: %v, want accepted", err)

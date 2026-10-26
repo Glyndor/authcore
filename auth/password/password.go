@@ -23,7 +23,10 @@
 //   - Comparison: constant-time — immune to timing attacks
 //   - Policy: Hash rejects weak passwords before spending CPU on them
 //   - Printable input only: Hash refuses control, format and other
-//     default-ignorable characters, and the blank braille pattern
+//     default-ignorable characters, and the blank braille pattern. Variation
+//     selectors are accepted on purpose (emoji and some CJK characters carry
+//     them) and are not folded: two passwords that render the same but differ
+//     in a variation selector are different passwords.
 //
 // # What is tunable
 //
@@ -57,12 +60,13 @@
 package password
 
 import (
+	"errors"
 	"fmt"
-
-	"golang.org/x/text/unicode/norm"
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/password/internal/kdf"
+	"github.com/Glyndor/authcore/auth/password/internal/policy"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Compile-time assertion: *Password must satisfy authcore.Module.
@@ -136,6 +140,13 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 	return pw, nil
 }
 
+// errNotBuilt is what a nil or zero-value Password answers: it has no policy
+// and no work factor, so nothing it computed could be trusted.
+var errNotBuilt = fmt.Errorf("%w: module not initialised, use password.New", ErrInvalidConfig)
+
+// built reports whether New produced p. New always sets the logger.
+func (p *Password) built() bool { return p != nil && p.log != nil }
+
 // Name returns the module's unique identifier. It implements authcore.Module.
 func (p *Password) Name() string { return "password" }
 
@@ -160,7 +171,12 @@ func (p *Password) Name() string { return "password" }
 // when the input contains a non-printable character. Once length passes, the
 // printable-character check precedes the required classes and uses
 // [ErrNonPrintableCharacter] as its wrapped reason.
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) ValidatePolicy(plaintext string) error {
+	if !p.built() {
+		return errNotBuilt
+	}
 	if err := checkPolicy(norm.NFC.String(plaintext), p.cfg); err != nil {
 		return &policyViolation{reason: err}
 	}
@@ -199,7 +215,12 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 //	hash, err := pwdMod.Hash(userPassword)
 //	if errors.Is(err, password.ErrWeakPassword) { /* tell the user what's wrong */ }
 //	db.StorePasswordHash(userID, hash)
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) Hash(plaintext string) (string, error) {
+	if !p.built() {
+		return "", errNotBuilt
+	}
 	// Normalise to Unicode NFC so the same visual password typed on different
 	// systems (precomposed vs combining accents, e.g. "café" as one codepoint
 	// vs "e" + combining-acute) produces the same hash. Without this, users
@@ -235,23 +256,49 @@ func (p *Password) Hash(plaintext string) (string, error) {
 // Returns ErrInvalidHash when phcHash is malformed, uses a non-Argon2id
 // algorithm, or carries parameters or salt/key lengths outside the ranges
 // above, or when any of Memory, Iterations and Parallelism is higher than the
-// module accepts: 128 times the configured Memory (at most 1 GiB), and 8 times
-// the configured Iterations and Parallelism. A hash above that is refused
+// module accepts: 128 times the configured Memory (at most 1 GiB, or the
+// configured Memory when that is larger), and 8 times the configured Iterations
+// and Parallelism, and when Memory times Iterations is above 4 GiB-passes (or
+// the configured product when that is larger). A hash above that is refused
 // before any key is derived. A truncated hash never reaches the KDF, so it can neither verify
 // true nor crash the process.
 //
 //	ok, err := pwdMod.Verify(submittedPassword, storedHash)
 //	if errors.Is(err, password.ErrInvalidHash) { ... } // hash is malformed or out of range
 //	if !ok { return http.StatusUnauthorized }
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
+	if !p.built() {
+		return false, errNotBuilt
+	}
 	// Normalise to Unicode NFC (matching Hash) so the user can sign in from a
 	// different platform than the one they registered on without losing access
 	// to their account.
 	plaintext = norm.NFC.String(plaintext)
 
-	ok, err := kdf.Verify(plaintext, phcHash, p.cfg.verifyCeiling())
+	ok, err := kdf.Verify(plaintext, phcHash, p.cfg.verifyCeiling(), p.cfg.verifyWorkCeiling())
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrInvalidHash, invalidHash{cause: err})
 	}
 	return ok, nil
+}
+
+// checkPolicy validates plaintext against the policy encoded in cfg. The rules
+// live in internal/policy; this adapts the Config, whose *bool fields
+// applyDefaults guarantees non-nil, and maps the printable-character reason
+// onto the exported ErrNonPrintableCharacter.
+func checkPolicy(plaintext string, cfg Config) error {
+	err := policy.Check(plaintext, policy.Rules{
+		MinLength:     cfg.MinLength,
+		MaxLength:     cfg.MaxLength,
+		RequireUpper:  *cfg.RequireUpper,
+		RequireLower:  *cfg.RequireLower,
+		RequireDigit:  *cfg.RequireDigit,
+		RequireSymbol: *cfg.RequireSymbol,
+	})
+	if errors.Is(err, policy.ErrNonPrintable) {
+		return ErrNonPrintableCharacter
+	}
+	return err
 }

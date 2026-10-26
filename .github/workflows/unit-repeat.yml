@@ -1,0 +1,58 @@
+name: Unit repeat
+
+# Runs the unit tests (everything except tests/hostile, which hostile.yml
+# already repeats) three times in one process under the race detector, in
+# shuffled order. A test that passes once and fails the next time, or that only
+# passes because another test ran first, is the kind of flake a single run per
+# pull request almost never shows and a weekly repeat does.
+#
+# It is weekly and not per pull request on purpose. Measured on 2026-10-25:
+# 107 packages, a cold build cache and four cores took 59 s, with 1 m 50 s of
+# CPU, and a warm sixteen-core machine took 17 s. That is cheap enough for a
+# schedule and too much to repeat on every push for a signal that is rare.
+#
+# The cron sits off the hour and away from the other weekly runs (pin watch
+# 05:17 Mon, audit 06:00 Mon, fuzz 07:00 Mon, containers 05:37 Tue, hostile
+# 05:07 Wed). Like hostile.yml it has no freshness watcher yet: a schedule
+# fires only from the default branch, so add one to schedule-freshness.yml
+# after the first scheduled run has been green on main.
+#
+# `-shuffle=on` only prints its seed under -v, so the step picks the seed and
+# echoes it. Reproducing a failure is
+# `go test -race -count=3 -shuffle=<seed> <package>`.
+
+on:
+  schedule:
+    - cron: "27 5 * * 4"  # Every Thursday at 05:27 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-repeat-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-repeat:
+    name: unit tests x3
+    runs-on: ubuntu-latest
+    # 59 s measured with a cold cache on four cores; the bound is for a hung
+    # runner, not for the tests.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run the unit tests three times
+        run: |
+          mapfile -t pkgs < <(go list ./... | grep -v '/tests/hostile')
+          echo "packages: ${#pkgs[@]}"
+          seed="$(date +%s)"
+          echo "shuffle seed: ${seed}"
+          go test -race -count=3 -shuffle="${seed}" "${pkgs[@]}"

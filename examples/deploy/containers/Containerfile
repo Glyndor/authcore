@@ -1,3 +1,6 @@
 FROM scratch
-COPY probe /probe
+COPY --chmod=0555 probe /probe
+# Never root, even when the image is run without the compose file. The compose
+# file overrides this with the host user so the key volume stays readable.
+USER 65532:65532
 ENTRYPOINT ["/probe"]

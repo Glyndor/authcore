@@ -132,18 +132,37 @@ const (
 	verifyPassFactor = 8
 
 	// verifyMaxMemory is the absolute ceiling on Memory, in KiB (1 GiB), which
-	// applies whatever the configured value: 128 times the default would be
-	// 8 GiB.
+	// applies to a hash the module did not configure: 128 times the default
+	// would be 8 GiB. A module configured with a larger Memory raises it to
+	// that Memory, so it still verifies the hashes it writes.
 	verifyMaxMemory = 1024 * 1024
+
+	// verifyMaxWork is the ceiling on the product Memory x Iterations, in
+	// KiB-passes (4 GiB-passes). The factors above are capped one by one, so
+	// on their own they allow 1 GiB x 20 passes, which costs about 13 s of one
+	// core on the machine it was measured on (1 GiB x 4 costs about 3.7 s).
+	// This keeps the worst accepted hash near the latter. Every profile in
+	// OWASP's password storage cheat sheet and RFC 9106 stays far below it
+	// (the RFC's first recommendation, 2 GiB x 1 pass, is 2 GiB-passes). A
+	// module configured with a larger product raises it to that product.
+	verifyMaxWork = 4 * 1024 * 1024
 )
 
 // verifyCeiling is the highest cost Verify accepts from a stored hash, derived
-// from c. It is never above the limits phc.Parse enforces.
+// from c. It is never above the limits phc.Parse enforces, and never below the
+// cost c itself writes.
 func (c Config) verifyCeiling() phc.Params {
 	mem := min(uint64(c.Memory)*verifyMemoryFactor, verifyMaxMemory, phc.MaxMemory)
+	mem = max(mem, uint64(c.Memory))
 	iter := min(uint64(c.Iterations)*verifyPassFactor, phc.MaxIterations)
 	par := min(uint64(c.Parallelism)*verifyPassFactor, 255)
 	return phc.Params{Memory: uint32(mem), Iterations: uint32(iter), Parallelism: uint8(par)}
+}
+
+// verifyWorkCeiling is the highest Memory x Iterations product, in KiB-passes,
+// Verify accepts from a stored hash.
+func (c Config) verifyWorkCeiling() uint64 {
+	return max(uint64(verifyMaxWork), uint64(c.Memory)*uint64(c.Iterations))
 }
 
 // ptr is a tiny helper so DefaultConfig can take the address of a true

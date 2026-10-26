@@ -51,3 +51,17 @@ jobs:
     with:
       workflow: pin-watch.yml
       max-age-days: 15 # weekly cron, so two periods of slack
+
+  # hostile.yml and unit-repeat.yml have a weekly cron too, but their
+  # freshness jobs are deliberately not here yet. A schedule only fires from
+  # the default branch, and with no successful scheduled run on record this
+  # check fails, which would turn every
+  # pull request red until the workflow has been promoted to main and fired
+  # once. After that first green scheduled run, add:
+  #
+  #   hostile:
+  #     name: hostile freshness
+  #     uses: <same reusable and pin as above>
+  #     with:
+  #       workflow: hostile.yml
+  #       max-age-days: 15 # weekly cron, so two periods of slack

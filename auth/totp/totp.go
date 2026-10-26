@@ -56,10 +56,10 @@
 package totp
 
 import (
-
 	//nolint:gosec // CSPRNG draws for secrets and recovery codes
 	//nolint:gosec // HMAC-SHA1 is the TOTP interoperability baseline; SHA1 collision attacks do not apply to HMAC
 
+	"bytes"
 	"fmt"
 
 	"github.com/Glyndor/authcore"
@@ -140,7 +140,7 @@ func New(p authcore.Provider, cfg ...Config) (*TOTP, error) {
 	t := &TOTP{
 		cfg:    resolved,
 		log:    p.Logger(),
-		secret: secret,
+		secret: bytes.Clone(secret),
 		ver: verifier.New(clock.New(p.Config().Timezone), *resolved.SkewSteps, verifier.Errors{
 			Malformed:        ErrMalformedCode,
 			InvalidSecret:    ErrInvalidSecret,

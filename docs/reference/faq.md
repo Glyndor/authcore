@@ -98,3 +98,16 @@ No. authcore gives you the primitives (hash, sign, verify, rotate) and stays
 framework-agnostic. See [`examples/frameworks/fiber`](../../examples/frameworks/fiber/) and
 [`examples/frameworks/gin`](../../examples/frameworks/gin/) for wiring into a real HTTP stack, including
 protected-route middleware.
+
+## Two users registered `alice@` and `аlice@` (Cyrillic а). Is that a bug?
+
+No, it is the documented behaviour. The email module treats the local part as
+opaque (RFC 5321): it applies NFC and lowercasing and refuses invisible
+characters, but it does not fold look-alike characters, because only the
+receiving server knows which spellings reach one mailbox. The password module
+likewise accepts variation selectors (U+FE00 to U+FE0F and the others listed in
+the [password guide](../modules/password.md)), so two passwords that render the
+same can differ in bytes. If your product needs robust uniqueness or has to
+resist look-alike impersonation, apply your own policy before storing the
+address, for example restrict the local part to ASCII or reject a mix of
+scripts. See [look-alike characters in the local part](../guides/validation.md#look-alike-characters-in-the-local-part).

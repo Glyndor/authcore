@@ -43,11 +43,12 @@ func Hash(plaintext string, p phc.Params) (string, error) {
 // cost parameters are read from phcHash itself, bounded by phc.Parse and then
 // by ceiling, so a stored hash cannot force an unbounded allocation or run
 // time. The returned error wraps phc.ErrInvalid when phcHash is malformed or
-// out of range, and when any of its parameters is above ceiling; in that case
-// no key is derived.
+// out of range, when any of its parameters is above ceiling, and when
+// Memory x Iterations (in KiB-passes) is above maxWork; in that case no key is
+// derived.
 //
 // plaintext must already be NFC-normalised.
-func Verify(plaintext, phcHash string, ceiling phc.Params) (bool, error) {
+func Verify(plaintext, phcHash string, ceiling phc.Params, maxWork uint64) (bool, error) {
 	// Extract the Argon2id parameters and salt embedded in the stored hash.
 	// Using the stored parameters — not the current module config — means old
 	// hashes remain valid even after the work factors are tuned upward.
@@ -58,6 +59,12 @@ func Verify(plaintext, phcHash string, ceiling phc.Params) (bool, error) {
 
 	if params.Memory > ceiling.Memory || params.Iterations > ceiling.Iterations || params.Parallelism > ceiling.Parallelism {
 		return false, fmt.Errorf("%w: cost parameters exceed the ceiling the module accepts", phc.ErrInvalid)
+	}
+
+	// The factors can each sit under their ceiling and still multiply into a
+	// hash that pins a core for tens of seconds.
+	if uint64(params.Memory)*uint64(params.Iterations) > maxWork {
+		return false, fmt.Errorf("%w: memory x iterations exceeds the work the module accepts", phc.ErrInvalid)
 	}
 
 	// Recompute the derived key with the same parameters and salt as the original.

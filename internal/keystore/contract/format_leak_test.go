@@ -1,8 +1,8 @@
 package contract_test
 
 import (
-	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"testing"
@@ -38,9 +38,10 @@ func encodings(b []byte) []string {
 }
 
 func TestFormattingNeverPrintsKeyMaterial(t *testing.T) {
-	seed := bytes.Repeat([]byte{0xD7}, ed25519.SeedSize)
-	priv := ed25519.NewKeyFromSeed(seed)
-	secret := bytes.Repeat([]byte{0xAB}, 32)
+	seedSum := sha256.Sum256([]byte("format-leak seed"))
+	priv := ed25519.NewKeyFromSeed(seedSum[:])
+	secretSum := sha256.Sum256([]byte("format-leak secret"))
+	secret := secretSum[:]
 	store, err := authcore.NewKeyStoreFromKeys(priv, priv.Public().(ed25519.PublicKey), secret)
 	if err != nil {
 		t.Fatalf("NewKeyStoreFromKeys: %v", err)

@@ -51,6 +51,7 @@
 package credential
 
 import (
+	"bytes"
 	"crypto/rand" //nolint:gosec // CSPRNG draws for tokens
 	"crypto/subtle"
 	"encoding/base64"
@@ -165,7 +166,7 @@ func New(p authcore.Provider, cfg ...Config) (*Credential, error) {
 	c := &Credential{
 		cfg:         resolved,
 		log:         logger,
-		secret:      secret,
+		secret:      bytes.Clone(secret),
 		clock:       clock.New(p.Config().Timezone),
 		initialised: true,
 	}
@@ -192,7 +193,7 @@ func (c *Credential) Name() string { return "credential" }
 //	credential.ErrEmptySubject - subject is ""
 //	credential.ErrNotInitialised - the receiver is a zero value
 func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
-	if !c.initialised {
+	if c == nil || !c.initialised {
 		return nil, ErrNotInitialised
 	}
 	if purpose == "" {
@@ -259,7 +260,7 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 // carries a real hash", not just "a token existed". The caller should
 // not rely on Verify to hide that distinction.
 func (c *Credential) Verify(purpose, subject, token, storedHash string, issuedAt time.Time) error {
-	if !c.initialised {
+	if c == nil || !c.initialised {
 		return ErrNotInitialised
 	}
 	// Always recompute the hash and run the constant-time comparison,

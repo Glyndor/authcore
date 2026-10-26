@@ -213,7 +213,7 @@ func TestRefreshSecretErrorDoesNotEchoTheFile(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, layout.FileMetadata)); err != nil {
 		t.Fatal(err)
 	}
-	good := hex.EncodeToString([]byte(strings.Repeat("k", 32))) + "\n"
+	good := hex.EncodeToString([]byte("k3Qz9vLm2XaR7tYpB5nWd8GcHf4JsUe1")) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, layout.FileRefreshSecret), []byte(good), 0o600); err != nil {
 		t.Fatal(err)
 	}
