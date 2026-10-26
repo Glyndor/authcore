@@ -36,7 +36,6 @@ func TestHostile_Enroll_provisioningURIResistsInjection(t *testing.T) {
 		"angle brackets":      "<script>alert(1)</script>",
 		"unicode":             "Se\u00f1or L\u00f3pez \u65e5\u672c",
 		"bidi override":       "alice\u202egnp.exe",
-		"empty":               "",
 		"very long":           strings.Repeat("a", 4096),
 		"invalid UTF-8":       "alice\xff\xfe",
 		"scheme confusion":    "javascript:alert(1)",

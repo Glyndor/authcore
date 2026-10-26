@@ -50,9 +50,10 @@ func TestHostile_Oracle_generatedAndHashedKeysMatchTheIndependentHMAC(t *testing
 	}
 }
 
-// Hash and Verify take any string, because a caller hashes whatever a client
-// presented before parsing it. Awkward and huge strings give the oracle's
-// answer, in bounded time.
+// Hash takes any string, because a caller hashes whatever a client presented
+// before parsing it. Awkward and huge strings give the oracle's answer in
+// bounded time, and Verify refuses every one of them because none has the shape
+// of a generated key.
 func TestHostile_Oracle_arbitraryAndHugeStringsHashLikeTheOracle(t *testing.T) {
 	pepper := randomPepper(t)
 	m := moduleWith(t, pepper)
@@ -75,11 +76,8 @@ func TestHostile_Oracle_arbitraryAndHugeStringsHashLikeTheOracle(t *testing.T) {
 		if got != stored {
 			t.Errorf("%s: Hash = %s, oracle %s", name, got, stored)
 		}
-		if !m.Verify(key, stored) {
-			t.Errorf("%s: Verify refused the oracle's hash", name)
-		}
-		if m.Verify(key+"x", stored) {
-			t.Errorf("%s: Verify accepted a key one byte longer", name)
+		if m.Verify(key, stored) {
+			t.Errorf("%s: Verify accepted a string that is not shaped like a key", name)
 		}
 		if d := time.Since(start); d > 10*time.Second {
 			t.Errorf("%s: took %v", name, d)

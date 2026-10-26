@@ -53,6 +53,9 @@ type IDClaims struct {
 // On any failure it returns ErrIDTokenInvalid (wrapped). Never expose the
 // wrapped detail to the end user.
 func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (*IDClaims, error) {
+	if !c.built() {
+		return nil, fmt.Errorf("%w: client not initialised, use oauth.New", ErrIDTokenInvalid)
+	}
 	// Refuse to verify against a provider that is not configured for OIDC.
 	// Doing so would either skip the iss check (if we passed WithIssuer(""))
 	// or trust every JWKS-signer in the world without binding tokens to a

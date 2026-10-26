@@ -102,11 +102,11 @@ func TestE2E_Keyspace_aHashColumnWithoutAKindCheckConfusesTheKinds(t *testing.T)
 			t.Errorf("bare-hash lookup of a %s value landed on %q", want, got)
 		}
 	}
-	// ...which is exactly the confusion the documentation forbids relying on:
-	// the apikey module's own Verify accepts a refresh token against the stored
-	// refresh hash, and the jwt module accepts an API key against the stored key.
-	if !w.keys.Verify(pair.RefreshToken, pair.RefreshTokenHash) {
-		t.Error("contract changed: apikey.Verify no longer reads a refresh hash")
+	// ...which is the confusion the documentation forbids relying on: the jwt
+	// module accepts an API key against the stored key. The apikey module no
+	// longer reads a refresh hash, because Verify demands the shape it generates.
+	if w.keys.Verify(pair.RefreshToken, pair.RefreshTokenHash) {
+		t.Error("contract changed: apikey.Verify reads a refresh hash again")
 	}
 	if !w.jwt.VerifyRefreshTokenHash(gen.Key, gen.Hash) {
 		t.Error("contract changed: VerifyRefreshTokenHash no longer reads an API key hash")
