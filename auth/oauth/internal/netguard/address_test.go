@@ -16,7 +16,14 @@ func TestInternalAddr(t *testing.T) {
 		"::ffff:10.0.0.5": true, "::ffff:127.0.0.1": true, "::127.0.0.1": true,
 		"64:ff9b::a00:5": true, "64:ff9b::808:808": false,
 		"2002:a00:5::1": true, "2002:808:808::1": false,
-		"100::1":  true,
+		"100::1": true,
+		// Ranges that carry traffic to an internal host on some networks: the whole
+		// "this network" block, the IPv4-translated and local-use NAT64 prefixes,
+		// and the deprecated site-local block. Their neighbours stay public.
+		"0.1.2.3": true, "0.255.255.255": true, "1.0.0.1": false,
+		"::ffff:0:10.0.0.5": true, "::ffff:0:8.8.8.8": true,
+		"64:ff9b:1::a00:5": true, "64:ff9b:1:ffff::1": true, "64:ff9b:2::1": false,
+		"fec0::1": true, "febf::1": true, "fe80::1%eth1": true,
 		"8.8.8.8": false, "1.1.1.1": false, "93.184.216.34": false,
 		"2606:4700:4700::1111": false, "::ffff:8.8.8.8": false,
 	} {

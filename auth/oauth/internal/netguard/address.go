@@ -8,17 +8,24 @@ import (
 )
 
 // internalPrefixes are ranges that net/netip does not classify as private or
-// loopback but that never hold a public provider: carrier-grade NAT (where
-// some clouds put their metadata service), the IETF protocol and benchmarking
-// blocks, the reserved class E block, and the IPv6 forms that embed an IPv4
-// address, which are checked through the embedded address.
+// loopback but that never hold a public provider: the whole "this network"
+// block, carrier-grade NAT (where some clouds put their metadata service), the
+// IETF protocol and benchmarking blocks, the reserved class E block, the
+// deprecated site-local IPv6 block, and the IPv6 translation prefixes meant for
+// local use (the IPv4-translated block of RFC 6145 and the local-use NAT64
+// prefix of RFC 8215), which carry an IPv4 address that is not examined here.
+// The well-known NAT64 prefix and 6to4 are checked through the address they embed.
 var internalPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("::/96"),
 	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("fec0::/10"),
+	netip.MustParsePrefix("::ffff:0:0:0/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
 var (
