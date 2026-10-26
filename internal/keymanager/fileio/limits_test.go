@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -40,6 +41,9 @@ func TestReadCapped_BoundaryIsExactlyFourKiB(t *testing.T) {
 // A source that streams more than Stat reported is cut one byte past the cap,
 // not further: the loader must not pull an attacker-sized stream into memory.
 func TestReadCappedFile_StopsOneByteAfterTheCap(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("a Windows pipe holds less than the 4106 bytes written before the first read, so the write blocks forever, and on macOS Stat on a pipe reports the buffered byte count, so the size check refuses the stream before any read")
+	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -213,7 +214,7 @@ func TestLoadRefusesAFileWhereTheDirectoryShouldBe(t *testing.T) {
 	if !strings.Contains(msg, "not a directory") {
 		t.Errorf("error should call out 'not a directory', got: %v", err)
 	}
-	if !strings.Contains(msg, path) {
+	if !strings.Contains(msg, strconv.Quote(path)) { // the message quotes the path with %q
 		t.Errorf("error should name the path %q, got: %v", path, err)
 	}
 

@@ -3,6 +3,8 @@ package keyload_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,6 +24,9 @@ func withReadHook(t *testing.T, fn func(attempt, file int)) {
 // The number of times a replaced set is read again is a documented bound:
 // three reads, then the refusal.
 func TestFiles_GivesUpAfterExactlyThreeReads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename over or remove a file this code holds open (no FILE_SHARE_DELETE), so the replacement this test performs mid-read cannot happen")
+	}
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
 	reads := 0
@@ -122,8 +127,8 @@ func TestFiles_PairMismatchNamesPublicThenPrivate(t *testing.T) {
 	if err == nil {
 		t.Fatal("Files accepted a public key that belongs to another private key")
 	}
-	want := `public key in "` + filepath.Join(dir, layout.FilePublicKey) +
-		`" does not match private key in "` + filepath.Join(dir, layout.FilePrivateKey) + `"`
+	want := "public key in " + strconv.Quote(filepath.Join(dir, layout.FilePublicKey)) +
+		" does not match private key in " + strconv.Quote(filepath.Join(dir, layout.FilePrivateKey))
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("err = %v\nwant it to contain %s", err, want)
 	}
@@ -161,6 +166,9 @@ func TestCheck_RefusesAMissingOrOversizedPublicKey(t *testing.T) {
 // The two secret files are checked for modes others can read or write, and the
 // public key is not: it is meant to be shared.
 func TestFiles_WarnsAboutEachSecretFileOthersCanRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode")
+	}
 	cases := []struct {
 		name, file string
 		warns      int

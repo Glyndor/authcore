@@ -27,7 +27,12 @@ func TestE2E_Reset_aTokenIsGoneTheInstantItsTTLHasPassed(t *testing.T) {
 	}
 	// issuedAt taken before the call, so elapsed is ttl plus the call's own
 	// latency, however small.
-	if err := w.cred.Verify("reset", "alice", token, row.Hash, time.Now().Add(-ttl)); !errors.Is(err, credential.ErrExpired) {
+	// Wait for the clock to tick first: Windows clocks are coarse, and two
+	// reads can be equal, which would make the elapsed time exactly ttl.
+	start := time.Now()
+	for !time.Now().After(start) {
+	}
+	if err := w.cred.Verify("reset", "alice", token, row.Hash, start.Add(-ttl)); !errors.Is(err, credential.ErrExpired) {
 		t.Errorf("issued exactly ttl ago = %v, want ErrExpired", err)
 	}
 	for _, d := range []time.Duration{time.Second, time.Minute, ttl - time.Minute} {

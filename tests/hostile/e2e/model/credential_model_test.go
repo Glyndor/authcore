@@ -90,7 +90,12 @@ func (m *credModel) redeem(at slot, token string) {
 	case !ok:
 		err = hostiletest.ErrNoRow
 	default:
-		issuedAt := time.Now().Add(-(m.now - m.rows[at].at))
+		start := time.Now()
+		issuedAt := start.Add(-(m.now - m.rows[at].at))
+		// Windows clocks are coarse: wait for a tick so the elapsed time
+		// is past the age, as the call's own latency makes it elsewhere.
+		for !time.Now().After(start) {
+		}
 		if err = m.mod.Verify(at.purpose, at.subject, token, row.Hash, issuedAt); err == nil && !table.Consume(at.subject, row.Hash) {
 			err = hostiletest.ErrConsumed
 		}

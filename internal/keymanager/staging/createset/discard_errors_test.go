@@ -3,6 +3,7 @@ package createset_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -32,6 +33,9 @@ func TestDiscard_NamesEachEntryItCouldNotRemove(t *testing.T) {
 }
 
 func TestCreate_RefusesADirectoryItCannotSync(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure; Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}

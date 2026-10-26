@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -124,6 +125,9 @@ func TestPublish_losingThePrivateLinkRaceAsksTheCallerToWait(t *testing.T) {
 }
 
 func TestPublish_missingKeysDirectoryIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure")
+	}
 	_, _, _, err := Publish(filepath.Join(t.TempDir(), "absent"), stagingtest.SilentLog{})
 	if err == nil || !strings.Contains(err.Error(), "sync keys directory") {
 		t.Fatalf("Publish = %v, want the keys-directory failure", err)

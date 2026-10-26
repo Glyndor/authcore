@@ -95,6 +95,9 @@ func TestWriteKeyFile_rejectsDirectoryAtTarget(t *testing.T) {
 }
 
 func TestSyncDir_classifiesOpenError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure")
+	}
 	// Calling syncDir on a path that does not exist returns an error
 	// that is not ErrUnsupported or EINVAL; the helper propagates it.
 	err := SyncDir(filepath.Join(t.TempDir(), "no-such-dir"))
@@ -109,6 +112,9 @@ func TestSyncDir_classifiesOpenError(t *testing.T) {
 // syncDir's os.Open failure path. Calling syncDir on a path that does
 // not exist must surface an fs.ErrNotExist, not classify it as ErrUnsupported.
 func TestSyncDirOpenFailureIsReturned(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SyncDir is a documented no-op on Windows (a directory handle cannot be flushed), so it never reports this failure")
+	}
 	missing := filepath.Join(t.TempDir(), "no-such-dir")
 	err := SyncDir(missing)
 	if err == nil {
