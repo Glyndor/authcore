@@ -43,3 +43,18 @@ func TestNilPointerAnswersForItself(t *testing.T) {
 		t.Errorf("LogValue = %q", got)
 	}
 }
+
+type detailed struct{}
+
+func (detailed) Format(f fmt.State, verb rune) {
+	redactfmt.FormatWith(f, verb, "pkg.Detailed", "short", "long")
+}
+
+func TestFormatWithUsesTheGivenForms(t *testing.T) {
+	cases := map[string]string{"%v": "short", "%s": "short", "%q": `"short"`, "%#v": "long", "%d": "%!d(pkg.Detailed)"}
+	for verb, want := range cases {
+		if got := fmt.Sprintf(verb, detailed{}); got != want {
+			t.Errorf("Sprintf(%q) = %q, want %q", verb, got, want)
+		}
+	}
+}

@@ -40,17 +40,23 @@ func LogValue(isNil bool, name string) slog.Value {
 // have no meaning for the type render as a Go %!verb error instead of falling
 // back to reflection over the fields.
 func Format(f fmt.State, verb rune, name string) {
+	FormatWith(f, verb, name, String(false, name), GoString(false, name))
+}
+
+// FormatWith is Format for a type that prints more than a fixed marker: str is
+// the %v, %+v and %s form and goStr the %#v form.
+func FormatWith(f fmt.State, verb rune, name, str, goStr string) {
 	switch verb {
 	case 'v':
 		if f.Flag('#') {
-			_, _ = io.WriteString(f, GoString(false, name))
+			_, _ = io.WriteString(f, goStr)
 			return
 		}
-		_, _ = io.WriteString(f, String(false, name))
+		_, _ = io.WriteString(f, str)
 	case 's':
-		_, _ = io.WriteString(f, String(false, name))
+		_, _ = io.WriteString(f, str)
 	case 'q':
-		_, _ = fmt.Fprintf(f, "%q", String(false, name))
+		_, _ = fmt.Fprintf(f, "%q", str)
 	default:
 		_, _ = fmt.Fprintf(f, "%%!%c(%s)", verb, name)
 	}
