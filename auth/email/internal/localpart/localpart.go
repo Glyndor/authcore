@@ -25,16 +25,41 @@ func Canonical(local string) (string, error) {
 	if !utf8.ValidString(local) {
 		return "", errs.Invalid(fmt.Errorf("local part is not valid UTF-8"))
 	}
-	local = norm.NFC.String(local)
-	for _, r := range local {
+	// Lowercasing can leave a sequence that composes (a capital followed by
+	// combining marks), and composing can expose another case mapping, so the
+	// two steps repeat until the spelling stops changing. Without that, the
+	// stored form was not a fixed point of this function.
+	s := norm.NFC.String(local)
+	for range maxPasses {
+		if err := refuseUnsafe(s); err != nil {
+			return "", err
+		}
+		next := norm.NFC.String(strings.ToLower(s))
+		if next == s {
+			return s, nil
+		}
+		s = next
+	}
+	return "", errs.Invalid(fmt.Errorf("local part has no stable canonical form"))
+}
+
+// maxPasses bounds the lowercase-and-compose loop; every input measured settles
+// in two.
+const maxPasses = 4
+
+// refuseUnsafe refuses the characters that must not reach a stored address.
+func refuseUnsafe(s string) error {
+	for _, r := range s {
 		switch {
 		case unicode.Is(unicode.Cc, r), unicode.Is(unicode.Cf, r),
 			unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r),
 			unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
-			return "", errs.Invalid(fmt.Errorf("local part holds an invisible or control character %U", r))
+			return errs.Invalid(fmt.Errorf("local part holds an invisible or control character %U", r))
+		case r >= utf8.RuneSelf && unicode.IsSpace(r):
+			return errs.Invalid(fmt.Errorf("local part holds an invisible or control character %U", r))
 		case r >= utf8.RuneSelf && unicode.ToLower(r) < utf8.RuneSelf:
-			return "", errs.Invalid(fmt.Errorf("local part holds %U, which lowercases to an ASCII letter", r))
+			return errs.Invalid(fmt.Errorf("local part holds %U, which lowercases to an ASCII letter", r))
 		}
 	}
-	return strings.ToLower(local), nil
+	return nil
 }

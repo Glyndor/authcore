@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 	"github.com/Glyndor/authcore/tests/hostile/keymanager/hostiletest"
@@ -261,6 +263,9 @@ func TestHostile_Staging_hostileNamesAreNeverFollowedOrLoggedRaw(t *testing.T) {
 	}
 	for i, name := range names {
 		t.Run("name"+string(rune('A'+i)), func(t *testing.T) {
+			if runtime.GOOS == "darwin" && !utf8.ValidString(name) {
+				t.Skip("APFS refuses a name that is not valid UTF-8 (EILSEQ), so the entry cannot be created")
+			}
 			sb := hostiletest.NewSandbox(t)
 			mine := hostiletest.NewSet(t)
 			dir := privatePlusStaging(t, mine, sb, name)

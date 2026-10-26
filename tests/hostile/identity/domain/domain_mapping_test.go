@@ -43,6 +43,9 @@ func TestHostile_Email_everyBMPDomainCharacterAgreesWithUTS46(t *testing.T) {
 		if r == 0x3002 || r == 0xff0e || r == 0xff61 {
 			continue // label separators: a leading one is an empty label, which the structural check refuses
 		}
+		if r >= 0x2135 && r <= 0x2138 {
+			continue // map to Hebrew letters; their ASCII form is refused on a second pass, so the module refuses them (below)
+		}
 		domain := string(r) + "x.com"
 		want, refErr := idna.Lookup.ToASCII(domain)
 		got, err := m.ValidateAndNormalize("a@" + domain)
@@ -52,6 +55,18 @@ func TestHostile_Email_everyBMPDomainCharacterAgreesWithUTS46(t *testing.T) {
 		}
 		if err == nil && got != "a@"+want {
 			t.Errorf("U+%04X: module %q, UTS #46 %q", r, got, "a@"+want)
+		}
+	}
+}
+
+// Four symbols map to Hebrew letters under UTS #46, and the ASCII name that
+// results is refused when it goes through IDNA again. Accepting them stored a
+// value the next normalisation rejected, so the module refuses the symbols.
+func TestHostile_Email_domainWhoseASCIIFormIsRefusedOnASecondPassIsRefused(t *testing.T) {
+	m := hostiletest.NewEmail(t)
+	for r := rune(0x2135); r <= 0x2138; r++ {
+		if got, err := m.ValidateAndNormalize("a@" + string(r) + "x.com"); err == nil {
+			t.Errorf("U+%04X was accepted as %q", r, got)
 		}
 	}
 }

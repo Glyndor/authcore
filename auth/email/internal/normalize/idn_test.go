@@ -36,3 +36,26 @@ func TestAddress_refusesAnInvisibleLocalPart(t *testing.T) {
 		t.Errorf("zero width space: %v, want ErrInvalidEmail", err)
 	}
 }
+
+// A domain whose ASCII form is not itself a valid name has no canonical form:
+// storing it would make the second pass over the stored value refuse what the
+// first one accepted.
+func TestAddress_refusesADomainThatDoesNotSurviveASecondPass(t *testing.T) {
+	_, err := normalize.Address("a@\u2137a.example")
+	if !errors.Is(err, email.ErrInvalidEmail) {
+		t.Fatalf("got %v, want ErrInvalidEmail", err)
+	}
+}
+
+func TestAddress_isAFixedPointForAcceptedDomains(t *testing.T) {
+	for _, in := range []string{"User@München.DE", "a@example.com", "a@EXAMPLE.com", "a@bücher.example"} {
+		first, err := normalize.Address(in)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		second, err := normalize.Address(first)
+		if err != nil || second != first {
+			t.Errorf("%q: %q then %q (%v), want the same form", in, first, second, err)
+		}
+	}
+}

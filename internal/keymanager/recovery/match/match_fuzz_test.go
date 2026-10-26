@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
 )
@@ -30,6 +32,9 @@ func FuzzFindStaging(f *testing.F) {
 		}
 		if len(stagedPriv) > layout.MaxKeyFileSize || len(publishedPriv) > layout.MaxKeyFileSize {
 			t.Skip("over the read cap, covered by the cap tests")
+		}
+		if runtime.GOOS == "windows" && (!utf8.ValidString(suffix) || strings.HasSuffix(suffix, ".") || strings.HasSuffix(suffix, " ") || strings.ContainsAny(suffix, `<>:"|?*\`)) {
+			t.Skip("Windows rewrites or refuses this directory name, so the entry the test creates is not the one it names")
 		}
 		dir := t.TempDir()
 		staging := filepath.Join(dir, layout.StagingPrefix+suffix)

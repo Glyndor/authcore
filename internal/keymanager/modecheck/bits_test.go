@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager/modecheck"
@@ -17,6 +18,9 @@ func (w *warnings) Warn(string, ...any) { w.n++ }
 // Only read and write bits for group and others are a finding; execute bits
 // on a file that is not executed are not.
 func TestWarnIfReadableByOthers_IgnoresExecuteBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode")
+	}
 	cases := []struct {
 		mode os.FileMode
 		warn bool
@@ -50,6 +54,9 @@ func TestWarnIfReadableByOthers_IgnoresExecuteBits(t *testing.T) {
 // A directory whose only excess bit is "others may search" is still looser
 // than owner-only and is tightened to 0700.
 func TestTightenDirMode_RemovesALoneOtherExecuteBit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode")
+	}
 	for _, mode := range []os.FileMode{0o701, 0o710, 0o755, 0o770} {
 		dir := t.TempDir()
 		if err := os.Chmod(dir, mode); err != nil {
@@ -71,6 +78,9 @@ func TestTightenDirMode_RemovesALoneOtherExecuteBit(t *testing.T) {
 // A directory with no owner bits at all is still tightened: nothing outside
 // 0700 stays, and the owner can restore access by hand.
 func TestTightenDirMode_StripsGroupAndOtherBitsFromADirectoryWithoutOwnerBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits: Chmod only toggles read-only and Stat reports a synthetic mode")
+	}
 	dir := t.TempDir()
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	if err := os.Chmod(dir, 0o055); err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -49,6 +50,9 @@ func afterAllRead(f func(attempt int)) func(attempt, file int) {
 }
 
 func TestFiles_repeatsTheReadWhenTheSetIsReplacedDuringIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename over or remove a file this code holds open (no FILE_SHARE_DELETE), so the replacement this test performs mid-read cannot happen")
+	}
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
 	var current keyloadtest.KeySet
@@ -73,6 +77,9 @@ func TestFiles_repeatsTheReadWhenTheSetIsReplacedDuringIt(t *testing.T) {
 }
 
 func TestFiles_refusesASetThatNeverSettles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename over or remove a file this code holds open (no FILE_SHARE_DELETE), so the replacement this test performs mid-read cannot happen")
+	}
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
 	attempts := 0
@@ -135,6 +142,9 @@ func TestFiles_aMissingFileKeepsItsOwnError(t *testing.T) {
 }
 
 func TestFiles_aFileThatVanishesAfterTheReadIsNotVouchedFor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename over or remove a file this code holds open (no FILE_SHARE_DELETE), so the replacement this test performs mid-read cannot happen")
+	}
 	dir := t.TempDir()
 	keyloadtest.WriteSet(t, dir)
 	hooks(t, afterAllRead(func(int) { _ = os.Remove(filepath.Join(dir, layout.FileRefreshSecret)) }))
@@ -145,6 +155,9 @@ func TestFiles_aFileThatVanishesAfterTheReadIsNotVouchedFor(t *testing.T) {
 }
 
 func TestFiles_aFileThatVanishesAfterTheReadIsReadAgainWhenItComesBack(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename over or remove a file this code holds open (no FILE_SHARE_DELETE), so the replacement this test performs mid-read cannot happen")
+	}
 	dir := t.TempDir()
 	set := keyloadtest.WriteSet(t, dir)
 	hooks(t, afterAllRead(func(attempt int) {

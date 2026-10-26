@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -326,7 +327,7 @@ func TestNew_warnsOnFreshGeneration(t *testing.T) {
 			freshGenerationTag, log.warns, log.infos)
 	}
 	for _, w := range fresh {
-		if !strings.Contains(w, dir) {
+		if !strings.Contains(w, strconv.Quote(dir)) { // the message quotes the path with %q
 			t.Errorf("fresh-generation Warn should name the KeysDir %q, got: %q", dir, w)
 		}
 	}

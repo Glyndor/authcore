@@ -2,6 +2,7 @@ package fileio
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -17,6 +18,9 @@ func TestReadCapped_unreadableEntryIsReported(t *testing.T) {
 // /dev/null opens fine and answers fsync with EINVAL, the same answer some FUSE
 // and network mounts give, which SyncDir reports as success.
 func TestSyncDir_unsupportedSyncIsNotAnError(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("/dev/null answers fsync with ENODEV on macOS, not the EINVAL this test is about")
+	}
 	if _, err := os.Stat("/dev/null"); err != nil {
 		t.Skip("/dev/null is not available")
 	}

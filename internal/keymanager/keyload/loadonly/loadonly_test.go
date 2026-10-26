@@ -93,6 +93,9 @@ func TestLoadOnly_aFileWhereTheDirectoryShouldBeIsRefused(t *testing.T) {
 }
 
 func TestLoadOnly_unstattableDirectoryIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports a path below a regular file as not found (ERROR_PATH_NOT_FOUND) instead of not a directory, so the error this test pins cannot occur")
+	}
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
 		t.Fatal(err)

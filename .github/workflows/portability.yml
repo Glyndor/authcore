@@ -1,0 +1,139 @@
+name: Portability
+
+# The shared Go CI runs on ubuntu only. File permissions, symlinks, FIFOs,
+# rename over an open file and file locking behave differently on Windows and
+# macOS, and a library that reads and writes key material on disk has to be
+# exercised there too. This workflow builds, vets and tests the whole module on
+# both.
+#
+# Triggers: pull requests into main and develop, because a change to a test or
+# to the key store can break one of these systems without breaking ubuntu; a
+# weekly schedule, because a runner image or toolchain bump changes outcomes
+# without a commit (its cron sits off the hour and away from the other weekly
+# runs: pin watch 05:17 Mon, audit 06:00 Mon, fuzz 07:00 Mon, containers 05:37
+# Tue, hostile 05:07 Wed, unit-repeat 05:27 Thu); and workflow_dispatch for a
+# manual run.
+#
+# Cost, measured on 2026-10-26 from the first full run: 2 min of job time for
+# the Windows leg and 3.5 min for the macOS leg (which runs the race detector),
+# about 6 min of runner time per run, billed at the higher macOS and Windows
+# rates. The leg timeout is four times the slower leg.
+#
+# What skips it: `decide` runs first. A pull request that changes no .go file,
+# no go.mod or go.sum and not this workflow has nothing for the matrix, so the
+# legs are skipped on purpose. Any other event, a label change and any doubt
+# answer "run".
+#
+# Concurrency: one run per pull request or ref; a new push to a pull request
+# cancels the run in flight, scheduled and manual runs never cancel each other.
+#
+# Check: the `portability` job at the bottom is the single stable check these
+# legs feed. It is not a required check; it reports an omission by decision as
+# success and a failed or cancelled leg as failure.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "47 5 * * 5"  # Every Friday at 05:47 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Tells the matrix whether Go code, the module files or this workflow changed.
+  # It always runs and always succeeds; on anything other than a pull request,
+  # on a label change, and whenever it cannot tell, it answers "run".
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/portability\.yml$'
+        run: bash scripts/ci-decide/decide.sh "$INCLUDE"
+
+  test:
+    name: test (${{ matrix.os }})
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15  # measured 2026-10-26: 2 min on Windows, 3.5 min on macOS with -race
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        include:
+          # The race detector needs cgo on Windows and a gcc the image may not
+          # have; macOS has it built in.
+          - os: windows-latest
+            race: ''
+          - os: macos-latest
+            race: '-race'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build, vet & test
+        shell: bash
+        env:
+          RACE: ${{ matrix.race }}
+        run: |
+          go build ./...
+          go vet ./...
+          # RACE is empty on Windows, so it must expand unquoted.
+          # shellcheck disable=SC2086
+          go test $RACE -count=1 ./...
+
+  # Aggregation gate for the matrix above. needs: alone would skip this job when
+  # a leg fails, and a skipped check can read as success, so it runs on every
+  # outcome and tells a skip by decision from a failure.
+  portability:
+    name: Portability
+    needs: [decide, test]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5  # one shell comparison
+    steps:
+      - name: Verify matrix result
+        env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
+          RESULT: ${{ needs.test.result }}
+        run: |
+          printf 'needs.decide.result=%s run=%s needs.test.result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          # The decision itself must have succeeded; a skipped or failed
+          # decide is not "nothing to test".
+          if [ "$DECIDE" != "success" ]; then
+            exit 1
+          fi
+          # Nothing relevant changed: the legs were skipped on purpose.
+          if [ "$RUN" = "false" ] && [ "$RESULT" = "skipped" ]; then
+            exit 0
+          fi
+          if [ "$RESULT" != "success" ]; then
+            exit 1
+          fi

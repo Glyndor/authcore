@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func TestMisuse_ConfigZero_authcoreEmptyConfigIsSafe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm()&0o077 != 0 {
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 { // Windows reports a synthetic 0666/0777 mode, not the ACL
 			t.Errorf("%s is %v, readable by group or others", path, info.Mode().Perm())
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
@@ -49,7 +50,9 @@ func TestHelpersFailTheTestOnBadInput(t *testing.T) {
 	mustFatal(t, "CopyFile (write)", func(tb testing.TB) { recoverytest.CopyFile(tb, src, missing+"/dst") })
 	mustFatal(t, "StagingFrom (mkdir)", func(tb testing.TB) { recoverytest.StagingFrom(tb, blocker, "x", src) })
 	mustFatal(t, "StagingFrom (copy)", func(tb testing.TB) { recoverytest.StagingFrom(tb, t.TempDir(), "x", missing) })
-	mustFatal(t, "Complete", func(tb testing.TB) { recoverytest.Complete(tb, blocker) })
+	if runtime.GOOS != "windows" { // Windows reports a path below a regular file as not found, which Complete accepts as absent
+		mustFatal(t, "Complete", func(tb testing.TB) { recoverytest.Complete(tb, blocker) })
+	}
 }
 
 func TestSeedKeysReportsAnUnwritableKeyFile(t *testing.T) {
