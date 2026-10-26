@@ -155,7 +155,7 @@ func (a *APIKey) Name() string { return "apikey" }
 // that was never constructed by New cannot emit output derived from an
 // empty HMAC pepper.
 func (a *APIKey) Generate() (*GeneratedKey, error) {
-	if !a.initialised {
+	if a == nil || !a.initialised {
 		return nil, ErrNotInitialised
 	}
 	idBytes := make([]byte, format.IDLen)
@@ -181,7 +181,7 @@ func (a *APIKey) Generate() (*GeneratedKey, error) {
 // was never constructed by New cannot emit a digest derived from an empty
 // HMAC pepper.
 func (a *APIKey) Hash(key string) (string, error) {
-	if !a.initialised {
+	if a == nil || !a.initialised {
 		return "", ErrNotInitialised
 	}
 	return digest.Hash(a.secret, key), nil
@@ -194,7 +194,7 @@ func (a *APIKey) Hash(key string) (string, error) {
 // cannot verify anything, and answering true would let a caller mistake
 // "no key was used" for "the key matched".
 func (a *APIKey) Verify(key, storedHash string) bool {
-	if !a.initialised {
+	if a == nil || !a.initialised {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(digest.Hash(a.secret, key)), []byte(storedHash)) == 1

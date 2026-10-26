@@ -50,6 +50,10 @@ var _ authcore.Module = (*Client)(nil)
 
 // Client is the OIDC client module. Construct one per provider at startup with
 // New and share it; it is safe for concurrent use.
+//
+// A nil or zero-value Client, which New never built, refuses AuthCodeURL,
+// Exchange and UserInfo with an error wrapping ErrInvalidConfig and
+// VerifyIDToken with an error wrapping ErrIDTokenInvalid.
 type Client struct {
 	cfg  Config
 	log  authcore.Logger
@@ -82,6 +86,13 @@ func New(p authcore.Provider, cfg Config) (*Client, error) {
 	return c, nil
 }
 
+// errNotBuilt is what a nil or zero-value Client answers: it has no client id
+// and no provider, so it must not produce a request or accept a token.
+var errNotBuilt = fmt.Errorf("%w: client not initialised, use oauth.New", ErrInvalidConfig)
+
+// built reports whether New produced c. New always creates the key cache.
+func (c *Client) built() bool { return c != nil && c.jwks != nil }
+
 // Name returns the module's unique identifier. It implements authcore.Module.
 func (c *Client) Name() string { return "oauth" }
 
@@ -104,6 +115,9 @@ type AuthRequest struct {
 // AuthCodeURL generates fresh state, nonce and a PKCE verifier, and builds the
 // authorization redirect URL. Every call is independent.
 func (c *Client) AuthCodeURL() (*AuthRequest, error) {
+	if !c.built() {
+		return nil, errNotBuilt
+	}
 	state, err := pkce.RandomURLToken()
 	if err != nil {
 		return nil, err
@@ -177,6 +191,9 @@ type Tokens struct {
 // read (the OIDC default would be Basic). A provider that advertises only
 // methods this library does not know is refused before the round trip.
 func (c *Client) Exchange(ctx context.Context, code, verifier string) (*Tokens, error) {
+	if !c.built() {
+		return nil, errNotBuilt
+	}
 	tok, err := exchange.Do(ctx, c.http, exchange.Params{
 		TokenURL:       c.cfg.Provider.TokenURL,
 		ClientID:       c.cfg.ClientID,
@@ -261,6 +278,9 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client, opts 
 // json.Number (via json.Decoder.UseNumber) so large identifiers (e.g. GitHub
 // "id") survive the round trip without lossy float64 conversion.
 func (c *Client) UserInfo(ctx context.Context, accessToken string) (map[string]any, error) {
+	if !c.built() {
+		return nil, errNotBuilt
+	}
 	if c.cfg.Provider.UserInfoURL == "" {
 		return nil, ErrNoUserInfo
 	}

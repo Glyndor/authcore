@@ -140,6 +140,13 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 	return pw, nil
 }
 
+// errNotBuilt is what a nil or zero-value Password answers: it has no policy
+// and no work factor, so nothing it computed could be trusted.
+var errNotBuilt = fmt.Errorf("%w: module not initialised, use password.New", ErrInvalidConfig)
+
+// built reports whether New produced p. New always sets the logger.
+func (p *Password) built() bool { return p != nil && p.log != nil }
+
 // Name returns the module's unique identifier. It implements authcore.Module.
 func (p *Password) Name() string { return "password" }
 
@@ -164,7 +171,12 @@ func (p *Password) Name() string { return "password" }
 // when the input contains a non-printable character. Once length passes, the
 // printable-character check precedes the required classes and uses
 // [ErrNonPrintableCharacter] as its wrapped reason.
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) ValidatePolicy(plaintext string) error {
+	if !p.built() {
+		return errNotBuilt
+	}
 	if err := checkPolicy(norm.NFC.String(plaintext), p.cfg); err != nil {
 		return &policyViolation{reason: err}
 	}
@@ -203,7 +215,12 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 //	hash, err := pwdMod.Hash(userPassword)
 //	if errors.Is(err, password.ErrWeakPassword) { /* tell the user what's wrong */ }
 //	db.StorePasswordHash(userID, hash)
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) Hash(plaintext string) (string, error) {
+	if !p.built() {
+		return "", errNotBuilt
+	}
 	// Normalise to Unicode NFC so the same visual password typed on different
 	// systems (precomposed vs combining accents, e.g. "café" as one codepoint
 	// vs "e" + combining-acute) produces the same hash. Without this, users
@@ -249,7 +266,12 @@ func (p *Password) Hash(plaintext string) (string, error) {
 //	ok, err := pwdMod.Verify(submittedPassword, storedHash)
 //	if errors.Is(err, password.ErrInvalidHash) { ... } // hash is malformed or out of range
 //	if !ok { return http.StatusUnauthorized }
+//
+// On a nil or zero-value Password it returns an error wrapping ErrInvalidConfig.
 func (p *Password) Verify(plaintext, phcHash string) (bool, error) {
+	if !p.built() {
+		return false, errNotBuilt
+	}
 	// Normalise to Unicode NFC (matching Hash) so the user can sign in from a
 	// different platform than the one they registered on without losing access
 	// to their account.

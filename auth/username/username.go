@@ -116,7 +116,12 @@ func (u *Username) Name() string { return "username" }
 //	    return
 //	}
 //	db.StoreUser(normalized, ...) // always lowercase, trimmed, validated
+//
+// A nil or zero-value Username accepts nothing: it returns ErrInvalidUsername.
 func (u *Username) ValidateAndNormalize(raw string) (string, error) {
+	if u == nil {
+		return "", &usernameViolation{reason: fmt.Errorf("module not initialised, use username.New")}
+	}
 	// Normalize first so validation sees the canonical form.
 	// Storing the normalized form ensures consistent lookups:
 	// "Alice123" and "alice123" resolve to the same record.

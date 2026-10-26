@@ -63,6 +63,10 @@ func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
 	return e, nil
 }
 
+// errNotBuilt is what a nil Email, or a zero Email asked for a DNS lookup,
+// answers: the module was never built by New.
+var errNotBuilt = fmt.Errorf("%w: module not initialised, use email.New", ErrInvalidConfig)
+
 // Close is a no-op retained for backward compatibility.
 //
 // The module no longer runs a background goroutine: the MX cache evicts
@@ -88,7 +92,12 @@ func (e *Email) Name() string { return "email" }
 //	    return
 //	}
 //	db.StoreUser(normalized, ...) // always lowercase, trimmed, validated
+//
+// A nil *Email returns an error wrapping ErrInvalidConfig.
 func (e *Email) ValidateAndNormalize(address string) (string, error) {
+	if e == nil {
+		return "", errNotBuilt
+	}
 	// Normalize first so validation sees the canonical form.
 	// Storing the normalized form ensures consistent lookups:
 	// "USER@EXAMPLE.COM" and "user@example.com" resolve to the same record.
@@ -147,6 +156,12 @@ func (e *Email) ValidateAndNormalize(address string) (string, error) {
 //	    c.JSON(400, map[string]string{"error": "email domain cannot receive messages"})
 //	    return
 //	}
+//
+// A nil Email, or a zero-value Email that New never built, returns an error
+// wrapping ErrInvalidConfig.
 func (e *Email) VerifyDomain(ctx context.Context, address string) error {
+	if e == nil || e.mx == nil {
+		return errNotBuilt
+	}
 	return e.mx.Verify(ctx, address)
 }
