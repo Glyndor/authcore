@@ -1,11 +1,5 @@
 package field
 
-// Input-guard tests for field.New and for methods on a zero-value
-// Field. Each rejection test asserts WHICH rejection (errors.Is with
-// the sentinel, or a fragment of the message) so a test that fires on
-// the wrong rule fails clearly. Each rejection has an acceptance twin
-// just inside the limit.
-
 import (
 	"errors"
 	"strings"
@@ -13,6 +7,12 @@ import (
 
 	"github.com/Glyndor/authcore"
 )
+
+// Input-guard tests for field.New and for methods on a zero-value
+// Field. Each rejection test asserts WHICH rejection (errors.Is with
+// the sentinel, or a fragment of the message) so a test that fires on
+// the wrong rule fails clearly. Each rejection has an acceptance twin
+// just inside the limit.
 
 // ---- test doubles ---------------------------------------------------------
 
@@ -264,5 +264,18 @@ func TestApplyDefaults_IsPassThrough(t *testing.T) {
 	}
 	if got := applyDefaults(Config{Context: "email"}).Context; got != "email" {
 		t.Errorf("applyDefaults({email}).Context = %q, want email (explicit value must survive)", got)
+	}
+}
+
+func TestField_nilReceiverRefusesEveryCall(t *testing.T) {
+	var m *Field
+	if _, err := m.Encrypt("a"); !errors.Is(err, ErrNotInitialised) {
+		t.Errorf("Encrypt: %v", err)
+	}
+	if _, err := m.Decrypt("a"); !errors.Is(err, ErrNotInitialised) {
+		t.Errorf("Decrypt: %v", err)
+	}
+	if _, err := m.BlindIndex("a"); !errors.Is(err, ErrNotInitialised) {
+		t.Errorf("BlindIndex: %v", err)
 	}
 }
