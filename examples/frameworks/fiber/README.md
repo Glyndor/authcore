@@ -52,4 +52,15 @@ curl -X POST localhost:3000/refresh \
 - `jwtMod.VerifyAccessToken` in a Fiber middleware for `/me`.
 - `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens`: the full anti-reuse rotation pattern.
 
-User storage is an in-memory `map` for brevity. Swap it for your real database.
+## Before you copy this
+
+The example covers the token flow, not the whole perimeter. What it does and what it leaves to you:
+
+- **Input is bounded.** Bodies are capped at 16 KiB, the app sets every timeout, the address is normalized and validated, and a login password longer than 1 KiB is refused before it is hashed.
+- **Login does not reveal which accounts exist.** An unknown address is verified against a decoy hash, so it costs one Argon2id derivation and answers byte for byte like a wrong password.
+- **Registration does reveal it.** A taken address answers `409`, which lets a caller enumerate accounts. Accept that in a demo only; in production answer every registration the same way and send the outcome to the mailbox.
+- **No rate limit.** Nothing slows repeated attempts per address or per client, so online password guessing is only bounded by the cost of Argon2id. Put a limiter in front (per address and per IP) and lock or delay after repeated failures.
+- **No logout and no revocation list.** Rotating or discarding the refresh token ends the session, but an access token that was already issued stays valid until it expires. Keep access tokens short, and add a revocation check on `/me` if you need an immediate cut-off.
+- **Tokens travel in JSON bodies and the `Authorization` header.** There are no cookies, so there is no CSRF surface here; if you move the refresh token to a cookie, make it `HttpOnly`, `Secure` and `SameSite` and add CSRF protection.
+- **One session per account.** A new login replaces the stored refresh hash.
+- **User storage is an in-memory `map`** for brevity, so accounts vanish on restart. Swap it for your real database and keep the unique constraint on the address.

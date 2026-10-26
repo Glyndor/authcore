@@ -12,12 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/auth/jwt"
 	"github.com/Glyndor/authcore/auth/password"
 	"github.com/gofiber/fiber/v3"
+	recoverer "github.com/gofiber/fiber/v3/middleware/recover"
 )
 
 // ---- custom claims ----------------------------------------------------------
@@ -30,28 +31,36 @@ type UserClaims struct {
 // ---- main -------------------------------------------------------------------
 
 func main() {
-	pwdMod, jwtMod, err := newModules(authcore.DefaultConfig())
+	pwdMod, jwtMod, emailMod, err := newModules(authcore.DefaultConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	app := newApp(pwdMod, jwtMod)
+	app, err := newApp(pwdMod, jwtMod, emailMod)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Println("listening on :3000")
 	log.Fatal(app.Listen(":3000"))
 }
 
-// newModules initialises authcore from cfg and returns the two modules the
+// newModules initialises authcore from cfg and returns the three modules the
 // routes use. Call it once at startup and share the result between requests.
-func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], error) {
+func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], *email.Email, error) {
 	auth, err := authcore.New(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("authcore: %w", err)
+		return nil, nil, nil, fmt.Errorf("authcore: %w", err)
 	}
 
 	pwdMod, err := password.New(auth)
 	if err != nil {
-		return nil, nil, fmt.Errorf("password module: %w", err)
+		return nil, nil, nil, fmt.Errorf("password module: %w", err)
+	}
+
+	emailMod, err := email.New(auth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("email module: %w", err)
 	}
 
 	jwtCfg := jwt.DefaultConfig()
@@ -60,18 +69,26 @@ func newModules(cfg authcore.Config) (*password.Password, *jwt.JWT[UserClaims], 
 
 	jwtMod, err := jwt.New[UserClaims](auth, jwtCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("jwt module: %w", err)
+		return nil, nil, nil, fmt.Errorf("jwt module: %w", err)
 	}
 
-	return pwdMod, jwtMod, nil
+	return pwdMod, jwtMod, emailMod, nil
 }
 
-// newApp builds the Fiber app with every route of the example wired to pwdMod
-// and jwtMod, over a fresh empty user store. main serves it, and the tests
+// newApp builds the Fiber app with every route of the example wired to the
+// three modules, over a fresh empty user store. main serves it, and the tests
 // drive the same app through app.Test.
-func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
+func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod *email.Email) (*fiber.App, error) {
 	db := newStore()
-	app := fiber.New()
+	app := fiber.New(newConfig())
+	app.Use(recoverer.New(), hardening)
+
+	// Login verifies against this hash when the account does not exist, so an
+	// unknown address costs one Argon2id derivation like a wrong password.
+	decoy, err := pwdMod.Hash(decoyPassword)
+	if err != nil {
+		return nil, fmt.Errorf("decoy hash: %w", err)
+	}
 
 	// -------------------------------------------------------------------------
 	// POST /register
@@ -83,7 +100,14 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 			Password string `json:"password"`
 		}
 		if err := c.Bind().JSON(&req); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+			return badBody(c)
+		}
+
+		// The canonical address is the key: without it "Ana@example.com" and
+		// "ana@example.com" are two accounts. ErrInvalidEmail is CLIENT-SAFE.
+		addr, err := emailMod.ValidateAndNormalize(req.Email)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": errors.Unwrap(err).Error()})
 		}
 
 		// Fail-fast: reject weak passwords before spending CPU on Argon2id.
@@ -106,7 +130,7 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 		// separate field: it can change, the subject cannot.
 		created := db.insert(user{
 			id:           newUserID(),
-			email:        req.Email,
+			email:        addr,
 			passwordHash: hash,
 		})
 		if !created {
@@ -133,15 +157,26 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 			Password string `json:"password"`
 		}
 		if err := c.Bind().JSON(&req); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+			return badBody(c)
 		}
-
-		u, exists := db.findByEmail(req.Email)
-		if !exists {
+		if len(req.Password) > maxLoginPassword {
+			// Verify applies no length policy and hashes all of its input.
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 		}
 
-		ok, err := pwdMod.Verify(req.Password, u.passwordHash)
+		// Unknown and malformed addresses take the same path as a wrong
+		// password: one Argon2id derivation, then the same 401.
+		hash := decoy
+		var u user
+		exists := false
+		if addr, addrErr := emailMod.ValidateAndNormalize(req.Email); addrErr == nil {
+			u, exists = db.findByEmail(addr)
+		}
+		if exists {
+			hash = u.passwordHash
+		}
+
+		ok, err := pwdMod.Verify(req.Password, hash)
 		if err != nil {
 			// ErrInvalidHash is INTERNAL — log it, return generic 401.
 			// %q quotes and escapes control characters so a hostile email
@@ -149,7 +184,7 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 			log.Printf("verify error for %q: %v", req.Email, err)
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 		}
-		if !ok {
+		if !ok || !exists {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 		}
 
@@ -179,9 +214,8 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 	// Header: Authorization: Bearer <access_token>
 	// -------------------------------------------------------------------------
 	app.Get("/me", func(c fiber.Ctx) error {
-		header := c.Get("Authorization")
-		token, found := strings.CutPrefix(header, "Bearer ")
-		if !found || token == "" {
+		token, found := bearerToken(c.GetReqHeaders()["Authorization"])
+		if !found {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing token"})
 		}
 
@@ -214,7 +248,10 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 			RefreshToken string `json:"refresh_token"`
 		}
 		if err := c.Bind().JSON(&req); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+			return badBody(c)
+		}
+		if req.RefreshToken == "" {
+			return badBody(c)
 		}
 
 		// 1. Look the session up by the hash of the presented token, then
@@ -232,7 +269,8 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 		//    Nothing minted here may reach the client before step 3 succeeds.
 		newPair, err := jwtMod.RotateTokens(req.RefreshToken, UserClaims{Email: found.email})
 		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "could not rotate token"})
+			// Same answer as an unknown token: do not tell which one failed.
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid refresh token"})
 		}
 
 		// 3. Consume the presented token: swap its hash for the new one only
@@ -250,5 +288,5 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims]) *fiber.App {
 		})
 	})
 
-	return app
+	return app, nil
 }
