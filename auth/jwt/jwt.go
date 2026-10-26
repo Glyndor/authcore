@@ -143,11 +143,14 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 		return nil, fmt.Errorf("%w: provider key id is not valid UTF-8", ErrInvalidConfig)
 	}
 
+	// The key slices are copied like the secret: the provider's accessors
+	// return its own memory, and a caller clearing them after use must not
+	// change what this module signs and verifies with.
 	j := &JWT[T]{
 		cfg:             resolved,
 		log:             logger,
-		priv:            keys.PrivateKey(),
-		pub:             keys.PublicKey(),
+		priv:            bytes.Clone(keys.PrivateKey()),
+		pub:             bytes.Clone(keys.PublicKey()),
 		secret:          bytes.Clone(secret),
 		kid:             keys.KeyID(),
 		clock:           clock.New(p.Config().Timezone),
