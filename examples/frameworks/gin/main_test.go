@@ -29,9 +29,9 @@ var uuidV7 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-
 // header when it is not empty.
 type call func(method, path, body, bearer string) (int, map[string]any)
 
-// newExample builds the same engine main serves, with keys in a directory that
+// newEngine builds the same engine main serves, with keys in a directory that
 // is removed when the test ends.
-func newExample(t *testing.T) call {
+func newEngine(t *testing.T) *gin.Engine {
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
@@ -41,11 +41,21 @@ func newExample(t *testing.T) call {
 	cfg.EnableLogs = false
 	cfg.KeysDir = t.TempDir()
 
-	pwdMod, jwtMod, err := newModules(cfg)
+	pwdMod, jwtMod, emailMod, err := newModules(cfg)
 	if err != nil {
 		t.Fatalf("newModules: %v", err)
 	}
-	engine := newRouter(pwdMod, jwtMod)
+	engine, err := newRouter(pwdMod, jwtMod, emailMod)
+	if err != nil {
+		t.Fatalf("newRouter: %v", err)
+	}
+	return engine
+}
+
+// newExample returns a call function bound to a fresh engine.
+func newExample(t *testing.T) call {
+	t.Helper()
+	engine := newEngine(t)
 
 	return func(method, path, body, bearer string) (int, map[string]any) {
 		req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
