@@ -1,4 +1,4 @@
-.PHONY: build test lint clean coverage help
+.PHONY: build test test-hostile test-repeat api-compat lint clean coverage help
 
 # Default target
 all: lint test build
@@ -10,6 +10,27 @@ build:
 ## test: Run tests with race detector
 test:
 	go test -v -race ./...
+
+## test-hostile: Run the hostile suites twice, shuffled, under the race detector
+test-hostile:
+	go test -race -count=2 -shuffle=on ./tests/hostile/...
+
+## test-repeat: Run the unit tests three times, shuffled, under the race detector (the weekly flake hunt)
+test-repeat:
+	@pkgs="$$(go list ./... | grep -v '/tests/hostile')" && go test -race -count=3 -shuffle=on $$pkgs
+
+## api-compat: Compare the public API with BASE (default origin/develop); set LABELS=breaking to acknowledge a break
+BASE ?= origin/develop
+LABELS ?=
+api-compat:
+	@command -v apidiff > /dev/null || { \
+		echo "apidiff is required; install the version pinned in .github/workflows/api-compat.yml" >&2; \
+		echo "  go install golang.org/x/exp/cmd/apidiff@<APIDIFF_VERSION>" >&2; \
+		exit 1; \
+	}
+	@base="$$(mktemp -d)" && git archive "$(BASE)" | tar -x -C "$$base" && \
+		PR_LABELS="$(LABELS)" bash scripts/api-compat/api-compat.sh "$$base" . ; \
+		rc=$$?; rm -rf "$$base"; exit $$rc
 
 ## lint: Run golangci-lint
 lint:
