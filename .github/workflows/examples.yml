@@ -6,18 +6,59 @@ name: Examples
 # them, so build, vet and run each example's tests here. Building an example is
 # not exercising it.
 
+# Triggers: pull requests only. A push to develop or main re-ran the same ten
+# legs on a tree that the pull request had just tested; nothing reads that run,
+# so it is gone (standards/ci, rule 5). The release pull request into main runs
+# the whole set, which is the check that matters before a tag.
+#
+# Cost, measured on 2026-10-26 from the job times of one pull request: the ten
+# legs took 35 to 108 s each, about 510 s of runner time, half of everything a
+# pull request ran. They look at the examples and at the code the examples build
+# against, so a pull request that touches only tests, docs or CI has nothing for
+# them: `decide` skips the legs, and the required `Examples` check below reports
+# success without having built anything.
+
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Tells the matrix whether the examples, or the code they build against, changed.
+  # It always runs and always succeeds; on anything other than a pull request,
+  # on a label change, and whenever it cannot tell, it answers "run".
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          INCLUDE: '^examples/|^[^/]+\.go$|^(auth|internal|cmd)/.*\.go$|^go\.(mod|sum)$|^\.github/workflows/examples\.yml$'
+          EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
+        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+
   build:
     name: build & vet
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15  # measured locally 2026-09-18: build, vet and race tests of the slowest example took under 60s
     strategy:
@@ -52,7 +93,7 @@ jobs:
   # leg and must not be required.
   examples:
     name: Examples
-    needs: [build]
+    needs: [decide, build]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
@@ -62,9 +103,20 @@ jobs:
     steps:
       - name: Verify matrix result
         env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
           RESULT: ${{ needs.build.result }}
         run: |
-          printf 'needs.build.result=%s\n' "$RESULT"
+          printf 'needs.decide.result=%s run=%s needs.build.result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          # The decision itself must have succeeded; a skipped or failed
+          # decide is not "nothing to build".
+          if [ "$DECIDE" != "success" ]; then
+            exit 1
+          fi
+          # Nothing relevant changed: the legs were skipped on purpose.
+          if [ "$RUN" = "false" ] && [ "$RESULT" = "skipped" ]; then
+            exit 0
+          fi
           if [ "$RESULT" != "success" ]; then
             exit 1
           fi

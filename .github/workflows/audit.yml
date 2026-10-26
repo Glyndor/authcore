@@ -12,11 +12,46 @@ on:
     - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
   workflow_dispatch:
 
+# Cost, measured on 2026-10-26: gosec 51 s and govulncheck 28 s of job time. On
+# a pull request they look at Go source and module files, so a pull request that
+# changes neither skips them; the schedule and manual runs always run.
+
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Tells the audit whether any Go file or module file changed.
+  # It always runs and always succeeds; on anything other than a pull request,
+  # on a label change, and whenever it cannot tell, it answers "run".
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/audit\.yml$'
+          EXCLUDE: ''
+        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+
   audit:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     uses: Glyndor/.github/.github/workflows/go-audit.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
       # G104 (errcheck on logger Output) and G306 (public-key 0644) are justified
