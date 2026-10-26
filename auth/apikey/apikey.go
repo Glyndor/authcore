@@ -193,8 +193,17 @@ func (a *APIKey) Hash(key string) (string, error) {
 // Verify returns false on a zero-value APIKey: a module with no HMAC pepper
 // cannot verify anything, and answering true would let a caller mistake
 // "no key was used" for "the key matched".
+//
+// Verify also returns false when key does not have the shape Generate
+// produces, the one ParseID accepts, whatever storedHash holds. The digest is
+// the same HMAC that other modules use for their own secrets, so without that
+// check a refresh token, or the empty string, would verify against its own
+// stored hash.
 func (a *APIKey) Verify(key, storedHash string) bool {
 	if a == nil || !a.initialised {
+		return false
+	}
+	if _, ok := format.ParseID(a.cfg.Prefix, key); !ok {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(digest.Hash(a.secret, key)), []byte(storedHash)) == 1

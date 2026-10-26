@@ -6,7 +6,7 @@ import (
 )
 
 // FuzzHashAgainstOracle compares Hash and Verify with the independent HMAC on
-// arbitrary strings, and requires that a one-byte change to either the key or
+// arbitrary strings (Verify only on those shaped like a key), and requires that a one-byte change to either the key or
 // the stored hash is a mismatch.
 func FuzzHashAgainstOracle(f *testing.F) {
 	pepper := randomPepper(f)
@@ -19,6 +19,12 @@ func FuzzHashAgainstOracle(f *testing.F) {
 		stored := oracleHash(pepper, key)
 		if got, err := m.Hash(key); err != nil || got != stored {
 			t.Fatalf("Hash = %q, %v; oracle %q", got, err, stored)
+		}
+		if _, err := m.ParseID(key); err != nil {
+			if m.Verify(key, stored) {
+				t.Fatal("Verify accepted a string that is not shaped like a key")
+			}
+			return
 		}
 		if !m.Verify(key, stored) {
 			t.Fatal("Verify refused the oracle's hash")

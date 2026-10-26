@@ -14,7 +14,8 @@ import (
 // value stored as a credential hash is also what apikey.Hash gives for that
 // framing, and the reverse.
 //
-// The hashes are not changed, because every stored one would stop matching.
+// The hashes are not changed, because every stored one would stop matching,
+// but apikey.Verify refuses a key that does not have the generated shape.
 // This test pins the behaviour so a change to it is a deliberate one, and so
 // the advice in the documentation (keep the two kinds of hash in separate
 // columns, never compare across them) stays tied to a fact.
@@ -46,8 +47,8 @@ func TestHostile_Contract_apiKeyAndCredentialHashesShareOneKeySpace(t *testing.T
 	if got != issued.Hash {
 		t.Errorf("the two modules no longer hash into one key space: apikey gave %s, credential stored %s", got, issued.Hash)
 	}
-	if !keysModule.Verify(framed("reset", "alice", issued.Token), issued.Hash) {
-		t.Error("apikey.Verify no longer accepts the credential-framed input against the credential's stored hash")
+	if keysModule.Verify(framed("reset", "alice", issued.Token), issued.Hash) {
+		t.Error("apikey.Verify accepted the credential-framed input against the credential's stored hash")
 	}
 
 	// Under a different secret the same input gives a different hash: the
