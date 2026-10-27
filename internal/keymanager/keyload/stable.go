@@ -1,9 +1,11 @@
 package keyload
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,6 +43,11 @@ import (
 // only the binding can recognise it. The paths are checked one after another,
 // so a volume that flips back and forth between every single look could still
 // get through; a refresh is one retarget of a link, not a flip per file.
+//
+// After all three are read, each descriptor is rewound and read again, and the
+// bytes must equal the first read: a file rewritten in place keeps its device
+// and inode, so identity alone cannot see it. A binding, when present,
+// additionally establishes that the key pair and the secret belong together.
 
 // readAttempts bounds how often a read that overlapped a change is repeated.
 const readAttempts = 3
@@ -99,8 +106,8 @@ func Files(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey
 	return nil, nil, nil, refusals.KeysChangedWhileReading(dir)
 }
 
-// readStable reads every path once through a descriptor kept open until all
-// are read, then checks that each path still leads to its descriptor. settled
+// readStable reads every path through a descriptor kept open until all are
+// read, then verifies unchanged content and path identity. settled
 // reports whether the outcome can be trusted: false means a path moved (or a
 // file vanished) during the read and the caller should repeat it, with err
 // carrying the I/O error behind it when there was one. When settled, err is a
@@ -126,6 +133,18 @@ func readStable(paths []string, attempt int) (data [][]byte, settled bool, err e
 		data = append(data, b)
 		if seams.AfterKeyRead != nil {
 			seams.AfterKeyRead(attempt, i)
+		}
+	}
+	for i, f := range files {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return nil, false, readErr(i, paths[i], err)
+		}
+		b, err := fileio.ReadCappedFile(f, paths[i])
+		if err != nil {
+			return nil, false, readErr(i, paths[i], err)
+		}
+		if !bytes.Equal(data[i], b) {
+			return nil, false, nil
 		}
 	}
 	return data, leadToSame(paths, files), nil
