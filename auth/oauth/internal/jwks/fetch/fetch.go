@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/candidate"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks/jwk"
 )
@@ -56,7 +57,7 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 		// own timeout also satisfies errors.Is(err, context.DeadlineExceeded),
 		// and that one says the provider did not answer, which must count.
 		if ctx.Err() != nil {
-			return Set{}, err
+			return Set{}, ctx.Err()
 		}
 		failed()
 		return Set{}, fmt.Errorf("%w: %w", errFetch, err)
@@ -67,6 +68,9 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 	// never read as the prefix that does fit.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes+1))
 	if err != nil {
+		if ctx.Err() != nil {
+			return Set{}, ctx.Err()
+		}
 		failed()
 		return Set{}, fmt.Errorf("%w: read: %w", errFetch, err)
 	}
@@ -79,6 +83,17 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 		return Set{}, fmt.Errorf("%w: status %d", errFetch, resp.StatusCode)
 	}
 
+	var members struct {
+		Keys jsonstrict.Once `json:"keys"`
+	}
+	if err := json.Unmarshal(body, &members); err != nil {
+		failed()
+		return Set{}, fmt.Errorf("%w: decode: %w", errFetch, err)
+	}
+	if members.Keys.Twice() {
+		failed()
+		return Set{}, fmt.Errorf("%w: keys is written more than once", errFetch)
+	}
 	var doc jwksDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
 		failed()
