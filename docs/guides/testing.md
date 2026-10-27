@@ -195,6 +195,9 @@ authcore/
 | `…/auth/username` | public | Username validation, normalization, reserved names |
 | `…/auth/apikey` | public | Opaque API key generation and verification |
 | `…/auth/oauth` | public | OpenID Connect / OAuth2 client |
+| `…/auth/totp` | public | TOTP second factor and recovery codes |
+| `…/auth/credential` | public | Purpose-bound tokens for password reset and activation |
+| `…/auth/field` | public | Column encryption and blind index |
 | `…/internal/clock` | internal | Shared time abstraction |
 | `…/internal/keystore/contract`, `/keysdir`, `/disk` | internal | KeyStore contract checks, keys directory checks, the disk loader |
 | `…/internal/logging` | internal | Built-in stdlib and noop loggers |

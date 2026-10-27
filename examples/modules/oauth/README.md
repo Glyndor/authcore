@@ -25,6 +25,8 @@ Register `http://localhost:8080/callback` as the redirect URI with your provider
 |---|---|---|
 | `google` (default) | OIDC | `VerifyIDToken` |
 | `microsoft` | OIDC | `VerifyIDToken` (set `OAUTH_TENANT` to a specific tenant id; the `common`/`organizations` aliases fail exact-issuer validation) |
+| `apple` | OIDC | `VerifyIDToken` (needs `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY_FILE`; `OAUTH_CLIENT_SECRET` must be unset, the secret is signed from the `.p8` key) |
+| `vercel` | OIDC | `VerifyIDToken` |
 | `github` | OAuth2 | `UserInfo` |
 | `discord` | OAuth2 | `UserInfo` |
 

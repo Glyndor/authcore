@@ -2,7 +2,7 @@
 // reach a consumer's dependency graph through authcore's own go.mod. That split
 // used to be held together by a `replace` in every example, which forced each
 // one to carry hashes for the root module's requirements too — so a bump landing
-// in the root go.mod alone left all nine examples unbuildable until they were
+// in the root go.mod alone left all ten examples unbuildable until they were
 // tidied one by one.
 //
 // The workspace resolves authcore from the checkout instead, and satisfies the

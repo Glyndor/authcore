@@ -56,8 +56,8 @@ authcore could not read or create its key files. Check that:
 ## Can I verify tokens issued before I rotated my signing key?
 
 Yes. authcore embeds the `kid` (key ID) in every token header. When you add a new
-key pair, keep the old public key in the key store under its original `kid`. The
-verifier will select the right key automatically. See
+key pair, list the old public key in `jwt.Config.PreviousPublicKeys`. The
+verifier indexes it by its `kid` and selects the right key automatically. See
 [Key management](../guides/key-management.md) for the rotation workflow.
 
 ## My existing password hashes were created with a different library. Can I migrate?
