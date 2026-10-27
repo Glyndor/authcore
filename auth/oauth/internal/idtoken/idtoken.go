@@ -12,6 +12,7 @@ import (
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/claimread"
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/jwsheader"
+	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/jwspayload"
 	"github.com/Glyndor/authcore/auth/oauth/internal/idtoken/keyissuer"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
 	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
@@ -81,6 +82,14 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	}
 
 	if err := jwsheader.RejectCritical(idToken); err != nil {
+		return nil, fmt.Errorf("%w: %w", p.Invalid, err)
+	}
+
+	// The subject the token names is read from the payload's text, so the
+	// payload must carry the text the signer wrote: a byte or an escape the
+	// decoder cannot read would be repaired, and the repaired value would
+	// name another identity.
+	if err := jwspayload.CheckText(idToken); err != nil {
 		return nil, fmt.Errorf("%w: %w", p.Invalid, err)
 	}
 
