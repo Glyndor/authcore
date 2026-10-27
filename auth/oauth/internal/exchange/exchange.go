@@ -191,7 +191,7 @@ func decode(p Params, body []byte, secret, authCode, verifier string) (*Tokens, 
 	// bare string) as an error too: the spec requires an object.
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(body, &probe); err != nil {
-		return nil, fmt.Errorf("%w: decode response: %w", p.Errs.Exchange, err)
+		return nil, fmt.Errorf("%w: decode response: invalid JSON object", p.Errs.Exchange)
 	}
 	if probe == nil {
 		return nil, fmt.Errorf("%w: empty response", p.Errs.Exchange)
@@ -224,7 +224,7 @@ func decode(p Params, body []byte, secret, authCode, verifier string) (*Tokens, 
 
 	var tok Tokens
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return nil, fmt.Errorf("%w: decode response: %w", p.Errs.Exchange, err)
+		return nil, fmt.Errorf("%w: decode response: invalid token fields", p.Errs.Exchange)
 	}
 	if strings.TrimSpace(tok.AccessToken) == "" || tok.TokenType == "" {
 		return nil, fmt.Errorf("%w: response missing access_token or token_type", p.Errs.Exchange)

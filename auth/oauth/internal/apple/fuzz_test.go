@@ -38,6 +38,7 @@ func FuzzClientSecret(f *testing.F) {
 	good := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 	f.Add(good, "ABCDE12345", "KEYID67890", "com.example.services")
 	f.Add(append([]byte("junk\n"), good...), "ABCDE12345", "KEYID67890", "com.example.services")
+	f.Add(append([]byte("-----BEGIN PRIVATE KEY-----\ninvalid!\n"), good...), "ABCDE12345", "KEYID67890", "com.example.services")
 	f.Add(append(append([]byte(nil), good...), good...), "ABCDE12345", "KEYID67890", "com.example.services")
 	f.Add(good, "abcde12345", "KEYID67890", "com.example.services")
 	f.Add(good, "ABCDE1234", "KEYID67890", "com.example.services")
@@ -97,6 +98,12 @@ func FuzzClientSecret(f *testing.F) {
 func oraclePEMBlock(t *testing.T, p8 []byte) *pem.Block {
 	t.Helper()
 	trimmed := bytes.TrimSpace(p8)
+	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN PRIVATE KEY-----")) {
+		t.Fatal("accepted key bytes with text before the PRIVATE KEY block")
+	}
+	if bytes.Contains(trimmed[len("-----BEGIN "):], []byte("-----BEGIN ")) {
+		t.Fatal("accepted key bytes with a skipped PEM prefix")
+	}
 	block, rest := pem.Decode(trimmed)
 	if block == nil || block.Type != "PRIVATE KEY" {
 		t.Fatal("accepted key bytes that carry no PRIVATE KEY block")
