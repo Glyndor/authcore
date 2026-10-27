@@ -419,16 +419,28 @@ verifier must keep accepting it until they expire.
    new key; tokens still bearing the old `kid` keep verifying.
 
    When you do this on disk, point the new instance at a fresh `KeysDir`
-   *carrying the old `refresh_secret.key` across byte for byte*, either by
-   copying it into the new directory before starting, or by sourcing the
-   new signing pair through `NewKeyStoreFromKeys` /
-   `NewKeyStoreFromPEM` with the existing secret. Initialisation also
-   generates a new refresh secret; if that one replaces the old one, every
-   stored refresh-token hash, API-key hash, TOTP recovery-code hash and
-   outstanding credential link stops matching, and every `auth/field`
-   encrypted column becomes unreadable. `New` will not detect this; it
-   happens at request time, across the whole deployment. Keep the secret
-   stable for the entire rotation, then change it deliberately.
+   *carrying the old `refresh_secret.key` across byte for byte*, or source the
+   new signing pair through `NewKeyStoreFromKeys` / `NewKeyStoreFromPEM` with
+   the existing secret. Copying only the old secret into an empty directory
+   does not work: a directory with one of the three key files is a partial set
+   and `New` refuses to start on it. On disk, do this instead, before starting
+   the new instance:
+
+   1. Generate a complete set in a new directory with
+      `authcore-keygen -out ./keys-new`.
+   2. Overwrite `./keys-new/refresh_secret.key` with the old one, byte for
+      byte, keeping mode `0600`.
+   3. Remove the `secret_binding` line from `./keys-new/metadata.json`. The
+      generated binding belongs to the generated secret, and a different secret
+      is refused until you say the swap is on purpose (see
+      [the refresh secret binding](#the-refresh-secret-is-bound-to-its-key-pair) above).
+
+   Initialisation also generates a new refresh secret; if that one replaces the
+   old one, every stored refresh-token hash, API-key hash, TOTP recovery-code
+   hash and outstanding credential link stops matching, and every `auth/field`
+   encrypted column becomes unreadable. `New` will not detect this; it happens
+   at request time, across the whole deployment. Keep the secret stable for the
+   entire rotation, then change it deliberately.
 
    ```go
    cfg := jwt.DefaultConfig()
