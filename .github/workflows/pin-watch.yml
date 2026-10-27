@@ -61,9 +61,14 @@ on:
 
 permissions: {}
 
+# One run per event and ref: a new push to a pull request cancels the run in
+# flight, and the scheduled run and the manual one do not cancel each other
+# (standards/ci, rule 1). The event is part of the group, so they do not even
+# share it. The `watch` job reconciles the drift issue, and a cancelled run
+# leaves that issue without the report that explains it.
 concurrency:
-  group: pin-watch-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: pin-watch-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   report:

@@ -1,8 +1,9 @@
 name: CI
 
+# Triggers: pull requests only. A push to develop or main re-ran the suite on
+# the tree the pull request had just tested and nothing read it, so it is gone
+# (standards/ci, rule 5).
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 

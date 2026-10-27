@@ -82,7 +82,9 @@ jobs:
     # require it later without orphaning anything.
     name: api compatibility
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 33 s of job time measured on 2026-10-26; the bound is for a hung
+    # runner, not for the comparison.
+    timeout-minutes: 5
     env:
       APIDIFF_VERSION: v0.0.0-20260908205506-85c1c2202aba
       APIDIFF_MODULE_SUM: h1:Ck8QetSgk912qxWLMCKxd0in+aiyBQyDSMae6e/xmpU=

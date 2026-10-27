@@ -56,9 +56,13 @@ permissions:
   contents: read
   pull-requests: read
 
+# One run per event and ref: a new push to a pull request cancels the run in
+# flight, and the daily cron and the manual run do not cancel each other
+# (standards/ci, rule 1). The event is part of the group, so they do not even
+# share it. A cancelled run is a stuck Dependabot bump nobody hears about.
 concurrency:
-  group: dependabot-security-watch-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: dependabot-security-watch-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   dependabot-security-watch:
