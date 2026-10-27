@@ -334,6 +334,12 @@ modified). A proxy named by that transport or by the proxy environment
 variables is trusted to resolve its target. Any other `RoundTripper` cannot be
 inspected, so keeping it off internal addresses is yours.
 
+The supplied transport's deprecated `Dial` and `DialTLS` hooks receive the
+same connection check. Their precedence relative to `DialContext` and
+`DialTLSContext` is preserved. Custom dial hooks are checked after connecting,
+before HTTP request bytes are written; the default dialer checks each resolved
+address before connecting.
+
 ## What is yours
 
 Sessions, cookies, CSRF on your own routes, and where you persist the per-request

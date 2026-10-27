@@ -157,7 +157,7 @@ authcore/
 │   │       ├── vkey/         # Refusing public keys that cannot be trusted
 │   │       └── jwttest/      # Test-only fixtures: keys, provider, a clock-driven rig
 │   ├── password/        # Argon2id password hashing (internal/: kdf, phc, policy)
-│   ├── email/           # Email validation, normalization, DNS MX verification (internal/: errs, localpart, normalize, syntax, mx; mx/internal/: cache, domain, answer)
+│   ├── email/           # Email validation, normalization, DNS MX verification (internal/: errs, localpart, normalize, syntax, mx; mx/: cache, domain, answer)
 │   ├── totp/            # TOTP codes and recovery codes (internal/: hotp, secret, otpauth, recovery, verifier)
 │   ├── username/        # Username validation, normalization (internal/reserved: the blocklist)
 │   ├── apikey/          # Opaque API keys (internal/: format, digest)
@@ -167,7 +167,7 @@ authcore/
 │       └── internal/
 │           ├── idtoken/      # ID token verification (claimread/: typed claim readers, keyissuer/: the signing key's issuer)
 │           ├── jwks/         # Signing-key cache: TTL, refresh cooldown, selection (candidate/: per-key restrictions, fetch/: download and size cap, jwk/: JWK parsing)
-│           ├── discovery/ exchange/ userinfo/ apple/ clientauth/ issuer/ pkce/ redirect/ urlcheck/ presets/   # the rest of the flow
+│           ├── discovery/ exchange/ userinfo/ apple/ clientauth/ issuer/ pkce/ redirect/ urlcheck/   # the rest of the flow
 │           └── oauthtest/    # Test-only fixtures: provider, keys, client
 │
 └── examples/

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 // TestVerifyDomain_rejectsNullMX covers RFC 7505 section 3: a domain that

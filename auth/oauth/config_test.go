@@ -158,7 +158,7 @@ func TestNew_rejectsEveryMalformedEndpoint(t *testing.T) {
 }
 
 // TestPresets_publishTheirEndpoints pins the shape of the presets that the
-// fixture tests in internal/presets cover against captured provider documents.
+// fixture tests in presets_*_test.go cover against captured provider documents.
 func TestPresets_publishTheirEndpoints(t *testing.T) {
 	const tenant = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 	ms, err := oauth.Microsoft(tenant)

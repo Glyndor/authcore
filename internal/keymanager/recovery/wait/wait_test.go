@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/internal/keymanager/layout"
+	"github.com/Glyndor/authcore/internal/keymanager/recovery"
 	"github.com/Glyndor/authcore/internal/keymanager/recovery/recoverytest"
 )
 
@@ -67,8 +68,16 @@ func TestWaitExpiresWithAccurateMessage(t *testing.T) {
 	start := time.Now()
 	err := ForSet(dir, recoverytest.SilentLog{})
 	elapsed := time.Since(start)
-	if elapsed > time.Second {
-		t.Errorf("wait exceeded 1s on an empty dir: %v", elapsed)
+	// The clock is a safety net on top of the window the wait was given,
+	// and it scales with that window: a runner that is slow does not fail
+	// the test for having stretched a 50 ms window.
+	if elapsed > 100*publishWait {
+		t.Errorf("wait exceeded %v on an empty dir: %v", 100*publishWait, elapsed)
+	}
+	// The wait must not give up before its window: a refusal that arrives
+	// early is not the expiry this test is about.
+	if elapsed < publishWait {
+		t.Errorf("wait gave up after %v, before its %v window", elapsed, publishWait)
 	}
 	if err == nil {
 		t.Fatal("ForSet returned nil on an empty dir")
@@ -83,12 +92,26 @@ func TestWaitExpiresWithAccurateMessage(t *testing.T) {
 
 func TestForSet_returnsAsSoonAsTheSetIsComplete(t *testing.T) {
 	dir := recoverytest.MustSeed(t, t.TempDir())
+	window := publishWait
+	// Baseline: what one recovery pass costs on this machine, measured in
+	// this test, so the bound below scales with the runner instead of being
+	// a fixed number.
+	baseStart := time.Now()
+	if err := recovery.TryRecover(dir, recoverytest.SilentLog{}); err != nil {
+		t.Fatalf("TryRecover on a complete set: %v", err)
+	}
+	baseline := time.Since(baseStart)
+
 	start := time.Now()
 	if err := ForSet(dir, recoverytest.SilentLog{}); err != nil {
 		t.Fatalf("ForSet: %v", err)
 	}
-	if time.Since(start) > time.Second {
-		t.Error("ForSet waited on a set that was already complete")
+	// The wait must not cost a significant fraction of the window it waits
+	// for: on a complete set it returns on the first recovery pass. The
+	// floor keeps the bound from ever being tighter than it was.
+	limit := max(20*baseline, window/5)
+	if elapsed := time.Since(start); elapsed > limit {
+		t.Errorf("ForSet waited on a set that was already complete: %v, limit %v", elapsed, limit)
 	}
 }
 

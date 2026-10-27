@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 func TestHasRealMX(t *testing.T) {

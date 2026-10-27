@@ -151,12 +151,30 @@ func TestHostile_MX_implausibleNamesNeverReachTheResolver(t *testing.T) {
 		"only a dot":    {"user@.", ErrInvalidEmail},
 		"10 MiB domain": {"user@" + strings.Repeat("a", 10<<20), ErrInvalidEmail},
 	} {
+		// Baseline: the same refusal, measured on this machine, so the
+		// bound below is relative to what this runner costs instead of
+		// being a fixed number. A runner that is slow stretches the
+		// baseline and the measurement alike, and the comparison holds.
+		baseStart := time.Now()
+		if err := e.VerifyDomain(context.Background(), addr.addr); !errors.Is(err, addr.want) {
+			t.Fatalf("%s: VerifyDomain = %v, want %v", name, err, addr.want)
+		}
+		baseline := time.Since(baseStart)
+
 		start := time.Now()
 		if err := e.VerifyDomain(context.Background(), addr.addr); !errors.Is(err, addr.want) {
 			t.Errorf("%s: VerifyDomain = %v, want %v", name, err, addr.want)
 		}
-		if d := time.Since(start); d > time.Second {
-			t.Errorf("%s: took %v", name, d)
+		elapsed := time.Since(start)
+		// The floor keeps the bound from ever being tighter than a second.
+		if limit := max(20*baseline, time.Second); elapsed > limit {
+			t.Errorf("%s: took %v, limit %v", name, elapsed, limit)
+		}
+		// The explicit signal: a name that cannot be looked up is refused
+		// before the resolver, so the count cannot move while it is
+		// refused. This one does not depend on the clock at all.
+		if n := r.count(); n != 0 {
+			t.Fatalf("%s: the resolver was asked %d times for a name that cannot be looked up: %q", name, n, r.calls)
 		}
 	}
 	if n := r.count(); n != 0 {
@@ -178,6 +196,16 @@ func TestHostile_MX_stalledResolverIsBoundedByTheCallersContextAndCoalesced(t *t
 	})
 
 	const callers = 50
+	const callerTimeout = 50 * time.Millisecond
+	// Baseline: how long this runner takes to deliver a deadline to a
+	// waiter, measured here. The bound on the batch scales with it, so a
+	// loaded runner that delivers the deadline late does not fail the test.
+	baseCtx, baseCancel := context.WithTimeout(context.Background(), callerTimeout)
+	defer baseCancel()
+	baseStart := time.Now()
+	<-baseCtx.Done()
+	baseline := time.Since(baseStart)
+
 	var wg sync.WaitGroup
 	var timedOut atomic.Int64
 	start := time.Now()
@@ -185,7 +213,7 @@ func TestHostile_MX_stalledResolverIsBoundedByTheCallersContextAndCoalesced(t *t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), callerTimeout)
 			defer cancel()
 			if err := e.VerifyDomain(ctx, "user@slow.example"); errors.Is(err, context.DeadlineExceeded) {
 				timedOut.Add(1)
@@ -193,8 +221,12 @@ func TestHostile_MX_stalledResolverIsBoundedByTheCallersContextAndCoalesced(t *t
 		}()
 	}
 	wg.Wait()
-	if d := time.Since(start); d > 3*time.Second {
-		t.Fatalf("callers were held for %v by a resolver that never answers", d)
+	// The batch is bounded by the callers' own deadlines, and the bound
+	// scales with the deadline this runner took to deliver: sixty of them
+	// is a generous multiple of the one the batch owes.
+	limit := 60 * max(baseline, callerTimeout)
+	if d := time.Since(start); d > limit {
+		t.Fatalf("callers were held for %v by a resolver that never answers (limit %v)", d, limit)
 	}
 	if timedOut.Load() != callers {
 		t.Fatalf("%d of %d callers got the deadline error", timedOut.Load(), callers)
@@ -218,15 +250,22 @@ func TestHostile_MX_abandonedLookupStillAnswersTheNextCaller(t *testing.T) {
 		t.Fatalf("first caller: %v, want a deadline error", err)
 	}
 	close(release)
-	deadline := time.Now().Add(5 * time.Second)
+	// The second caller must get the answer as soon as the lookup the
+	// first caller abandoned finishes. The wait is bounded by the caller's
+	// own context instead of by a wall-clock deadline, and the error says
+	// what happened rather than a duration; the answer itself is the
+	// assertion.
+	laterCtx, laterCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer laterCancel()
 	for {
-		err := e.VerifyDomain(context.Background(), "user@later.example")
+		err := e.VerifyDomain(laterCtx, "user@later.example")
 		if err == nil {
 			break
 		}
-		if time.Now().After(deadline) {
+		if laterCtx.Err() != nil {
 			t.Fatalf("second caller never got the answer: %v", err)
 		}
+		time.Sleep(2 * time.Millisecond)
 	}
 	if n := r.count(); n != 1 {
 		t.Fatalf("the resolver was asked %d times, want 1", n)

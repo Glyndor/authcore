@@ -29,7 +29,7 @@ func TestJWKS_aStragglerUsesTheRefreshThatFinishedAfterItLooked(t *testing.T) {
 
 	tick := time.Unix(1_700_000_000, 0)
 	cache := New(srv.URL, srv.Client(), testErrs)
-	cache.now = func() time.Time { tick = tick.Add(time.Second); return tick } // every read of the clock differs
+	cache.now = func() time.Time { tick = tick.Add(minRefreshInterval); return tick } // every read of the clock differs
 	ctx := context.Background()
 
 	var seen time.Time // what a caller saw before any refresh: no expiry at all

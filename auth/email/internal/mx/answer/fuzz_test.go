@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/answer"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/answer"
 )
 
 // fuzzRecords splits the answer of the fuzzer into the records it holds:
