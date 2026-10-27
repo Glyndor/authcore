@@ -188,8 +188,8 @@ func TestGuard(t *testing.T) {
 	}
 
 	legacy := &http.Transport{Dial: func(string, string) (net.Conn, error) { return nil, nil }} //nolint:staticcheck // Exercising the deprecated hook.
-	if Guard(legacy) != http.RoundTripper(legacy) {
-		t.Error("a transport with a legacy dial hook was replaced")
+	if Guard(legacy) == http.RoundTripper(legacy) {
+		t.Error("a transport with a legacy dial hook was not cloned")
 	}
 }
 
