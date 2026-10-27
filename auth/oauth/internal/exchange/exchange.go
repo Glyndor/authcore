@@ -29,6 +29,10 @@ type Tokens struct {
 // a few hundred bytes is the provider echoing form fields or log noise.
 const exchangeErrorMaxLen = 512
 
+// responseMaxBytes caps the token response so a hostile or broken endpoint
+// cannot exhaust memory.
+const responseMaxBytes = 1 << 20
+
 // exchangeCodeMaxLen caps the "error" code of the same response; the codes
 // RFC 6749 defines are a few words long.
 const exchangeCodeMaxLen = 128
@@ -104,9 +108,14 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 	defer func() { _ = resp.Body.Close() }()
 
 	// Cap the response so a hostile or broken endpoint cannot exhaust memory.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// Read one byte past the cap: a body that does not fit is refused whole,
+	// never read as the prefix that does fit.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, responseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read response: %w", p.Errs.Exchange, err)
+	}
+	if len(body) > responseMaxBytes {
+		return nil, fmt.Errorf("%w: response larger than %d bytes", p.Errs.Exchange, responseMaxBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("%w: status %d", p.Errs.Exchange, resp.StatusCode)
