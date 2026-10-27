@@ -106,7 +106,10 @@ func TestHostile_Email_structuralAttacksAreRefused(t *testing.T) {
 			if got != "" || !errors.Is(err, email.ErrInvalidEmail) {
 				t.Fatalf("ValidateAndNormalize = %q, %v; want empty and ErrInvalidEmail", got, err)
 			}
-			if d := time.Since(start); d > 3*time.Second {
+			// A guard against a refusal that scales with the input, not a
+			// measure of speed: the four MiB case took 0.08 s on Linux and
+			// 3.2 s on a loaded macOS runner, which failed a 3 s bound.
+			if d := time.Since(start); d > 30*time.Second {
 				t.Fatalf("refusing took %v", d)
 			}
 		})

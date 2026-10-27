@@ -3,6 +3,7 @@ package responses_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -16,6 +17,13 @@ import (
 
 // An endless body must be cut at the cap: the client may not keep reading.
 func TestHostile_Response_endlessBodyIsCutAtTheCap(t *testing.T) {
+	// The client's timeout is the client's own bound, not the property under
+	// test: the cut must come from the 1 MiB cap. A timeout shorter than the
+	// wall-clock limit would let the timeout win the race on a loaded runner,
+	// and the test would fail for the wrong reason. The limit below is
+	// therefore derived from that timeout instead of being a fixed number.
+	const clientTimeout = 5 * time.Second
+	const limitMultiple = 6
 	for _, s := range surfaces() {
 		t.Run(s.name, func(t *testing.T) {
 			t.Parallel()
@@ -33,11 +41,22 @@ func TestHostile_Response_endlessBodyIsCutAtTheCap(t *testing.T) {
 				}
 			}))
 			start := time.Now()
-			err := s.call(t, srv.URL, &http.Client{Timeout: 5 * time.Second})
+			err := s.call(t, srv.URL, &http.Client{Timeout: clientTimeout})
 			if err == nil {
 				t.Fatal("an endless body was accepted")
 			}
-			if elapsed := time.Since(start); elapsed > 3*time.Second {
+			// The cut must be the cap's, not the client's timeout: a deadline
+			// error says the timeout won, which is a different behaviour.
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("the client gave up on its %v timeout instead of cutting the body at the cap: %v", clientTimeout, err)
+			}
+			if !strings.Contains(err.Error(), "response larger than") {
+				t.Fatalf("the endless body was not cut at the cap: %v", err)
+			}
+			// The clock is a safety net only, and it scales with the client's
+			// own timeout: a runner that is slow, but not slow enough to let
+			// the timeout win, must not fail the test.
+			if elapsed := time.Since(start); elapsed > limitMultiple*clientTimeout {
 				t.Fatalf("took %v to give up on an endless body", elapsed)
 			}
 			// The cap is 1 MiB; the rest is whatever the socket buffers swallowed.
