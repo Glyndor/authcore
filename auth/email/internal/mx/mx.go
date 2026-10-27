@@ -13,9 +13,9 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/answer"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/domain"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/answer"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/domain"
 )
 
 // mxLookupTimeout bounds one shared MX lookup. It is the module's own bound,

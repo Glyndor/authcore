@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 // HasRealMX reports whether the slice from LookupMX represents a domain

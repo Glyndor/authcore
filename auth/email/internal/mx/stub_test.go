@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 // stubResolver satisfies Resolver with deterministic, in-process behaviour.

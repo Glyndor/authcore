@@ -9,7 +9,7 @@ import (
 )
 
 // googleJWKSFirstN is the modulus (n) and exponent (e) of the first key in
-// auth/oauth/internal/presets/testdata/providers/google/jwks.json, copied verbatim so a fuzz
+// auth/oauth/testdata/providers/google/jwks.json, copied verbatim so a fuzz
 // run starts from a real provider's key without reading the file at run
 // time. It is also pinned by TestParseJWK_googleJWKSSeed below.
 const (
@@ -29,7 +29,7 @@ func FuzzParseJWK(f *testing.F) {
 	f.Add("", "", "", "", "")
 	f.Add("AQAB", "AQAB", "P-999", "AQAB", "AQAB")
 	// Real Google provider key, copied verbatim from
-	// auth/oauth/internal/presets/testdata/providers/google/jwks.json on 2026-09-07.
+	// auth/oauth/testdata/providers/google/jwks.json on 2026-09-07.
 	f.Add(googleJWKSFirstN, googleJWKSFirstE, "", "", "")
 
 	f.Fuzz(func(t *testing.T, n, e, crv, x, y string) {

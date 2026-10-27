@@ -124,7 +124,7 @@ func TestParseJWK_supportsEveryCurveItClaims(t *testing.T) {
 // the JWK was encoded from. The earlier curve-claim test only asserts the
 // curve name, so a regression that decoded the wrong coordinates while still
 // landing on the right curve would slip past it. None of the captured
-// provider fixtures (internal/presets/testdata/providers/*-jwks.json) carries an EC key, so
+// provider fixtures (auth/oauth/testdata/providers/*-jwks.json) carries an EC key, so
 // the JWK is generated here from fresh keys on P-256 and P-384.
 func TestParseJWK_acceptsECKeysEqualToTheGeneratedPublicKey(t *testing.T) {
 	for name, curve := range map[string]elliptic.Curve{

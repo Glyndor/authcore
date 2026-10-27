@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/domain"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/domain"
 )
 
 // fuzzPlausible is the size limit DNS puts on a domain name, written as a
