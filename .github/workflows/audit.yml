@@ -71,6 +71,8 @@ jobs:
     if: needs.decide.outputs.run != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 1
+    # Only echoes; needs no token scope.
+    permissions: {}
     steps:
       - run: echo "no Go or module file changed; gosec skipped"
 
@@ -80,6 +82,8 @@ jobs:
     if: needs.decide.outputs.run != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 1
+    # Only echoes; needs no token scope.
+    permissions: {}
     steps:
       - run: echo "no Go or module file changed; govulncheck skipped"
 
