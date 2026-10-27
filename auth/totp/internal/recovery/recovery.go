@@ -69,10 +69,27 @@ func Normalize(code string) string {
 // candidate is the keyed hash of the normalised code, so the spelling the
 // user types (hyphens, spaces, case) does not matter.
 func Find(key []byte, code string, storedHashes []string) (int, bool) {
-	if Normalize(code) == "" {
+	// Ten random bytes encode to sixteen base32 characters. Keep grouping
+	// unrestricted while bounding the normalised content to that format.
+	const maxNormalized = (Len*8 + 4) / 5
+	normalized := make([]byte, 0, maxNormalized)
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		if c == '-' || c == ' ' {
+			continue
+		}
+		if len(normalized) == maxNormalized {
+			return 0, false
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 32
+		}
+		normalized = append(normalized, c)
+	}
+	if len(normalized) == 0 {
 		return 0, false
 	}
-	candidate := Hash(key, Normalize(code))
+	candidate := Hash(key, string(normalized))
 	var matchedIdx int
 	var matched byte
 	for i, h := range storedHashes {
