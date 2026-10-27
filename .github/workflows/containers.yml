@@ -65,10 +65,22 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^examples/deploy/|^docs/guides/containers\.md$|\.go$|^go\.(mod|sum)$|^\.github/workflows/containers\.yml$'
           EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
   recipe:
-    name: containers recipe
+    name: containers recipe run
     needs: decide
     if: needs.decide.outputs.run == 'true'
     # podup requires Podman 5.0 or later. ubuntu-24.04, which ubuntu-latest
@@ -109,3 +121,26 @@ jobs:
 
       - name: Run the containers recipe
         run: bash examples/deploy/containers/recipe.sh
+
+  # Keep the published name on an always-running gate. A failed decision is
+  # not evidence that the work was irrelevant.
+  recipe-gate:
+    name: containers recipe
+    needs: [decide, recipe]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 2 # one shell comparison, well under a second of work
+    steps:
+      - name: Verify decision and result
+        env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
+          RESULT: ${{ needs.recipe.result }}
+        run: |
+          printf 'decide=%s run=%s result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          [ "$DECIDE" = "success" ] || exit 1
+          case "$RUN:$RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac

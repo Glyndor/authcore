@@ -83,20 +83,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-
-      - name: Run pin watch unit tests
-        # Standard library only: `unittest` ships with Python and
-        # needs no installed package, so a future Python bump cannot
-        # move the goal posts by adding a dependency the workflow
-        # did not pin. Discovery uses the same path the watch job
-        # runs against.
-        run: |
-          python3 -m unittest discover -s .github/scripts/pin_watch -p 'test_*.py' -v
 
       - name: Run pin watch report
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
         # `pipefail` makes a failed `gh` call fail the step; without
         # it the script would read an empty stream, exit 1, and the
         # step would still be red, but for a reason the log would
@@ -104,7 +98,33 @@ jobs:
         # issues on this code path.
         run: |
           set -euo pipefail
-          python3 .github/scripts/pin_watch/pin_watch.py --report
+          script=.github/scripts/pin_watch/pin_watch.py
+          if [ "$EVENT" = "pull_request" ]; then
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            mkdir -p "$tmp/.github/scripts/pin_watch" "$tmp/.github/workflows"
+            script="$tmp/.github/scripts/pin_watch/pin_watch.py"
+            git show "$BASE:.github/scripts/pin_watch/pin_watch.py" >"$script"
+            # The parser is trusted; the proposed workflow pins are its input data.
+            for workflow in ci containers workflow-lint; do
+              git show "HEAD:.github/workflows/$workflow.yml" >"$tmp/.github/workflows/$workflow.yml"
+            done
+          fi
+          python3 -I "$script" --report
+
+      # Candidate code runs after the base parser, without its GH_TOKEN.
+      - name: Run pin watch unit tests
+        if: ${{ !cancelled() }}
+        # Standard library only: `unittest` ships with Python and
+        # needs no installed package, so a future Python bump cannot
+        # move the goal posts by adding a dependency the workflow
+        # did not pin. Discovery uses the same path the watch job
+        # runs against.
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git archive HEAD .github/scripts/pin_watch .github/workflows | tar -x -C "$tmp"
+          python3 -I -m unittest discover -s "$tmp/.github/scripts/pin_watch" -p 'test_*.py' -v
 
   watch:
     name: pin watch
