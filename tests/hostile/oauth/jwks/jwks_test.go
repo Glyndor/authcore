@@ -42,13 +42,20 @@ func TestHostile_JWKS_unknownKidFloodDoesNotAmplifyIntoTheProvider(t *testing.T)
 
 func TestHostile_JWKS_concurrentUnknownKidFloodCollapsesIntoOneFetch(t *testing.T) {
 	a, _ := hostiletest.RSAKeys()
+	const n = 64
+	// The provider holds its answer until every worker has entered the
+	// verification, so the single fetch is still in flight while the burst
+	// arrives. The count is the signal: the last worker to arrive releases
+	// the provider, so the test does not depend on how long the machine
+	// takes to start and schedule 64 goroutines.
+	var arrived atomic.Int64
+	allIn := make(chan struct{})
 	srv := hostiletest.Serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(150 * time.Millisecond) // long enough for every goroutine to arrive while the fetch is in flight
+		<-allIn
 		_, _ = w.Write(hostiletest.JWKSDoc(hostiletest.RSAJWK(hostiletest.KID, &a.PublicKey, nil)))
 	}))
 	c := hostiletest.OIDCClient(t, srv.URL, nil)
 
-	const n = 64
 	tokens := make([]string, n)
 	for i := range tokens {
 		tokens[i] = hostiletest.Mint{Key: a, Kid: fmt.Sprintf("evil-%d", i), Claims: hostiletest.Claims(hostiletest.Nonce, nil)}.String(t)
@@ -59,6 +66,9 @@ func TestHostile_JWKS_concurrentUnknownKidFloodCollapsesIntoOneFetch(t *testing.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if arrived.Add(1) == n {
+				close(allIn)
+			}
 			if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, hostiletest.Nonce); err == nil {
 				accepted.Add(1)
 			}

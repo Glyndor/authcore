@@ -82,6 +82,19 @@ func TestConcurrentInitAllAgree(t *testing.T) {
 	}
 }
 
+// publishBaseline measures how long a publish takes on this machine, so a
+// deadline that waits for one scales with the runner instead of being a fixed
+// number. It publishes into a directory of its own.
+func publishBaseline(t *testing.T) time.Duration {
+	t.Helper()
+	dir := t.TempDir()
+	start := time.Now()
+	if _, err := bootstraptest.New(dir, bootstraptest.SilentLog{}); err != nil {
+		t.Fatalf("baseline publish: %v", err)
+	}
+	return time.Since(start)
+}
+
 // TestHelperDoesNotDeleteALiveStaging verifies that when goroutine A is
 // mid-publish (its private key is linked, its staging directory is still
 // present), a second goroutine B that calls New does not remove A's staging
@@ -97,6 +110,10 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 	}
 
 	dir := t.TempDir()
+	// The baseline is measured before the fault hook is installed, because
+	// that hook would hold this publish at "published-private" too.
+	baseline := publishBaseline(t)
+
 	release := make(chan struct{})
 	var once sync.Once
 	bootstraptest.WithFaultAt(t, func(p string) error {
@@ -135,7 +152,11 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 	// release (A was still between staging and linking). That variant
 	// hung the package under load on 2026-09-19, and hung every run when
 	// only the first initialiser was delayed 300 ms before its first link.
-	deadline := time.Now().Add(2 * time.Second)
+	// The deadline is a guard, not the assertion: it scales with the
+	// publish this machine just managed, and its floor keeps it generous
+	// enough for a runner that is slow to schedule goroutines.
+	limit := max(20*baseline, 10*time.Second)
+	deadline := time.Now().Add(limit)
 	var initial []string
 	var privOK bool
 	for time.Now().Before(deadline) {
@@ -148,7 +169,7 @@ func TestHelperDoesNotDeleteALiveStaging(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	if !privOK || len(initial) != 1 {
-		t.Fatalf("A's private key did not appear within 2s: staging=%v, privOK=%v", initial, privOK)
+		t.Fatalf("A's private key did not appear within %v: staging=%v, privOK=%v", limit, initial, privOK)
 	}
 
 	// Run B's New in a goroutine and bound the wait so a defect in the
