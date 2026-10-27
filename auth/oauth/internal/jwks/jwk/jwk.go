@@ -8,9 +8,11 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/big"
 
+	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
 	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
@@ -33,6 +35,75 @@ type JWK struct {
 	// holding the "{tenantid}" template, and tells multi-tenant clients to
 	// enforce it. It is not an RFC 7517 member; other providers omit it.
 	Issuer string `json:"issuer"`
+}
+
+// members mirrors the members of a JWK to notice the ones a document writes
+// twice. It must keep the same member names as JWK: a member the mirror does
+// not carry is one whose ambiguity goes unnoticed.
+type members struct {
+	Kty    jsonstrict.Once `json:"kty"`
+	Kid    jsonstrict.Once `json:"kid"`
+	Use    jsonstrict.Once `json:"use"`
+	Alg    jsonstrict.Once `json:"alg"`
+	KeyOps jsonstrict.Once `json:"key_ops"`
+	N      jsonstrict.Once `json:"n"`
+	E      jsonstrict.Once `json:"e"`
+	Crv    jsonstrict.Once `json:"crv"`
+	X      jsonstrict.Once `json:"x"`
+	Y      jsonstrict.Once `json:"y"`
+	Issuer jsonstrict.Once `json:"issuer"`
+}
+
+// twice returns the name of the first member a document writes more than once.
+func (m *members) twice() (string, bool) {
+	for _, member := range []struct {
+		name string
+		once jsonstrict.Once
+	}{
+		{"kty", m.Kty},
+		{"kid", m.Kid},
+		{"use", m.Use},
+		{"alg", m.Alg},
+		{"key_ops", m.KeyOps},
+		{"n", m.N},
+		{"e", m.E},
+		{"crv", m.Crv},
+		{"x", m.X},
+		{"y", m.Y},
+		{"issuer", m.Issuer},
+	} {
+		if member.once.Twice() {
+			return member.name, true
+		}
+	}
+	return "", false
+}
+
+// Decode parses one JSON Web Key.
+//
+// A key whose member a document writes twice is refused whole: the members
+// that restrict the key (use, alg, key_ops) and the ones that carry it (kty,
+// n, e, crv, x, y, kid, issuer) are matched to their fields without regard to
+// capitalisation, and the field is written again for every member that
+// matches it, so the last one wins. A key that spells a member two ways
+// therefore reads differently to two readers, and which spelling was meant is
+// not knowable.
+//
+// The key is read twice: once to count the writes of each member, once to
+// hold its values.
+func Decode(raw []byte) (JWK, error) {
+	var m members
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return JWK{}, err
+	}
+	if name, twice := m.twice(); twice {
+		return JWK{}, fmt.Errorf("member %q is written more than once", name)
+	}
+	var k JWK
+	if err := json.Unmarshal(raw, &k); err != nil {
+		return JWK{}, err
+	}
+	return k, nil
 }
 
 // Parse converts a JWK into an RSA or EC public key.

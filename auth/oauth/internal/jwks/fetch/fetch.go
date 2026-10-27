@@ -17,7 +17,9 @@ import (
 const MaxBytes = 1 << 20
 
 type jwksDoc struct {
-	Keys []jwk.JWK `json:"keys"`
+	// Keys holds the raw text of every key of the document, so each one can
+	// be read on its own terms before it becomes a JWK.
+	Keys []json.RawMessage `json:"keys"`
 }
 
 // Set is the usable content of one JWKS response.
@@ -61,10 +63,16 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
+	// Read one byte past the cap: a body that does not fit is refused whole,
+	// never read as the prefix that does fit.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes+1))
 	if err != nil {
 		failed()
 		return Set{}, fmt.Errorf("%w: read: %w", errFetch, err)
+	}
+	if len(body) > MaxBytes {
+		failed()
+		return Set{}, fmt.Errorf("%w: response larger than %d bytes", errFetch, MaxBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		failed()
@@ -83,7 +91,11 @@ func Get(ctx context.Context, h *http.Client, url string, errFetch error, failed
 func build(doc jwksDoc) Set {
 	keys := make(map[string][]candidate.Candidate, len(doc.Keys))
 	var anon []candidate.Candidate
-	for _, k := range doc.Keys {
+	for _, raw := range doc.Keys {
+		k, err := jwk.Decode(raw)
+		if err != nil {
+			continue // skip keys we cannot use (unsupported type/curve, members read two ways); others remain usable
+		}
 		// Only signature keys are eligible. A key explicitly published for
 		// encryption must never be selected to verify a token signature.
 		if k.Use != "" && k.Use != "sig" {
