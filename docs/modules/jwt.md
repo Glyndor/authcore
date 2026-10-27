@@ -26,12 +26,13 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 | `RefreshTokenTTL` | 24 hours | 365 days |
 | `Issuer` | `"github.com/Glyndor/authcore"` | none |
 | `Audience` | `["github.com/Glyndor/authcore"]` | none |
-| `ClockSkewLeeway` | 0 (no leeway) | none |
+| `ClockSkewLeeway` | 0 (no leeway) | 5 minutes |
 
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
 > issuing effectively permanent bearer tokens by accident (e.g. typing
-> `48 * time.Hour` where `48 * time.Minute` was intended).
+> `48 * time.Hour` where `48 * time.Minute` was intended). It also rejects a
+> `ClockSkewLeeway` above 5 minutes, and `New` returns `ErrInvalidConfig`.
 
 ## Login: creating a token pair
 
@@ -308,4 +309,5 @@ cfg.ClockSkewLeeway = 30 * time.Second
 ```
 
 The leeway applies to both access and refresh token verification. Keep it small:
-large values reduce the security margin of short-lived tokens.
+large values reduce the security margin of short-lived tokens. Values above 5
+minutes are rejected.

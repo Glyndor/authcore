@@ -26,7 +26,7 @@ func main() {
 func run(w io.Writer, checkDNS bool) error {
 	// -------------------------------------------------------------------------
 	// Setup: initialise authcore and the email module.
-	// Close() stops the background cache eviction goroutine — always defer it.
+	// Close() is a no-op kept for compatibility; deferring it is optional and safe.
 	// -------------------------------------------------------------------------
 	dir, cleanup := tempDir()
 	defer cleanup()

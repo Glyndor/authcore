@@ -13,7 +13,7 @@ go run .
 
 | Step | API |
 |---|---|
-| Policy validation: weak passwords are rejected *before* any CPU is spent | `pwdMod.Hash(weak)` → `ErrWeakPassword` |
+| Policy validation: weak passwords are rejected *before* any CPU is spent | `pwdMod.ValidatePolicy(weak)` → `ErrWeakPassword` |
 | Hashing: 64 MiB Argon2id, PHC-encoded output | `pwdMod.Hash(strong)` |
 | Verification: constant-time comparison, parameters read from the stored hash | `pwdMod.Verify(plain, hash)` |
 | Error handling: malformed hashes return `ErrInvalidHash` | `errors.Is(err, password.ErrInvalidHash)` |
