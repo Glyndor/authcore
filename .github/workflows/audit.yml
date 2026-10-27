@@ -49,6 +49,28 @@ jobs:
           EXCLUDE: ''
         run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
 
+  # A skipped call of a reusable workflow reports as "audit", not as the
+  # "audit / gosec" and "audit / govulncheck" the ruleset waits for, so a pull
+  # request that touches no Go code stayed blocked. These two report those names
+  # when the audit is skipped.
+  skipped-gosec:
+    name: audit / gosec
+    needs: decide
+    if: needs.decide.outputs.run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "no Go or module file changed; gosec skipped"
+
+  skipped-govulncheck:
+    name: audit / govulncheck
+    needs: decide
+    if: needs.decide.outputs.run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "no Go or module file changed; govulncheck skipped"
+
   audit:
     needs: decide
     if: needs.decide.outputs.run == 'true'
