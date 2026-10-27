@@ -16,12 +16,21 @@ import (
 // mail, regardless of any other records a misconfigured resolver might
 // also return. A non-null single record, or any slice with at least one
 // non-null record, is a real MX.
+//
+// A record that carries no host at all names no exchanger, so an answer that
+// holds nothing else means no mail. The resolver is injectable, so such a
+// record is representable, and reading it must not fall over on it.
 func HasRealMX(mxs []*net.MX) bool {
 	if len(mxs) == 0 {
 		return false
 	}
-	if len(mxs) == 1 && (mxs[0].Host == "." || mxs[0].Host == "") {
-		return false
+	if len(mxs) == 1 {
+		if mxs[0] == nil {
+			return false
+		}
+		if mxs[0].Host == "." || mxs[0].Host == "" {
+			return false
+		}
 	}
 	return true
 }
