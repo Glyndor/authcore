@@ -78,8 +78,15 @@ is secret input, not an identifier, so two passwords that render alike but
 differ in bytes are different passwords, and the module does not fold them.
 The behaviour is pinned by a test in `tests/hostile/password/plaintext`.
 
-Validation checks length first, after NFC normalization. An input below
-`MinLength` or above `MaxLength` returns `ErrWeakPassword` with the length
+`Hash` and `ValidatePolicy` share `Verify`'s fixed resource ceiling of
+**131072 bytes (128 KiB)** on plaintext before NFC normalization, independently
+of `MaxLength`. An input above it is never truncated: it returns
+`ErrWeakPassword` with the same `must be at most N characters` reason as a
+password above the configured `MaxLength`; `Hash` also returns an empty hash.
+
+Within that byte ceiling, validation checks length first, after NFC
+normalization. An input below `MinLength` or above `MaxLength` returns
+`ErrWeakPassword` with the length
 reason, even if it also contains a non-printable character. Once length passes,
 the printable-character check runs before the required character classes and
 returns `ErrWeakPassword` wrapping `ErrNonPrintableCharacter` on failure. You

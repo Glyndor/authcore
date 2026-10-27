@@ -85,6 +85,11 @@ func DecodePEMBlock(data []byte, wantType, src string) ([]byte, error) {
 	if block == nil {
 		return nil, fmt.Errorf("no PEM block found in %q", src)
 	}
+	// The decoded block must be the first BEGIN, without a skipped prefix.
+	consumed := trimmed[:len(trimmed)-len(rest)]
+	if bytes.Count(consumed, []byte("-----BEGIN ")) != 1 {
+		return nil, fmt.Errorf("%q holds text before the decoded PEM block", src)
+	}
 	if block.Type != wantType {
 		return nil, fmt.Errorf("PEM block in %q is labelled %q, want %q", src, block.Type, wantType)
 	}

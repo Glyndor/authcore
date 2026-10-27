@@ -177,6 +177,9 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 	if !p.built() {
 		return errNotBuilt
 	}
+	if len(plaintext) > maxVerifyInputBytes {
+		return &policyViolation{reason: fmt.Errorf("must be at most %d characters", p.cfg.MaxLength)}
+	}
 	if err := checkPolicy(norm.NFC.String(plaintext), p.cfg); err != nil {
 		return &policyViolation{reason: err}
 	}
@@ -220,6 +223,9 @@ func (p *Password) ValidatePolicy(plaintext string) error {
 func (p *Password) Hash(plaintext string) (string, error) {
 	if !p.built() {
 		return "", errNotBuilt
+	}
+	if len(plaintext) > maxVerifyInputBytes {
+		return "", &policyViolation{reason: fmt.Errorf("must be at most %d characters", p.cfg.MaxLength)}
 	}
 	// Normalise to Unicode NFC so the same visual password typed on different
 	// systems (precomposed vs combining accents, e.g. "café" as one codepoint
