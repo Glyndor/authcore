@@ -2,7 +2,6 @@ package phc_test
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -38,18 +37,19 @@ func TestParse_parameterBoundsAreInclusive(t *testing.T) {
 	}
 }
 
-// The text of a refusal names what was wrong, so an operator reading a log can
-// tell a foreign algorithm from stray bytes in front of the hash.
-func TestParse_refusalNamesTheOffendingSegment(t *testing.T) {
+// Refusals identify the failed check without including input values.
+func TestParse_refusalNamesTheCheckWithoutEchoingInput(t *testing.T) {
 	salt, key := make([]byte, phc.SaltLen), make([]byte, phc.KeyLen)
 	good := phc.Encode(phc.Params{Memory: phc.MinMemory, Iterations: 1, Parallelism: 1}, salt, key)
-	for _, tc := range []struct{ name, in, want string }{
-		{"text before the first dollar", "junkpart" + good, strconv.Quote("junkpart")},
-		{"foreign algorithm", "$argon2d" + good[len("$argon2id"):], strconv.Quote("argon2d")},
+	for _, tc := range []struct{ name, in, want, sensitive string }{
+		{"text before the first dollar", "junkpart" + good, "unexpected text before the first dollar", "junkpart"},
+		{"foreign algorithm", "$argon2d" + good[len("$argon2id"):], "unsupported algorithm", "argon2d"},
 	} {
 		_, _, _, err := phc.Parse(tc.in)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: err = %v, want it to quote %s", tc.name, err, tc.want)
+		if !errors.Is(err, phc.ErrInvalid) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want ErrInvalid naming %q", tc.name, err, tc.want)
+		} else if strings.Contains(err.Error(), tc.sensitive) {
+			t.Errorf("%s: refusal includes input", tc.name)
 		}
 	}
 }

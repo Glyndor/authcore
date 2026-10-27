@@ -121,7 +121,7 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 		return nil, fmt.Errorf("%w: status %d", p.Errs.Exchange, resp.StatusCode)
 	}
 
-	return decode(p, body)
+	return decode(p, body, secret, code, verifier)
 }
 
 // resolveSecret returns the client secret for this exchange. The secret
@@ -183,7 +183,7 @@ func newRequest(ctx context.Context, p Params, secret, code, verifier string) (*
 
 // decode turns a 2xx token response body into Tokens, refusing an OAuth error
 // envelope and a response that lacks what the flow needs.
-func decode(p Params, body []byte) (*Tokens, error) {
+func decode(p Params, body []byte, secret, authCode, verifier string) (*Tokens, error) {
 	// OAuth2 §5.2: an error response uses {"error":"...","error_description":"..."}.
 	// Many providers (and the spec) allow it with HTTP 200, so the status check
 	// above is not enough. Decode the error fields first and refuse the body
@@ -204,8 +204,16 @@ func decode(p Params, body []byte) (*Tokens, error) {
 		}
 		// Both strings are the provider's. Clip them to printable text of a
 		// bounded size: the message ends up in the caller's logs.
+		rawCode, rawDesc := code, desc
 		code = safetext.Clip(code, exchangeCodeMaxLen)
 		desc = safetext.Clip(desc, exchangeErrorMaxLen)
+		// Provider diagnostics must not contain credentials sent in this exchange.
+		for _, value := range []string{secret, authCode, verifier} {
+			if value != "" && (strings.Contains(rawCode, value) || strings.Contains(rawDesc, value) ||
+				strings.Contains(code, value) || strings.Contains(desc, value)) {
+				return nil, fmt.Errorf("%w: provider returned an error", p.Errs.Exchange)
+			}
+		}
 		switch {
 		case desc != "":
 			return nil, fmt.Errorf("%w: provider returned %s: %s", p.Errs.Exchange, code, desc)

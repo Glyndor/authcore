@@ -56,7 +56,7 @@ func TestExchange_rejectsErrorBodyWith200(t *testing.T) {
 	defer srv.Close()
 	c := oauthtest.NewTokenClient(t, srv)
 
-	tok, err := c.Exchange(context.Background(), "c", "v")
+	tok, err := c.Exchange(context.Background(), "auth-code", "pkce-verifier")
 	if !errors.Is(err, oauth.ErrExchange) {
 		t.Fatalf("expected ErrExchange, got %v", err)
 	}
@@ -142,7 +142,7 @@ func TestExchange_longErrorDescriptionIsTruncated(t *testing.T) {
 	defer srv.Close()
 	c := oauthtest.NewTokenClient(t, srv)
 
-	_, err := c.Exchange(context.Background(), "c", "v")
+	_, err := c.Exchange(context.Background(), "auth-code", "pkce-verifier")
 	if !errors.Is(err, oauth.ErrExchange) {
 		t.Fatalf("expected ErrExchange, got %v", err)
 	}
