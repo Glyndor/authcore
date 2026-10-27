@@ -38,9 +38,14 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, userInfoMaxBytes))
+	// Read one byte past the cap: a body that does not fit is refused whole,
+	// never read as the prefix that does fit.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, userInfoMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read: %w", errUserInfo, err)
+	}
+	if len(body) > userInfoMaxBytes {
+		return nil, fmt.Errorf("%w: response larger than %d bytes", errUserInfo, userInfoMaxBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("%w: status %d", errUserInfo, resp.StatusCode)
