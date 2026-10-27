@@ -1,6 +1,8 @@
 package netguard
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -38,17 +40,17 @@ func Guard(rt http.RoundTripper) http.RoundTripper {
 	if !ok {
 		return rt
 	}
-	if usesLegacyDial(t) {
-		return rt
-	}
 	g := &guard{}
 	c := t.Clone()
+	if usesLegacyDial(c) {
+		g.wrapLegacy(c)
+	}
 	if c.Proxy != nil {
 		c.Proxy = g.proxyFunc(c.Proxy)
 	}
 	if c.DialContext != nil {
 		c.DialContext = g.wrap(c.DialContext)
-	} else {
+	} else if c.Dial == nil { //nolint:staticcheck // Preserve the legacy hook's precedence.
 		c.DialContext = g.dialer()
 	}
 	if c.DialTLSContext != nil {
@@ -58,8 +60,28 @@ func Guard(rt http.RoundTripper) http.RoundTripper {
 }
 
 // usesLegacyDial reports whether t sets the deprecated Dial or DialTLS hooks.
-// A transport that does is left to its owner: replacing DialContext next to
-// them would silently change how it dials.
+// Replacing DialContext next to them would silently change how the transport
+// dials, so Guard wraps these hooks in place with the same destination check
+// and leaves DialContext as the owner set it.
 func usesLegacyDial(t *http.Transport) bool {
 	return t.Dial != nil || t.DialTLS != nil //nolint:staticcheck // Detecting the deprecated hooks is the point.
+}
+
+// wrapLegacy keeps legacy dialing intact and applies the same destination
+// check as modern hooks. The legacy signatures do not accept a context.
+func (g *guard) wrapLegacy(t *http.Transport) {
+	wrap := func(dial func(string, string) (net.Conn, error)) func(string, string) (net.Conn, error) {
+		checked := g.wrap(func(_ context.Context, network, addr string) (net.Conn, error) {
+			return dial(network, addr)
+		})
+		return func(network, addr string) (net.Conn, error) {
+			return checked(context.Background(), network, addr)
+		}
+	}
+	if t.Dial != nil { //nolint:staticcheck // Legacy transport compatibility.
+		t.Dial = wrap(t.Dial) //nolint:staticcheck // Legacy transport compatibility.
+	}
+	if t.DialTLS != nil { //nolint:staticcheck // Legacy transport compatibility.
+		t.DialTLS = wrap(t.DialTLS) //nolint:staticcheck // Legacy transport compatibility.
+	}
 }
