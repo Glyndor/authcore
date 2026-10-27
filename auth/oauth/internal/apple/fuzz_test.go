@@ -1,6 +1,7 @@
 package apple_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -62,10 +63,7 @@ func FuzzClientSecret(f *testing.F) {
 		if client == "" || strings.TrimSpace(client) != client {
 			t.Fatalf("accepted the client id %q", client)
 		}
-		block, _ := pem.Decode(p8)
-		if block == nil || block.Type != "PRIVATE KEY" {
-			t.Fatal("accepted key bytes that carry no PRIVATE KEY block")
-		}
+		block := oraclePEMBlock(t, p8)
 		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		ec, ok := parsed.(*ecdsa.PrivateKey)
 		if err != nil || !ok || ec.Curve != elliptic.P256() {
@@ -85,4 +83,26 @@ func FuzzClientSecret(f *testing.F) {
 			t.Fatal("the secret does not verify under the configured key")
 		}
 	})
+}
+
+// oraclePEMBlock decodes p8 the way the product decodes it, and asserts the
+// shape the contract promises: one clean "PRIVATE KEY" block, with no headers
+// and nothing but whitespace around it.
+//
+// The bytes are trimmed first because that is what the product does: the .p8
+// may carry whitespace around the block, and pem.Decode on the raw bytes skips
+// a block whose END line ends in something other than a space or a tab, or
+// whose BEGIN line does not start a line. The oracle would then report a key
+// with no PRIVATE KEY block that the product had in fact accepted.
+func oraclePEMBlock(t *testing.T, p8 []byte) *pem.Block {
+	t.Helper()
+	trimmed := bytes.TrimSpace(p8)
+	block, rest := pem.Decode(trimmed)
+	if block == nil || block.Type != "PRIVATE KEY" {
+		t.Fatal("accepted key bytes that carry no PRIVATE KEY block")
+	}
+	if len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+		t.Fatal("accepted key bytes that carry more than one clean PRIVATE KEY block")
+	}
+	return block
 }
