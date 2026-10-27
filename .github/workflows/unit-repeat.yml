@@ -29,9 +29,13 @@ on:
 permissions:
   contents: read
 
+# One run per event and ref, and nothing is cancelled: this workflow has no
+# pull request trigger, so the weekly cron and a manual run never cancel each
+# other (standards/ci, rule 1). The event is part of the group, so they do not
+# even share it.
 concurrency:
-  group: unit-repeat-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: unit-repeat-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit-repeat:

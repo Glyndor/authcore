@@ -75,9 +75,9 @@ jobs:
     # still points to, ships Podman 4.9.3; ubuntu-26.04 ships 5.7.0, the
     # version docs/guides/containers.md was measured on (both read 2026-10-04).
     runs-on: ubuntu-26.04
-    # 15 minutes is a ceiling, not a measurement: tighten it after the
-    # first runs are read.
-    timeout-minutes: 15
+    # 33 s of job time measured on 2026-10-26; the bound is for a hung
+    # runner, not for the recipe.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

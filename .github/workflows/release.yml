@@ -4,25 +4,55 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # A release that died half-published (the notes step, the network, the
+  # registry) must be relaunchable without touching the tag: a published
+  # release never changes, and a mistake is fixed with a new patch release,
+  # never by re-tagging (standards/ci, release-workflow contract). The
+  # dispatch names the tag to publish; it does not rewrite one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the release to publish or relaunch (v*.*.*)
+        required: true
+        type: string
 
 # Workflow default is read-only. Only the release job needs write access to
 # create the GitHub Release, and that is granted per-job below.
 permissions:
   contents: read
 
+# One release at a time per tag: a re-launch and the push that started it must
+# not compete for the same release, and neither may be cancelled half-way
+# through publishing. The group is the tag, not the event, so the push and the
+# manual re-launch of the same tag queue behind each other.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    # Build and test took 2 to 3 min in the Go CI on 2026-10-26; this job adds
+    # the release notes and the release itself. The bound is for a hung
+    # runner, not for the work.
+    timeout-minutes: 20
     permissions:
       contents: write # required by `gh release create` to publish the release
       pull-requests: read # scripts/release-notes/release-notes.sh reads the release pull request
+    env:
+      # On a tag push the ref is the tag; on a manual re-launch it is the
+      # branch the workflow was dispatched from, so the tag comes from the
+      # input. The value travels as data and never as part of a command.
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history and every branch, so origin/main is there for the
-          # ancestry check below.
+          # Full history, every branch and every tag, so origin/main is there
+          # for the ancestry check below and the tag is there to be resolved —
+          # on a manual re-launch the checkout is on a branch, not on the tag.
           fetch-depth: 0
+          fetch-tags: true
           # This job publishes through gh with GH_TOKEN and never pushes with
           # git, so the token has no reason to sit in .git/config.
           persist-credentials: false
@@ -30,10 +60,17 @@ jobs:
       - name: Check the tag is on main
         run: |
           # Only code promoted to main through a release pull request is ever
-          # published. Before #460 nothing here checked it.
-          commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          # published. Before #460 nothing here checked it. A manual re-launch
+          # names the tag in the dispatch input, so the shape of the name is
+          # checked before it is resolved: a branch name resolves in
+          # `git rev-parse` and would otherwise be published as a release.
+          if ! [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::${RELEASE_TAG} is not a v*.*.* tag"
+            exit 1
+          fi
+          commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
-            echo "::error::${GITHUB_REF_NAME} points at ${commit}, which is not on main"
+            echo "::error::${RELEASE_TAG} points at ${commit}, which is not on main"
             exit 1
           fi
 
@@ -46,7 +83,7 @@ jobs:
           # the generated list of pull requests below them. v1.15.0 and
           # v1.16.0 went out with the list alone, so their breaking changes
           # were not on the release page (#460).
-          bash scripts/release-notes/release-notes.sh "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" >"${RUNNER_TEMP}/release-notes.md"
+          bash scripts/release-notes/release-notes.sh "$(git rev-parse "${RELEASE_TAG}^{commit}")" >"${RUNNER_TEMP}/release-notes.md"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -65,13 +102,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           # Idempotent: a release created by hand before the tag arrived keeps
-          # its notes, and a re-run does not fail on the one this job made.
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists; leaving its notes in place."
+          # its notes, and a re-run does not fail on the one this job made. A
+          # published release never changes, so this step leaves the existing
+          # one exactly as it is and only publishes what is not there yet.
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; leaving its notes in place."
             exit 0
           fi
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
             --notes "$(cat "${RUNNER_TEMP}/release-notes.md")" \
             --generate-notes \
             --verify-tag
