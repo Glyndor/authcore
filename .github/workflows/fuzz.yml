@@ -3,6 +3,12 @@ name: Fuzz
 on:
   schedule:
     - cron: "0 7 * * 1"  # Every Monday at 07:00 UTC
+    # Once a month each target gets five minutes. A manual run of that length
+    # found three defects in auth/email on 2026-10-26 that sixty seconds a week
+    # had not reached. The minute is half an hour past the weekly cron: when
+    # the 1st is a Monday the two used to fire in the same minute and run the
+    # ~56 targets twice.
+    - cron: "30 7 1 * *"
   # A manual run can spend longer per target than the weekly smoke does. The
   # weekly cron has no inputs, so it still gets the 60s default below. A fixed
   # list of choices keeps free text out of the fuzztime flag.
@@ -21,11 +27,19 @@ on:
 permissions:
   contents: read
 
+# One run per event and ref. A manual run cancels the manual run in flight —
+# a long fuzztime does not need two of them — and neither cron cancels
+# anything, so the weekly smoke is never lost to a dispatch. The event is part
+# of the group, so the three do not even share it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
 jobs:
   fuzz:
     uses: Glyndor/.github/.github/workflows/go-fuzz.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
-      fuzztime: ${{ inputs.fuzztime || '60s' }}
+      fuzztime: ${{ inputs.fuzztime || (github.event.schedule == '30 7 1 * *' && '5m' || '60s') }}
       targets: >-
         [
           {"package":"./auth/email","func":"FuzzValidateAndNormalize"},
@@ -35,6 +49,7 @@ jobs:
           {"package":"./auth/jwt/internal/strictjson","func":"FuzzCheckAgreesWithDecoders"},
           {"package":"./auth/password/internal/policy","func":"FuzzValidatePolicy"},
           {"package":"./auth/password/internal/phc","func":"FuzzParsePHC"},
+          {"package":"./auth/password/internal/kdf","func":"FuzzVerifyWorkCeiling"},
           {"package":"./auth/apikey","func":"FuzzParseID"},
           {"package":"./auth/oauth/internal/jwks/jwk","func":"FuzzParseJWK"},
           {"package":"./auth/credential","func":"FuzzVerify"},
@@ -58,12 +73,17 @@ jobs:
           {"package":"./auth/oauth/internal/jwks/fetch","func":"FuzzGet"},
           {"package":"./auth/oauth/internal/redirect","func":"FuzzCheck"},
           {"package":"./auth/oauth/internal/urlcheck","func":"FuzzRequireHTTPS"},
+          {"package":"./auth/oauth/internal/urlcheck","func":"FuzzRequireExternal"},
+          {"package":"./auth/oauth/internal/clientauth","func":"FuzzChoose"},
           {"package":"./auth/oauth/internal/safetext","func":"FuzzClip"},
           {"package":"./auth/oauth/internal/apple","func":"FuzzClientSecret"},
           {"package":"./auth/jwt/internal/rotation","func":"FuzzRotate"},
           {"package":"./auth/totp/internal/otpauth","func":"FuzzURI"},
           {"package":"./auth/totp/internal/secret","func":"FuzzDecode"},
           {"package":"./auth/email","func":"FuzzAcceptedAddressIsSafe"},
+          {"package":"./auth/email/internal/mx","func":"FuzzVerify"},
+          {"package":"./auth/email/internal/mx/internal/answer","func":"FuzzHasRealMX"},
+          {"package":"./auth/email/internal/mx/internal/domain","func":"FuzzPlausible"},
           {"package":"./auth/password","func":"FuzzValidatePolicyNormalisation"},
           {"package":"./tests/hostile/jwt/interop","func":"FuzzVerifyAccessTokenAgreesWithReference"},
           {"package":"./tests/hostile/password/plaintext","func":"FuzzVerifyMatchesReferenceArgon2"},

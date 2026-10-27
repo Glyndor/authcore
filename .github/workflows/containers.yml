@@ -65,19 +65,31 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^examples/deploy/|^docs/guides/containers\.md$|\.go$|^go\.(mod|sum)$|^\.github/workflows/containers\.yml$'
           EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
   recipe:
-    name: containers recipe
+    name: containers recipe run
     needs: decide
     if: needs.decide.outputs.run == 'true'
     # podup requires Podman 5.0 or later. ubuntu-24.04, which ubuntu-latest
     # still points to, ships Podman 4.9.3; ubuntu-26.04 ships 5.7.0, the
     # version docs/guides/containers.md was measured on (both read 2026-10-04).
     runs-on: ubuntu-26.04
-    # 15 minutes is a ceiling, not a measurement: tighten it after the
-    # first runs are read.
-    timeout-minutes: 15
+    # 33 s of job time measured on 2026-10-26; the bound is for a hung
+    # runner, not for the recipe.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,8 +101,8 @@ jobs:
 
       - name: Download and verify podup ${{ env.PODUP_VERSION }}
         env:
-          PODUP_VERSION: 5.13.0
-          PODUP_SHA256: 4aafad97db342ac6e634f18c0f358d4337d88b36c5618db2cf6e2d8cd50f6056
+          PODUP_VERSION: 5.14.0
+          PODUP_SHA256: ed8619014778e4732b160f3ac3154fbeb57d1aaadefbd685d4e41ff233dfeff8
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           curl -sSL -o "$RUNNER_TEMP/bin/podup" \
@@ -109,3 +121,26 @@ jobs:
 
       - name: Run the containers recipe
         run: bash examples/deploy/containers/recipe.sh
+
+  # Keep the published name on an always-running gate. A failed decision is
+  # not evidence that the work was irrelevant.
+  recipe-gate:
+    name: containers recipe
+    needs: [decide, recipe]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 2 # one shell comparison, well under a second of work
+    steps:
+      - name: Verify decision and result
+        env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
+          RESULT: ${{ needs.recipe.result }}
+        run: |
+          printf 'decide=%s run=%s result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          [ "$DECIDE" = "success" ] || exit 1
+          case "$RUN:$RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac

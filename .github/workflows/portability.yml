@@ -14,10 +14,10 @@ name: Portability
 # Tue, hostile 05:07 Wed, unit-repeat 05:27 Thu); and workflow_dispatch for a
 # manual run.
 #
-# Cost, measured on 2026-10-26 from the first full run: 2 min of job time for
-# the Windows leg and 3.5 min for the macOS leg (which runs the race detector),
+# Cost, measured on 2026-10-26 over the first runs: 2 to 3.3 min of job time for
+# the Windows leg and 3 to 3.6 min for the macOS leg (which runs the race detector),
 # about 6 min of runner time per run, billed at the higher macOS and Windows
-# rates. The leg timeout is four times the slower leg.
+# rates. The leg timeout is a little over twice the slower leg.
 #
 # What skips it: `decide` runs first. A pull request that changes no .go file,
 # no go.mod or go.sum and not this workflow has nothing for the matrix, so the
@@ -68,14 +68,26 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/portability\.yml$'
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
   test:
     name: test (${{ matrix.os }})
     needs: decide
     if: needs.decide.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15  # measured 2026-10-26: 2 min on Windows, 3.5 min on macOS with -race
+    timeout-minutes: 8  # measured 2026-10-26: 2 to 3.3 min on Windows, 3 to 3.6 min on macOS with -race
     strategy:
       fail-fast: false
       matrix:

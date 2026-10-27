@@ -51,7 +51,8 @@ func Encode(cfg Params, salt, key []byte) string {
 // Argon2id parameters, the decoded salt, and the decoded derived key.
 //
 // Every returned error wraps ErrInvalid so the caller can match a single
-// sentinel regardless of which check refused the string.
+// sentinel regardless of which check refused the string. Diagnostics describe
+// the failed check without including input values.
 func Parse(phcHash string) (Params, []byte, []byte, error) {
 	// Expected: $argon2id$v=19$m=<mem>,t=<iter>,p=<par>$<salt>$<key>
 	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<key>"]
@@ -64,10 +65,10 @@ func Parse(phcHash string) (Params, []byte, []byte, error) {
 	// parser a string it cannot tell apart from a real hash, and "junk" + hash
 	// then verifies the same password the clean hash does.
 	if parts[0] != "" {
-		return Params{}, nil, nil, fmt.Errorf("%w: unexpected text before the first dollar: %q", ErrInvalid, parts[0])
+		return Params{}, nil, nil, fmt.Errorf("%w: unexpected text before the first dollar", ErrInvalid)
 	}
 	if parts[1] != "argon2id" {
-		return Params{}, nil, nil, fmt.Errorf("%w: unsupported algorithm %q, want argon2id", ErrInvalid, parts[1])
+		return Params{}, nil, nil, fmt.Errorf("%w: unsupported algorithm, want argon2id", ErrInvalid)
 	}
 
 	version, err := parseLabeledUint32(parts[2], "v")
@@ -75,7 +76,7 @@ func Parse(phcHash string) (Params, []byte, []byte, error) {
 		return Params{}, nil, nil, fmt.Errorf("%w: parse version: %w", ErrInvalid, err)
 	}
 	if version != argon2.Version {
-		return Params{}, nil, nil, fmt.Errorf("%w: unsupported Argon2 version %d, want %d", ErrInvalid, version, argon2.Version)
+		return Params{}, nil, nil, fmt.Errorf("%w: unsupported Argon2 version, want %d", ErrInvalid, argon2.Version)
 	}
 
 	// The parameter segment is three "label=N" fields separated by commas.
@@ -105,13 +106,13 @@ func Parse(phcHash string) (Params, []byte, []byte, error) {
 	// cause the verifier to attempt a multi-TiB allocation and crash the
 	// process. Reuse the same ceilings validateConfig enforces at construction.
 	if cfg.Memory < MinMemory || cfg.Memory > MaxMemory {
-		return Params{}, nil, nil, fmt.Errorf("%w: memory parameter out of range: got %d, want [%d, %d]", ErrInvalid, cfg.Memory, MinMemory, MaxMemory)
+		return Params{}, nil, nil, fmt.Errorf("%w: memory parameter out of range: want [%d, %d]", ErrInvalid, MinMemory, MaxMemory)
 	}
 	if cfg.Iterations < 1 || cfg.Iterations > MaxIterations {
-		return Params{}, nil, nil, fmt.Errorf("%w: iterations parameter out of range: got %d, want [1, %d]", ErrInvalid, cfg.Iterations, MaxIterations)
+		return Params{}, nil, nil, fmt.Errorf("%w: iterations parameter out of range: want [1, %d]", ErrInvalid, MaxIterations)
 	}
 	if cfg.Parallelism < 1 {
-		return Params{}, nil, nil, fmt.Errorf("%w: parallelism parameter out of range: got %d, want >= 1", ErrInvalid, cfg.Parallelism)
+		return Params{}, nil, nil, fmt.Errorf("%w: parallelism parameter out of range: want >= 1", ErrInvalid)
 	}
 
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
@@ -155,11 +156,11 @@ func Parse(phcHash string) (Params, []byte, []byte, error) {
 func labeledValue(field, label string) (string, error) {
 	prefix := label + "="
 	if !strings.HasPrefix(field, prefix) {
-		return "", fmt.Errorf("missing %s= prefix in %q", label, field)
+		return "", fmt.Errorf("missing %s= prefix", label)
 	}
 	rest := field[len(prefix):]
 	if rest == "" {
-		return "", fmt.Errorf("empty %s value in %q", label, field)
+		return "", fmt.Errorf("empty %s value", label)
 	}
 	return rest, nil
 }
@@ -180,7 +181,7 @@ func parseLabeledUint32(field, label string) (uint32, error) {
 	}
 	n, err := strconv.ParseUint(rest, 10, 32)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", label, err)
+		return 0, fmt.Errorf("%s: %w", label, err.(*strconv.NumError).Err)
 	}
 	return uint32(n), nil
 }
@@ -194,7 +195,7 @@ func parseLabeledUint8(field, label string) (uint8, error) {
 	}
 	n, err := strconv.ParseUint(rest, 10, 8)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", label, err)
+		return 0, fmt.Errorf("%s: %w", label, err.(*strconv.NumError).Err)
 	}
 	return uint8(n), nil
 }

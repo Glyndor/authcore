@@ -7,8 +7,8 @@ name: API compatibility
 # Additions never fail; they are annotated so a reviewer sees the surface grow.
 #
 # The comparison itself lives in scripts/api-compat/api-compat.sh, and
-# scripts/api-compat/api-compat.test.sh runs first in this job, so a change to
-# the script that stopped it failing would fail here before it judged anything.
+# scripts/api-compat/api-compat.test.sh tests the proposed script after the
+# base comparator has judged the API. Candidate code must not alter that verdict.
 #
 # Triggers: the label events are in the list on purpose. Adding `breaking` to
 # a failed pull request re-runs the check; without `labeled` the only way to
@@ -73,7 +73,19 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^[^/]+\.go$|^auth/[^/]+/[^/]+\.go$|^go\.(mod|sum)$|^scripts/api-compat/|^\.github/workflows/api-compat\.yml$'
           EXCLUDE: '_test\.go$'
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
   api-compat:
     needs: decide
@@ -82,7 +94,9 @@ jobs:
     # require it later without orphaning anything.
     name: api compatibility
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 33 s of job time measured on 2026-10-26; the bound is for a hung
+    # runner, not for the comparison.
+    timeout-minutes: 5
     env:
       APIDIFF_VERSION: v0.0.0-20260908205506-85c1c2202aba
       APIDIFF_MODULE_SUM: h1:Ck8QetSgk912qxWLMCKxd0in+aiyBQyDSMae6e/xmpU=
@@ -116,11 +130,18 @@ jobs:
             exit 1
           fi
 
-      - name: Test the comparison script
-        run: PATH="$RUNNER_TEMP/bin:$PATH" bash scripts/api-compat/api-compat.test.sh
-
       - name: Compare the public API against the base
         run: |
           PR_LABELS="$(jq -r '.[]' <<<"$PR_LABELS_JSON")"
           export PR_LABELS
-          APIDIFF="$RUNNER_TEMP/bin/apidiff" bash scripts/api-compat/api-compat.sh .api-base .
+          # Fail if the base lacks the comparator; never substitute PR code.
+          APIDIFF="$RUNNER_TEMP/bin/apidiff" bash .api-base/scripts/api-compat/api-compat.sh .api-base .
+
+      # Run proposed script tests only after the trusted comparator has judged the API.
+      - name: Test the comparison script
+        if: ${{ !cancelled() }}
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git archive HEAD scripts/api-compat | tar -x -C "$tmp"
+          PATH="$RUNNER_TEMP/bin:$PATH" bash "$tmp/scripts/api-compat/api-compat.test.sh"

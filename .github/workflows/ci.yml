@@ -1,8 +1,9 @@
 name: CI
 
+# Triggers: pull requests only. A push to develop or main re-ran the suite on
+# the tree the pull request had just tested and nothing read it, so it is gone
+# (standards/ci, rule 5).
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
@@ -30,8 +31,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Test the decision script
-        run: bash scripts/ci-decide/decide.test.sh
       - id: decide
         env:
           EVENT: ${{ github.event_name }}
@@ -40,8 +39,22 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
           EXCLUDE: ''
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
+  # Keep this unconditional: tests/meta reads docs and workflows as well as Go
+  # source, so a docs-only or CI-only pull request can change its answer.
   go:
     uses: Glyndor/.github/.github/workflows/go-ci.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
     with:
@@ -75,12 +88,19 @@ jobs:
         with:
           persist-credentials: false
       - run: bash scripts/release-notes/release-notes.test.sh
+      # Keep candidate-script tests outside the job that makes the trusted decision.
+      - name: Test the decision script
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git archive HEAD scripts/ci-decide | tar -x -C "$tmp"
+          bash "$tmp/scripts/ci-decide/decide.test.sh"
 
   # The shared go-ci reusable runs gofmt, vet and tests but no lint, which
   # is why this job lives here. Pinning the tarball by sha256 is the gate; a
   # checksum mismatch fails the step before the binary runs.
   lint:
-    name: golangci-lint
+    name: golangci-lint run
     needs: decide
     if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
@@ -110,3 +130,26 @@ jobs:
         run: >-
           "$RUNNER_TEMP/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64/golangci-lint"
           run ./...
+
+  # Keep the published name on an always-running gate. A failed decision is
+  # not evidence that the work was irrelevant.
+  lint-gate:
+    name: golangci-lint
+    needs: [decide, lint]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 2 # one shell comparison, well under a second of work
+    steps:
+      - name: Verify decision and result
+        env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
+          RESULT: ${{ needs.lint.result }}
+        run: |
+          printf 'decide=%s run=%s result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          [ "$DECIDE" = "success" ] || exit 1
+          case "$RUN:$RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac

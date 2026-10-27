@@ -1,13 +1,5 @@
 package authcore
 
-import (
-	"crypto/ed25519"
-	"fmt"
-
-	"github.com/Glyndor/authcore/internal/keymanager"
-	"github.com/Glyndor/authcore/internal/keystore/disk"
-)
-
 // KeyStore sources authcore's cryptographic key material (the Ed25519 signing
 // pair and the HMAC refresh secret).
 //
@@ -43,64 +35,4 @@ type KeyStore interface {
 	// Load returns the key material, or an error if it cannot be obtained or
 	// fails validation. It never returns nil Keys together with a nil error.
 	Load() (Keys, error)
-}
-
-// diskKeyStore is the default KeyStore: it generates the key files on first run
-// and loads them on subsequent runs, under dir. It preserves the zero-config
-// secure-disk behaviour when Config.KeyStore is not set.
-//
-// When requireExisting is true, the store never writes: it expects the three
-// key files to already be present and refuses to start otherwise. The flag
-// is set from Config.RequireExistingKeys; see config.go for the contract.
-type diskKeyStore struct {
-	dir             string
-	log             Logger
-	requireExisting bool
-}
-
-func (d diskKeyStore) Load() (Keys, error) {
-	km, err := disk.LoadDisk(d.dir, d.log, d.requireExisting)
-	if err != nil {
-		return nil, err
-	}
-	return km, nil
-}
-
-// staticKeyStore serves pre-built, in-memory key material. It never touches
-// the filesystem.
-type staticKeyStore struct {
-	keys Keys
-}
-
-func (s staticKeyStore) Load() (Keys, error) {
-	return s.keys, nil
-}
-
-// NewKeyStoreFromKeys returns a KeyStore backed by in-memory Ed25519 material,
-// touching no filesystem. Use it to inject keys obtained from a secret manager
-// or KMS at startup.
-//
-// It validates that priv is a well-formed Ed25519 private key, that pub is
-// its public half, and that refreshSecret is 32 bytes. Assign the result to
-// Config.KeyStore.
-func NewKeyStoreFromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, refreshSecret []byte) (KeyStore, error) {
-	km, err := keymanager.FromKeys(priv, pub, refreshSecret)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
-	}
-	return staticKeyStore{keys: km}, nil
-}
-
-// NewKeyStoreFromPEM returns a KeyStore from PEM-encoded material: a PKCS#8
-// private key, a PKIX public key, and the raw 32-byte refresh secret. This is
-// the convenient form when keys arrive as PEM strings from environment
-// variables or a secret store.
-//
-// Assign the result to Config.KeyStore.
-func NewKeyStoreFromPEM(privatePEM, publicPEM, refreshSecret []byte) (KeyStore, error) {
-	km, err := keymanager.FromPEM(privatePEM, publicPEM, refreshSecret)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrKeyManager, err)
-	}
-	return staticKeyStore{keys: km}, nil
 }

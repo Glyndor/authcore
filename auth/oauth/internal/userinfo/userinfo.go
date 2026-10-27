@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
 )
 
 // userInfoMaxBytes caps a userinfo response so a hostile or broken endpoint
@@ -38,12 +40,25 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, userInfoMaxBytes))
+	// Read one byte past the cap: a body that does not fit is refused whole,
+	// never read as the prefix that does fit.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, userInfoMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read: %w", errUserInfo, err)
 	}
+	if len(body) > userInfoMaxBytes {
+		return nil, fmt.Errorf("%w: response larger than %d bytes", errUserInfo, userInfoMaxBytes)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("%w: status %d", errUserInfo, resp.StatusCode)
+	}
+
+	// The profile is the provider's text, and the identity in it is read from
+	// that text: a byte or an escape the decoder cannot read would be
+	// repaired, and the repaired value would read as another identity. The
+	// body is refused instead of read repaired.
+	if !jsonstrict.WellFormedText(body) {
+		return nil, fmt.Errorf("%w: response carries text that is not valid UTF-8", errUserInfo)
 	}
 
 	// Walk the body's shape first, so one made of the shortest possible values

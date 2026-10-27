@@ -8,10 +8,12 @@ name: Workflow lint
 #
 # Versions are pinned by hand; Dependabot does not see the strings here, and
 # bumping them is a deliberate decision.
+#
+# Triggers: pull requests only. A push to develop or main re-ran the lint on
+# the tree the pull request had just tested and nothing read it, so it is gone
+# (standards/ci, rule 5).
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
