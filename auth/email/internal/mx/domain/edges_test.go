@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/domain"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/domain"
 )
 
 func TestOfAndPlausibleAtTheirEdges(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Glyndor/authcore/auth/email/internal/errs"
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 func TestVerifyDomain_noAtSignReturnsErrDomainNoMX(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Glyndor/authcore/auth/email/internal/mx/internal/cache"
+	"github.com/Glyndor/authcore/auth/email/internal/mx/cache"
 )
 
 // The cache admits exactly ten thousand live domains.
