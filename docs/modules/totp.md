@@ -180,6 +180,12 @@ it. Keep one row per code and delete conditionally, as above.
 `VerifyRecoveryCode` normalises the input (strips hyphens and spaces,
 uppercases letters) and scans every hash in the list in constant time,
 returning the index of the match so the caller can mark that one used.
+The normalized content is limited to the 16 characters produced from the
+10-byte recovery-code draw; longer content is rejected, never truncated.
+Normalization during verification uses a fixed 16-byte buffer, preserving any
+grouping of spaces and hyphens without allocating memory proportional to the
+submitted code. Scanning separators still takes linear time in the input size.
+`HashRecoveryCode` remains a general normalization and hashing helper.
 A code not in the list returns `false`. The module does **not**
 remember which codes have been redeemed; the caller enforces
 single-use by deleting the index that was returned.

@@ -73,7 +73,9 @@ func TestHostile_Sizes_policyCountsRunesAtTheMaximum(t *testing.T) {
 // Verify applies no policy, so it must still cope with a plaintext of any
 // size: a megabyte of input is hashed in full, matches the reference's hash of
 // it, and costs the same order of time as a short password.
-func TestHostile_Sizes_verifyHandlesAMegabytePlaintext(t *testing.T) {
+// The fixed resource ceiling supersedes the unbounded-size expectation above:
+// oversized credentials are refused independently of the password policy.
+func TestHostile_Sizes_verifyRejectsOversizedPlaintext(t *testing.T) {
 	m := hostiletest.NewModule(t, hostiletest.LowCost())
 	big := strings.Repeat("0123456789abcdef", 1<<16) // 1 MiB
 	hash := hostiletest.RefHash(big, 8192, 1, 1, []byte("0123456789abcdef"))
@@ -81,8 +83,8 @@ func TestHostile_Sizes_verifyHandlesAMegabytePlaintext(t *testing.T) {
 	start := time.Now()
 	ok, err := m.Verify(big, hash)
 	elapsed := time.Since(start)
-	if err != nil || !ok {
-		t.Fatalf("1 MiB plaintext against its own hash: %v, %v", ok, err)
+	if err != nil || ok {
+		t.Fatalf("1 MiB plaintext against its own hash: %v, %v; want false, nil", ok, err)
 	}
 	if ok, _ := m.Verify(big+"x", hash); ok {
 		t.Error("1 MiB plus one byte verified")

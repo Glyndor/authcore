@@ -148,9 +148,24 @@ case !ok:
 }
 ```
 
-Comparison is **constant-time** (`crypto/subtle`). Timing attacks are not
-possible. Parameters are always read from the stored hash, never from the
-current module config, and **bounded** so a corrupted or malicious stored
+`Verify` has a fixed resource ceiling of **131072 bytes (128 KiB)** on the
+submitted plaintext, checked before Unicode NFC normalization and Argon2id.
+It is independent of the active `MaxLength` policy: the ceiling is the global
+1024-character policy maximum times the normalizer's 128-byte segment buffer,
+leaving room for decomposed Unicode and historical passwords. An input above
+it returns `false, nil`, including when the stored hash is malformed; it is
+never truncated. This follows the existing early rejection of invalid hashes
+without deriving a key. Constant-time key comparison does not equalize those
+early rejections with calls that run Argon2id. Inputs within the ceiling keep
+the existing hash-error and policy-independent verification behavior.
+
+The PHC parser also bounds the encoded string before splitting fields or
+decoding base64. This bound follows the fixed salt/key sizes and numeric field
+widths, so every supported canonical PHC still parses.
+
+Derived keys are compared in **constant time** (`crypto/subtle`), so the
+comparison does not reveal a matching prefix. Parameters are always read from
+the stored hash, never from the current module config, and **bounded** so a corrupted or malicious stored
 hash cannot choose what a login costs. `Verify` returns `ErrInvalidHash`,
 before it derives any key, for a hash that:
 

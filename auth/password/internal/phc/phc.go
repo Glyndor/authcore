@@ -22,6 +22,11 @@ const (
 	MaxIterations = 20              // beyond this, hashing takes tens of seconds
 )
 
+// maxEncodedLen includes the fixed syntax, uint32/uint8 decimal widths and
+// the unpadded base64 lengths of the fixed salt and key. Every canonical PHC
+// accepted by Parse fits, independently of the configured work factor.
+const maxEncodedLen = len("$argon2id$v=19$m=,t=,p=$$") + 10 + 10 + 3 + (SaltLen*8+5)/6 + (KeyLen*8+5)/6
+
 // ErrInvalid is wrapped by every error Parse returns. The password package
 // wraps it again under its own ErrInvalidHash, so its text is that sentinel's.
 var ErrInvalid = errors.New("password: invalid hash format")
@@ -47,6 +52,21 @@ func Encode(cfg Params, salt, key []byte) string {
 	)
 }
 
+// splitSegments refuses a string longer than any canonical hash before it is
+// split or decoded, then cuts it into its six dollar-separated segments.
+func splitSegments(phcHash string) ([]string, error) {
+	if len(phcHash) > maxEncodedLen {
+		return nil, fmt.Errorf("%w: encoded hash exceeds the format size limit", ErrInvalid)
+	}
+	// Expected: $argon2id$v=19$m=<mem>,t=<iter>,p=<par>$<salt>$<key>
+	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<key>"]
+	parts := strings.Split(phcHash, "$")
+	if len(parts) != 6 {
+		return nil, fmt.Errorf("%w: expected 6 dollar-separated segments, got %d", ErrInvalid, len(parts))
+	}
+	return parts, nil
+}
+
 // Parse decodes a PHC string produced by Hash and returns the embedded
 // Argon2id parameters, the decoded salt, and the decoded derived key.
 //
@@ -54,11 +74,9 @@ func Encode(cfg Params, salt, key []byte) string {
 // sentinel regardless of which check refused the string. Diagnostics describe
 // the failed check without including input values.
 func Parse(phcHash string) (Params, []byte, []byte, error) {
-	// Expected: $argon2id$v=19$m=<mem>,t=<iter>,p=<par>$<salt>$<key>
-	// strings.Split on "$" produces: ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<key>"]
-	parts := strings.Split(phcHash, "$")
-	if len(parts) != 6 {
-		return Params{}, nil, nil, fmt.Errorf("%w: expected 6 dollar-separated segments, got %d", ErrInvalid, len(parts))
+	parts, err := splitSegments(phcHash)
+	if err != nil {
+		return Params{}, nil, nil, err
 	}
 	// The PHC format starts with a dollar, so the first segment is empty. Any
 	// text before it passes the count check above while leaving the rest of the
