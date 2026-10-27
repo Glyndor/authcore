@@ -75,12 +75,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Report Dependabot pull requests stuck against main
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
         # `--limit 100` is well above the open pull requests into main this
         # repository has ever held at once; the default of 30 would be too,
         # but the number is written down so the window is a decision.
@@ -89,9 +92,14 @@ jobs:
         # still be red, but for a reason the log would not name.
         run: |
           set -euo pipefail
+          script=.github/scripts/dependabot_security_watch/dependabot_security_watch.py
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/dependabot-security-watch.py"
+            git show "$BASE:.github/scripts/dependabot_security_watch/dependabot_security_watch.py" >"$script"
+          fi
           gh pr list --repo "$REPO" --base main --state open --limit 100 \
             --json number,title,author,headRefName,createdAt \
-            | python3 .github/scripts/dependabot_security_watch/dependabot_security_watch.py
+            | python3 -I "$script"
 
   tests:
     name: dependabot security watch tests
@@ -112,4 +120,7 @@ jobs:
         # posts by adding a dependency the workflow did not pin. Discovery
         # uses the same path the watch job runs against.
         run: |
-          python3 -m unittest discover -s .github/scripts/dependabot_security_watch -p 'test_*.py' -v
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git archive HEAD .github/scripts/dependabot_security_watch | tar -x -C "$tmp"
+          python3 -I -m unittest discover -s "$tmp/.github/scripts/dependabot_security_watch" -p 'test_*.py' -v

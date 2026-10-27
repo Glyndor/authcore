@@ -63,7 +63,19 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^tests/hostile/|\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
           EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$'
-        run: bash scripts/ci-decide/decide.sh "$INCLUDE" "$EXCLUDE"
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              printf 'run=true\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
   hostile:
     name: hostile suite

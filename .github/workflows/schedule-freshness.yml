@@ -74,3 +74,19 @@ jobs:
   #     with:
   #       workflow: hostile.yml
   #       max-age-days: 15 # weekly cron, so two periods of slack
+
+  # dependabot-security-watch.yml deliberately has no freshness job here:
+  # its push to develop produces a second liveness signal on every merge
+  # (see that workflow's trigger rationale). Revisit if that trigger is removed.
+  #
+  # portability.yml needs a watcher too, once its first successful scheduled
+  # run exists. Its first Friday cron after promotion to main is 2026-10-30;
+  # adding the check before that evidence would make it fail on every PR.
+  # Add the following job after confirming a successful schedule with gh run list:
+  #
+  #   portability:
+  #     name: portability freshness
+  #     uses: <same reusable and pin as above>
+  #     with:
+  #       workflow: portability.yml
+  #       max-age-days: 15 # weekly cron, so two periods of slack
