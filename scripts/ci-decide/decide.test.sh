@@ -227,6 +227,154 @@ for workflow in api-compat audit ci containers hostile portability; do
 	expect_workflow false develop "$old_base" "$loader"
 done
 
+# The shared meta decision exposes two independent answers. Read the real
+# filters and loader so a workflow-only regression cannot hide behind copies.
+meta_job="$tmp/meta-job.yml"
+awk '
+	/^  decide-meta:$/ { block=1; next }
+	block && /^  [^ ]/ { exit }
+	block { print }
+' "$workflows/ci.yml" >"$meta_job"
+pins_include="$(awk -F "'" '$1 == "          PINS_INCLUDE: " { print $2 }' "$meta_job")"
+notes_include="$(awk -F "'" '$1 == "          NOTES_INCLUDE: " { print $2 }' "$meta_job")"
+tests_include="$(awk -F "'" '$1 == "          TESTS_INCLUDE: " { print $2 }' "$meta_job")"
+meta_loader="$tmp/meta-loader.sh"
+awk '
+	/^        run: \|$/ { block=1; next }
+	block && /^          / { sub(/^          /, ""); print; next }
+	block { exit }
+' "$meta_job" >"$meta_loader"
+if [ ! -s "$meta_loader" ] || [ -z "$pins_include" ] || [ -z "$notes_include" ] || [ -z "$tests_include" ]; then
+	printf 'FAIL: missing meta loader or filters\n' >&2
+	exit 1
+fi
+
+# Check the Actions boundary as well as the shell, including named emitters.
+# shellcheck disable=SC2016
+for binding in '      pins: ${{ steps.decide.outputs.pins }}' \
+	'      notes: ${{ steps.decide.outputs.notes }}' \
+	"        if: steps.decide.outputs.tests == 'true'"; do
+	if grep -qxF "$binding" "$meta_job"; then
+		passed=$((passed + 1))
+	else
+		printf 'FAIL meta wiring: missing %s\n' "$binding" >&2
+		fail=1
+	fi
+done
+for job in pin-policy release-notes; do
+	awk -v job="$job" '
+		$0 == "  " job ":" { block=1; next }
+		block && /^  [^ ]/ { exit }
+		block { print }
+	' "$workflows/ci.yml" >"$tmp/consumer.yml"
+	output=pins
+	[ "$job" != release-notes ] || output=notes
+	if grep -qxF '    needs: decide-meta' "$tmp/consumer.yml" &&
+		grep -qxF "    if: needs.decide-meta.outputs.$output == 'true'" "$tmp/consumer.yml"; then
+		passed=$((passed + 1))
+	else
+		printf 'FAIL meta consumer: %s must depend on its named output\n' "$job" >&2
+		fail=1
+	fi
+done
+
+# Install the current generic selector only in the trusted fixture commit.
+git checkout -q "$base"
+mkdir -p scripts/ci-decide .github/workflows scripts/release-notes
+cp "$script" scripts/ci-decide/decide.sh
+printf 'base\n' >.github/workflows/release.yml
+printf 'base\n' >scripts/release-notes/release-notes.sh
+git add -A
+git commit -qm 'trusted meta selector'
+meta_base="$(git rev-parse HEAD)"
+
+# expect_meta PINS NOTES TESTS HEAD [BRANCH] [EVENT] [ACTION] [BASE]
+expect_meta() {
+	local pins="$1" notes="$2" tests="$3" head="$4" branch="${5-develop}"
+	local event="${6-pull_request}" action="${7-synchronize}" revision="${8-$meta_base}" got want
+	want="$(printf 'pins=%s\nnotes=%s\ntests=%s' "$pins" "$notes" "$tests")"
+	: >"$tmp/meta.out"
+	if EVENT="$event" ACTION="$action" BASE_REF="$branch" BASE="$revision" HEAD="$head" \
+		RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/meta.out" PINS_INCLUDE="$pins_include" \
+		NOTES_INCLUDE="$notes_include" TESTS_INCLUDE="$tests_include" EXCLUDE='' \
+		bash -e -o pipefail "$meta_loader" >/dev/null 2>&1 && got="$(cat "$tmp/meta.out")" && [ "$got" = "$want" ]; then
+		passed=$((passed + 1))
+	else
+		printf 'FAIL meta: want %q, got %q (head=%s branch=%s event=%s action=%s base=%s)\n' \
+			"$want" "$(cat "$tmp/meta.out")" "$head" "$branch" "$event" "$action" "$revision" >&2
+		fail=1
+	fi
+}
+
+for file in .github/workflows/audit.yml .github/workflows/nested/action.yml; do
+	expect_meta true false true "$(commit_change "$file")"
+done
+for file in .github/workflows/ci.yml .github/workflows/release.yml; do
+	expect_meta true true true "$(commit_change "$file")"
+done
+expect_meta true false false "$(commit_change .github/dependabot.yml)"
+for file in scripts/release-notes/release-notes.sh scripts/release-notes/release-notes.test.sh \
+	'scripts/release-notes/ñ with space.sh'; do
+	expect_meta false true false "$(commit_change "$file")"
+done
+expect_meta false false true "$(commit_change scripts/ci-decide/decide.sh)"
+expect_meta false false true "$(commit_change scripts/ci-decide/decide.test.sh)"
+expect_meta true true false "$(commit_change .github/dependabot.yml scripts/release-notes/release-notes.sh)"
+for file in docs/guide.md auth/jwt/jwt.go .github/dependabot.yml.bak .github/workflows-old/ci.yml \
+	scripts/release-notes-old/test.sh scripts/ci-decide-old/test.sh x/.github/workflows/ci.yml; do
+	expect_meta false false false "$(commit_change "$file")"
+done
+expect_meta false false false "$meta_base"
+expect_meta true true true "$h_doc" main
+expect_meta true true true "$meta_base" main
+expect_meta true true true "$h_doc" develop push
+expect_meta true true true "$h_doc" develop pull_request labeled
+expect_meta true true true "$h_doc" develop pull_request unlabeled
+expect_meta true true true deadbeef
+expect_meta true true true ''
+# Deletions and rename origins must retain their relevant answers.
+for file in .github/workflows/release.yml scripts/release-notes/release-notes.sh; do
+	git checkout -q "$meta_base"
+	git mv "$file" docs/moved.txt
+	git commit -qm 'move meta input out'
+	pins=true tests=true
+	[ "$file" != scripts/release-notes/release-notes.sh ] || { pins=false; tests=false; }
+	expect_meta "$pins" true "$tests" "$(git rev-parse HEAD)"
+	git checkout -q "$meta_base"
+	git rm -q "$file"
+	git commit -qm 'delete meta input'
+	expect_meta "$pins" true "$tests" "$(git rev-parse HEAD)"
+done
+# Candidate code cannot replace a trusted decision. The main override also
+# precedes absent/old scripts; malformed or failing emitters must fail open.
+git checkout -q "$meta_base"
+printf 'touch "%s/candidate-ran"\nexit 1\n' "$tmp" >scripts/ci-decide/decide.sh
+expect_meta false false false "$h_doc"
+if [ -e "$tmp/candidate-ran" ]; then
+	printf 'FAIL meta executed the candidate selector\n' >&2
+	fail=1
+else
+	passed=$((passed + 1))
+fi
+git checkout -q -- scripts/ci-decide/decide.sh
+expect_meta true true true "$h_doc" develop pull_request synchronize "$base"
+expect_meta true true true "$h_doc" main pull_request synchronize "$base"
+expect_meta false false false "$h_doc" develop pull_request synchronize "$old_base"
+expect_meta true true true "$h_doc" main pull_request synchronize "$old_base"
+while IFS= read -r body; do
+	git checkout -q "$meta_base"
+	printf '#!/usr/bin/env bash\n%s\n' "$body" >scripts/ci-decide/decide.sh
+	git add scripts/ci-decide/decide.sh
+	git commit -qm 'broken meta emitter'
+	expect_meta true true true "$h_doc" develop pull_request synchronize "$(git rev-parse HEAD)"
+done <<'CASES'
+exit 1
+printf 'garbage\n'
+true
+printf 'run=false\n'; exit 1
+printf 'run=false\nrun=false\n'
+CASES
+
 if [ "$fail" -ne 0 ]; then
 	exit 1
 fi
