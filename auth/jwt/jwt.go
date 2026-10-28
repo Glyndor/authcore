@@ -9,6 +9,7 @@ import (
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/internal/clock"
 	"github.com/Glyndor/authcore/internal/keymanager"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // Compile-time assertion: *JWT[struct{}] must satisfy authcore.Module.
@@ -72,7 +73,7 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	if len(cfg) > 1 {
 		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
 	}
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	logger := p.Logger()
@@ -80,7 +81,7 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
 	}
 	keys := p.Keys()
-	if keys == nil {
+	if nilvalue.IsNil(keys) {
 		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
 	}
 

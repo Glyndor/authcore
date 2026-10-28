@@ -40,6 +40,7 @@ import (
 	"strings"
 
 	"github.com/Glyndor/authcore"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // Compile-time assertion: *Username must satisfy authcore.Module.
@@ -78,7 +79,7 @@ func New(p authcore.Provider) (*Username, error) {
 func NewWithConfig(p authcore.Provider, cfg Config) (*Username, error) {
 	// A nil provider or logger used to panic (#406 fixed four other modules
 	// and not this one, found 2026-09-25).
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	if p.Logger() == nil {

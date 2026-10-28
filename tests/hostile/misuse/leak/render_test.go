@@ -6,10 +6,16 @@ package leak
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/Glyndor/authcore"
@@ -86,5 +92,37 @@ func TestMisuse_Leak_fieldModuleStaysQuiet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkAll(t, []target{{"field.Field", fd}}, e.Mat.Priv, e.Mat.Priv.Seed(), e.Mat.Secret)
+	extract := hmac.New(sha256.New, make([]byte, sha256.Size))
+	extract.Write(e.Mat.Secret)
+	expand := hmac.New(sha256.New, extract.Sum(nil))
+	expand.Write([]byte("authcore/field/blind-index/v1"))
+	expand.Write([]byte{1})
+	idxKey := expand.Sum(nil)
+	mac := hmac.New(sha256.New, idxKey)
+	context, value := "users.email", "probe"
+	mac.Write(binary.BigEndian.AppendUint32(nil, uint32(len(context))))
+	mac.Write([]byte(context))
+	mac.Write(binary.BigEndian.AppendUint32(nil, uint32(len(value))))
+	mac.Write([]byte(value))
+	if got, err := fd.BlindIndex(value); err != nil || got != hex.EncodeToString(mac.Sum(nil)) {
+		t.Fatal("independently derived key does not reproduce the blind index")
+	}
+	for name, out := range map[string]string{
+		"hex": hex.EncodeToString(idxKey), "base64": base64.StdEncoding.EncodeToString(idxKey),
+		"bytes": fmt.Sprintf("%v", idxKey), "hex bytes": fmt.Sprintf("%#v", idxKey),
+	} {
+		if len(hostiletest.Leaks(out, idxKey)) == 0 {
+			t.Fatalf("detector missed the derived key as %s", name)
+		}
+	}
+	var nilField *field.Field
+	targets := []target{{"field.Field pointer", fd}, {"field.Field value", *fd}, {"field.Field nil", nilField}}
+	checkAll(t, targets, e.Mat.Priv, e.Mat.Priv.Seed(), e.Mat.Secret, idxKey)
+	for _, tg := range targets {
+		for verb, out := range renderings(tg.v) {
+			if strings.Contains(out, string(idxKey)) {
+				t.Errorf("%s via %s contains the derived key bytes", tg.name, verb)
+			}
+		}
+	}
 }
