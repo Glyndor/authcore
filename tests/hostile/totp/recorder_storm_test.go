@@ -117,8 +117,8 @@ func TestHostile_TOTP_accountsDoNotBleedIntoEachOtherUnderConcurrency(t *testing
 					_, err := m.VerifyStep(secrets[j], codeAt(t, secrets[i], step), 0)
 					mu.Lock()
 					defer mu.Unlock()
-					if (i == j) != (err == nil) {
-						bad = append(bad, fmt.Sprintf("code of account %d against account %d: %v", i, j, err))
+					if (i == j) != (err == nil) || (i != j && !errors.Is(err, totp.ErrInvalidCode)) {
+						bad = append(bad, fmt.Sprintf("code of account %d against account %d: %v, want ErrInvalidCode across accounts", i, j, err))
 					}
 				}()
 			}

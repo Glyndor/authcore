@@ -90,8 +90,8 @@ func TestHostile_Credential_fieldBoundariesCannotBeShifted(t *testing.T) {
 		"NUL separated":      {"ab\x00cd", "", issued.Token},
 		"length prefix look": {"\x00\x00\x00\x02ab", "cd", issued.Token},
 	} {
-		if err := m.Verify(tc.purpose, tc.subject, tc.token, issued.Hash, now); err == nil {
-			t.Errorf("%s: a shifted boundary verified", name)
+		if err := m.Verify(tc.purpose, tc.subject, tc.token, issued.Hash, now); !errors.Is(err, credential.ErrInvalidCredential) {
+			t.Errorf("%s: a shifted boundary: %v, want ErrInvalidCredential", name, err)
 		}
 	}
 }

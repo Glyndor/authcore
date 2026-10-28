@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Glyndor/authcore/auth/credential"
 )
 
 // An independent implementation of the documented binding: hex(HMAC-SHA256(
@@ -79,8 +82,8 @@ func TestHostile_Framing_everyCutOfOneStringIsADifferentBinding(t *testing.T) {
 			}
 			// A neighbouring cut presented against this hash is refused.
 			if j+1 < len(joined) {
-				if err := m.Verify(p, joined[i:j+1], joined[j+1:], h, time.Now()); err == nil {
-					t.Fatalf("cut %d/%d verified as its neighbour", i, j)
+				if err := m.Verify(p, joined[i:j+1], joined[j+1:], h, time.Now()); !errors.Is(err, credential.ErrInvalidCredential) {
+					t.Fatalf("cut %d/%d as its neighbour: %v, want ErrInvalidCredential", i, j, err)
 				}
 			}
 		}

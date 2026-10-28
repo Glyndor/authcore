@@ -101,12 +101,20 @@ func TestHostile_TOTP_recorderFailureFailsClosed(t *testing.T) {
 		}
 
 		rec = &memRecorder{}
-		for _, bad := range []string{"000000", "12345", "abcdef", ""} {
-			if bad == code {
+		for _, tc := range []struct {
+			bad  string
+			want error
+		}{
+			{"000000", totp.ErrInvalidCode},
+			{"12345", totp.ErrMalformedCode},
+			{"abcdef", totp.ErrMalformedCode},
+			{"", totp.ErrMalformedCode},
+		} {
+			if tc.bad == code {
 				continue
 			}
-			if err := m.Verify(context.Background(), secret, bad, rec); err == nil {
-				return fmt.Sprintf("code %q accepted", bad)
+			if err := m.Verify(context.Background(), secret, tc.bad, rec); !errors.Is(err, tc.want) {
+				return fmt.Sprintf("code %q: Verify = %v, want %v", tc.bad, err, tc.want)
 			}
 		}
 		if rec.hits != 0 {
