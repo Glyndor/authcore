@@ -6,6 +6,7 @@ import (
 
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/oauth/internal/jwks"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // Compile-time assertion: *Client must satisfy authcore.Module.
@@ -29,7 +30,7 @@ type Client struct {
 // New returns a wrapped ErrInvalidConfig when the provider is unusable (a nil
 // interface or a Logger() that returns nil) or when cfg is invalid.
 func New(p authcore.Provider, cfg Config) (*Client, error) {
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	if p.Logger() == nil {

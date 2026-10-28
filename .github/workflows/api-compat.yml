@@ -16,9 +16,9 @@ name: API compatibility
 #
 # The base is the pull request's base commit (github.event.pull_request.base.sha),
 # which is the tip of develop for an ordinary pull request. A release pull
-# request from develop to main is compared against main and so reports
-# everything since the last release: that is the point at which an unlabelled
-# breaking change has to be noticed.
+# request from develop to main always runs the comparison against main and
+# reports the API difference remaining there: that is the point at which an
+# unlabelled breaking change has to be noticed.
 #
 # apidiff is pinned by hand: golang.org/x/exp publishes no tags or releases,
 # only pseudo-versions, so Dependabot cannot see the string below and
@@ -41,9 +41,11 @@ permissions:
   contents: read
 
 # Cost, measured on 2026-10-26: 33 s of job time. The public API is the module
-# root and auth/*, so a pull request that changes no non-test Go file there, and
-# no module file, has nothing for it: `decide` skips the comparison. A label
-# change always runs it, which is what re-evaluates a pull request.
+# root and auth/*, so a pull request into develop that changes no non-test Go
+# file there, and no module file, has nothing for it: `decide` skips the
+# comparison. A label
+# change always runs it, which is what re-evaluates a pull request. Every pull
+# request into main runs it even when the path filter would skip it.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -52,7 +54,8 @@ concurrency:
 jobs:
   # Tells the comparison whether the public API, or the comparison itself, changed.
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -70,13 +73,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^[^/]+\.go$|^auth/[^/]+/[^/]+\.go$|^go\.(mod|sum)$|^scripts/api-compat/|^\.github/workflows/api-compat\.yml$'
           EXCLUDE: '_test\.go$'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then

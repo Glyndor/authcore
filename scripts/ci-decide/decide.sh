@@ -5,8 +5,9 @@
 #
 # INCLUDE and EXCLUDE are extended regular expressions over the paths a pull
 # request changes. The answer is "run" when at least one changed path matches
-# INCLUDE and does not match EXCLUDE. It writes run=true or run=false to
-# $GITHUB_OUTPUT (standard output when that is unset).
+# INCLUDE and does not match EXCLUDE. Pull requests into main always run every
+# gate. It writes run=true or run=false to $GITHUB_OUTPUT (standard output
+# when that is unset).
 #
 # It fails open: on any event other than a pull request, on a label change, and
 # whenever it cannot read the diff, the answer is "run". A wrong "skip" would
@@ -14,7 +15,9 @@
 # costs only minutes.
 #
 # Environment: EVENT (github.event_name), ACTION (github.event.action), BASE and
-# HEAD (the pull request's base and head commits).
+# HEAD (the pull request's base and head commits), BASE_REF (its base branch).
+# Cost reference, measured on 2026-10-27: full release gates took 29.4 min
+# versus 15.5 min for a filtered release. The extra work validates the release.
 set -euo pipefail
 
 include="${1:?usage: decide.sh INCLUDE [EXCLUDE]}"
@@ -28,6 +31,10 @@ say() {
 
 if [ "${EVENT:-}" != "pull_request" ]; then
 	say true "event ${EVENT:-unset} always runs"
+	exit 0
+fi
+if [ "${BASE_REF:-}" = "main" ]; then
+	say true "release pull request into main always runs"
 	exit 0
 fi
 case "${ACTION:-}" in
@@ -51,7 +58,11 @@ if ! files="$(git -c core.quotePath=false diff --name-only -z "${BASE}...${HEAD}
 	exit 0
 fi
 if [ -z "$files" ]; then
-	say true "empty diff"
+	if [ "${BASE_REF:-}" = "develop" ]; then
+		say false "empty diff into develop"
+	else
+		say true "empty diff with unknown base branch"
+	fi
 	exit 0
 fi
 

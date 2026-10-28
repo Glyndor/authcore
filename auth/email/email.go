@@ -12,6 +12,7 @@ import (
 	"github.com/Glyndor/authcore/auth/email/internal/mx"
 	"github.com/Glyndor/authcore/auth/email/internal/normalize"
 	"github.com/Glyndor/authcore/auth/email/internal/syntax"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // DefaultCacheTTL is the maximum duration a domain MX lookup result is cached.
@@ -48,7 +49,7 @@ func New(p authcore.Provider) (*Email, error) {
 func NewWithConfig(p authcore.Provider, cfg Config) (*Email, error) {
 	// A nil provider or logger used to panic (#406 fixed four other modules
 	// and not this one, found 2026-09-25).
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	if p.Logger() == nil {

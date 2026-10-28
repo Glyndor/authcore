@@ -1,9 +1,11 @@
 package authcore
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Glyndor/authcore/internal/keystore/keysdir"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // Config holds the top-level configuration for an AuthCore instance.
@@ -125,6 +127,9 @@ func validateConfig(cfg Config) error {
 	// KeysDir only matters for the default disk store; a custom KeyStore does
 	// not use it, so skip the directory check entirely.
 	if cfg.KeyStore != nil {
+		if nilvalue.IsNil(cfg.KeyStore) {
+			return errors.New("KeyStore is nil")
+		}
 		return nil
 	}
 	if cfg.RequireExistingKeys {

@@ -46,9 +46,10 @@ func RequireHTTPS(label, raw string) error {
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			// The wrapped error repeats the whole URL; keep only the cause.
+			// The cause can quote remote input too, so its text must be bounded.
 			err = ue.Err
 		}
-		return fmt.Errorf("%s is not a valid URL: %w", label, err)
+		return fmt.Errorf("%s is not a valid URL: %s", label, safetext.Clip(err.Error(), safetext.DefaultMax))
 	}
 	if u.Opaque != "" {
 		return fmt.Errorf("%s is opaque, not a hierarchical URL: %s", label, safetext.Quote(raw))
