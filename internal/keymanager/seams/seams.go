@@ -7,7 +7,15 @@
 // hook, and a test has to be able to reach it from outside.
 package seams
 
-import "os"
+import (
+	"os"
+	"runtime"
+)
+
+// GOOS selects the platform for the Windows key-directory notice only. Tests
+// may override it before starting any goroutines and must restore it afterward.
+// Production callers must leave it set to runtime.GOOS.
+var GOOS = runtime.GOOS
 
 // LinkFile is the os.Link call, exposed as a variable so a test can simulate a
 // filesystem that does not support hard links. Production callers must leave it

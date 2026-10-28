@@ -115,6 +115,7 @@ func Load(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 	}
 
 	modecheck.WarnIfDirWritableByOthers(dir, log)
+	modecheck.WarnWindowsDirectory(dir, log)
 
 	leftovers.Report(dir, log)
 	return priv, pub, secret, nil
