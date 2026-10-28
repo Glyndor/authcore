@@ -16,6 +16,15 @@ import (
 // kid that is not exactly one of the trusted ids must never verify.
 func TestHostile_KidInjection_onlyAnExactTrustedKidVerifies(t *testing.T) {
 	e := hostiletest.NewEnv(t)
+	// The kid is derived from a fresh random key. When it has no letter,
+	// upper-casing it changes nothing and that token is the legitimate one, so
+	// draw another key until the case variant is really a different string.
+	for i := 0; i < 64 && strings.ToUpper(e.Kid) == e.Kid; i++ {
+		e = hostiletest.NewEnv(t)
+	}
+	if strings.ToUpper(e.Kid) == e.Kid {
+		t.Fatalf("no key with a lower-case letter in its kid after 64 draws: %q", e.Kid)
+	}
 	m := e.Module(t, jwt.Config{})
 
 	if _, err := m.VerifyAccessToken(e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))); err != nil {
