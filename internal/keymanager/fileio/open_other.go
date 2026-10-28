@@ -10,7 +10,24 @@ import (
 // OpenRegular opens path for reading after checking that it is a regular file.
 // Platforms without a non-blocking open cannot close the gap between the check
 // and the open, but the type is checked again on the open descriptor.
+//
+// On Windows the open is repeated a bounded number of times while another
+// handle holds the file for a moment (see retryOpen); the error of the last
+// attempt is returned unchanged.
 func OpenRegular(path string) (*os.File, error) {
+	var f *os.File
+	err := retryOpen(func() (oerr error) {
+		f, oerr = openRegularOnce(path)
+		return oerr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// openRegularOnce is one attempt of OpenRegular.
+func openRegularOnce(path string) (*os.File, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, err
