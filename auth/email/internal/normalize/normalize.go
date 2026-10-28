@@ -54,7 +54,7 @@ func Address(address string) (string, error) {
 	}
 	ascii, err := idnaProfile.ToASCII(domain)
 	if err != nil {
-		return "", errs.Invalid(fmt.Errorf("domain is not a valid internationalised name: %w", err))
+		return "", errs.Invalid(fmt.Errorf("domain is not a valid internationalised name"))
 	}
 	// A name whose ASCII form IDNA then refuses has no canonical form: the
 	// stored value would be rejected the next time it went through here.

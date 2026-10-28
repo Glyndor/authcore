@@ -19,6 +19,8 @@ func TestHostile_Exhaustion_domainRefusalTextDoesNotGrowWithTheInput(t *testing.
 		"a bidirectional override": "\u202e",
 		"a bidirectional mark":     "\u200f",
 		"unassigned code point":    "\U000e0fff",
+		"a hyphen":                 "-",
+		"an ACE prefix":            "xn--",
 	}
 	for name, unit := range shapes {
 		refusal := func(n int) string {
