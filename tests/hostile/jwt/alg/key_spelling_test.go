@@ -44,8 +44,9 @@ func TestHostile_ObjectKeysHaveOneReading(t *testing.T) {
 	}
 	for name, p := range payloads {
 		t.Run("payload/"+name, func(t *testing.T) {
-			if _, err := m.VerifyAccessToken(signParts(e, head, p)); err == nil {
-				t.Fatal("token with ambiguous payload keys was accepted")
+			_, err := m.VerifyAccessToken(signParts(e, head, p))
+			if !hostiletest.IsInvalidOrMalformed(err) {
+				t.Fatalf("token with ambiguous payload keys = %v, want ErrTokenInvalid or ErrTokenMalformed", err)
 			}
 		})
 	}
@@ -57,8 +58,9 @@ func TestHostile_ObjectKeysHaveOneReading(t *testing.T) {
 	}
 	for name, h := range headers {
 		t.Run("header/"+name, func(t *testing.T) {
-			if _, err := m.VerifyAccessToken(signParts(e, h, `{`+good+`,"type":"access"}`)); err == nil {
-				t.Fatal("token with ambiguous header keys was accepted")
+			_, err := m.VerifyAccessToken(signParts(e, h, `{`+good+`,"type":"access"}`))
+			if !hostiletest.IsInvalidOrMalformed(err) {
+				t.Fatalf("token with ambiguous header keys = %v, want ErrTokenInvalid or ErrTokenMalformed", err)
 			}
 		})
 	}

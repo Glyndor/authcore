@@ -25,8 +25,8 @@ func TestHostile_Time_oversizedIatAndNbfAreRefused(t *testing.T) {
 		}
 		payload := `{"iss":"` + jwt.DefaultConfig().Issuer + `","aud":"` + jwt.DefaultConfig().Audience[0] + `","sub":"` + hostiletest.Subject +
 			`","jti":"` + hostiletest.JtiA + `",` + nbf + `"iat":` + iat + `,"exp":` + hostiletest.Itoa(now+600) + `,"type":"access"}`
-		if c, err := m.VerifyAccessToken(e.SignRaw(t, payload)); err == nil {
-			t.Errorf("%s=int64 max was accepted: %+v", claim, c)
+		if c, err := m.VerifyAccessToken(e.SignRaw(t, payload)); c != nil || !hostiletest.IsInvalidOrMalformed(err) {
+			t.Errorf("%s=int64 max = %+v, %v; want ErrTokenInvalid or ErrTokenMalformed", claim, c, err)
 		}
 	}
 }

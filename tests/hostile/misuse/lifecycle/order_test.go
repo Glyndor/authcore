@@ -26,11 +26,11 @@ func TestMisuse_Lifecycle_verifyBeforeIssueRefuses(t *testing.T) {
 	j, _ := jwt.New[struct{}](e.AC)
 	for _, tok := range []string{"", ".", "..", "a.b.c", "Bearer x"} {
 		hostiletest.NoPanic(t, "jwt.VerifyAccessToken", func() {
-			if _, err := j.VerifyAccessToken(tok); err == nil {
-				t.Errorf("jwt accepted %q", tok)
+			if _, err := j.VerifyAccessToken(tok); !errors.Is(err, jwt.ErrTokenInvalid) && !errors.Is(err, jwt.ErrTokenMalformed) {
+				t.Errorf("jwt on %q = %v; want ErrTokenInvalid or ErrTokenMalformed", tok, err)
 			}
-			if _, err := j.RotateTokens(tok, struct{}{}); err == nil {
-				t.Errorf("jwt rotated %q", tok)
+			if _, err := j.RotateTokens(tok, struct{}{}); !errors.Is(err, jwt.ErrTokenInvalid) && !errors.Is(err, jwt.ErrTokenMalformed) {
+				t.Errorf("jwt rotating %q = %v; want ErrTokenInvalid or ErrTokenMalformed", tok, err)
 			}
 		})
 	}
