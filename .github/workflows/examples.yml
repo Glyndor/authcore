@@ -15,9 +15,10 @@ name: Examples
 # legs took 35 to 108 s each, about 510 s of runner time, half of everything a
 # pull request ran. They look at the examples and at the code the examples build
 # against, so a pull request into develop that touches only unrelated tests,
-# docs or CI has nothing for them: `decide` skips the legs, and the required
-# `Examples` check below reports
-# success without having built anything.
+# docs or unrelated CI has nothing for them: `decide` skips the legs, and the
+# required `Examples` check below reports success without having built anything.
+# Cost, measured on 2026-10-27: #616 and #617 each queued 7 unnecessary legs
+# out of 10. Select affected legs before expansion to also avoid that queue work.
 
 on:
   pull_request:
@@ -31,10 +32,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Tells the matrix whether the examples, or the code they build against, changed.
-  # It always runs and always succeeds; on anything other than a pull request,
+  # Tells the matrix which examples, or the shared code they build against, changed.
+  # It always runs; uncertainty selects all legs. On anything other than a pull request,
   # on a pull request into main, on a label change, and whenever it cannot tell,
-  # it answers "run".
+  # it answers "run" with the full list.
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -42,6 +43,7 @@ jobs:
       contents: read
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      examples: ${{ steps.decide.outputs.examples }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,37 +56,47 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          INCLUDE: '^examples/|\.go$|^go\.(mod|sum)$|^\.github/workflows/examples\.yml$'
-          EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
         # Read the decision from the base before executing any pull-request code.
-        # An older base without the script must run the full suite.
-        # Release PRs also run if the base script predates the main policy.
+        # An older base without the emitter must run the full suite.
+        # Release PRs also run if the base emitter predates the main policy.
+        # Validate its output and fall back to all legs on any loader failure.
         run: |
-          script=scripts/ci-decide/decide.sh
-          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
-            printf 'run=true\n' >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$EVENT" = "pull_request" ]; then
-            script="$RUNNER_TEMP/ci-decide.sh"
-            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
-              echo "base decision script unavailable; running the full suite" >&2
-              printf 'run=true\n' >>"$GITHUB_OUTPUT"
-              exit 0
+          all='["modules/apikey","modules/basic","deploy/containers","modules/email","frameworks/fiber","frameworks/gin","modules/jwt","modules/oauth","modules/password","modules/username"]'
+          examples="$all"
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "develop" ] &&
+             [ "$ACTION" != "labeled" ] && [ "$ACTION" != "unlabeled" ]; then
+            script="$RUNNER_TEMP/ci-examples.sh"
+            if git show "$BASE:scripts/ci-decide/examples.sh" >"$script" &&
+               candidate="$(bash "$script")" &&
+               validated="$(printf '%s\n' "$candidate" | jq -cse --argjson all "$all" '
+                 if length == 1 and (.[0] | type == "array") then
+                   .[0] | if (length == (unique | length)) and
+                     all(.[]; . as $item | $all | index($item) != null)
+                     then . else error("unknown or repeated example") end
+                 else error("expected one JSON array") end')"; then
+              examples="$validated"
+            else
+              echo "base example selection unavailable or invalid; running the full suite" >&2
             fi
           fi
-          bash "$script" "$INCLUDE" "${EXCLUDE:-}"
+          printf 'examples=%s\n' "$examples" >>"$GITHUB_OUTPUT"
+          run=true
+          if [ "$examples" = '[]' ]; then
+            run=false
+          fi
+          printf 'run=%s\n' "$run" >>"$GITHUB_OUTPUT"
 
   build:
     name: build & vet
     needs: decide
-    if: needs.decide.outputs.run == 'true'
+    # Job conditions run before matrix expansion; Actions rejects an empty matrix.
+    if: needs.decide.outputs.run == 'true' && needs.decide.outputs.examples != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 15  # measured locally 2026-09-18: build, vet and race tests of the slowest example took under 60s
     strategy:
       fail-fast: false
       matrix:
-        example: [modules/apikey, modules/basic, deploy/containers, modules/email, frameworks/fiber, frameworks/gin, modules/jwt, modules/oauth, modules/password, modules/username]
+        example: ${{ fromJSON(needs.decide.outputs.examples) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -135,9 +147,7 @@ jobs:
             exit 1
           fi
           # Nothing relevant changed: the legs were skipped on purpose.
-          if [ "$RUN" = "false" ] && [ "$RESULT" = "skipped" ]; then
-            exit 0
-          fi
-          if [ "$RESULT" != "success" ]; then
-            exit 1
-          fi
+          case "$RUN:$RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac
