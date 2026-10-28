@@ -16,9 +16,13 @@ cd "$tmp/r"
 git config user.email t@example.com
 git config user.name t
 git config commit.gpgsign false
-mkdir -p auth/jwt docs examples/modules/jwt
+git config diff.renames true
+mkdir -p auth/jwt/helper docs examples/modules/jwt
 echo a >auth/jwt/jwt.go
 echo a >auth/jwt/jwt_test.go
+printf 'package jwt\nfunc Token() {}\n' >auth/jwt/token.go
+printf 'package helper\nfunc Exported() {}\n' >auth/jwt/helper/value.go
+printf 'package root\n' >root.go
 echo a >docs/guide.md
 echo a >examples/modules/jwt/main.go
 git add -A
@@ -34,6 +38,15 @@ commit_change() {
 	done
 	git add -A
 	git commit -qm change
+	git rev-parse HEAD
+}
+
+# commit_rename OLD NEW : a pure rename, with detection enabled in the fixture.
+commit_rename() {
+	git checkout -q "$base"
+	mkdir -p "$(dirname "$2")"
+	git mv "$1" "$2"
+	git commit -qm rename
 	git rev-parse HEAD
 }
 
@@ -68,6 +81,11 @@ h_other_test="$(commit_change tests/meta/policy_test.go)"
 h_mod="$(commit_change go.mod)"
 h_sum="$(commit_change go.sum)"
 h_mixed="$(commit_change examples/modules/jwt/main.go auth/jwt/jwt.go)"
+h_rename="$(commit_rename auth/jwt/token.go auth/jwt/token.txt)"
+h_move_out="$(commit_rename auth/jwt/token.go docs/token.txt)"
+h_root_move="$(commit_rename root.go docs/root.txt)"
+h_move_excluded="$(commit_rename auth/jwt/token.go auth/jwt/token_test.go)"
+h_move_in="$(commit_rename docs/guide.md auth/jwt/moved.go)"
 
 expect false pull_request synchronize "$h_doc" "$code" "$notest"
 expect false pull_request synchronize "$h_test" "$code" "$notest"
@@ -98,6 +116,51 @@ expect true pull_request synchronize "$base" "$code" "$notest" ''
 # The include pattern is a regular expression, not a prefix.
 expect true pull_request synchronize "$h_code" '^auth/' ''
 expect false pull_request synchronize "$h_doc" '^auth/' ''
+# Removing a relevant origin must run, even with an irrelevant/excluded target.
+expect true pull_request synchronize "$h_rename" "$code" "$notest"
+expect true pull_request synchronize "$h_move_out" "$code" "$notest"
+expect true pull_request synchronize "$h_move_excluded" "$code" "$notest"
+expect true pull_request synchronize "$h_root_move" '\.go$' "$notest"
+# The destination must still count when only the destination is relevant.
+expect true pull_request synchronize "$h_move_in" "$code" "$notest"
+
+# Read all six real generic gate filters, including their distinct exclusions.
+for workflow in api-compat audit ci containers hostile portability; do
+	include="$(awk -F "'" '$1 == "          INCLUDE: " { print $2 }' "$workflows/$workflow.yml")"
+	exclude="$(awk -F "'" '$1 == "          EXCLUDE: " { print $2 }' "$workflows/$workflow.yml")"
+	for head in "$h_rename" "$h_move_out" "$h_root_move" "$h_move_excluded" "$h_move_in"; do
+		expect true pull_request synchronize "$head" "$include" "$exclude"
+	done
+done
+
+# The API comparator includes public auth packages at every depth, but excludes
+# whole internal/tests/examples/cmd components and test source files.
+include="$(awk -F "'" '$1 == "          INCLUDE: " { print $2 }' "$workflows/api-compat.yml")"
+exclude="$(awk -F "'" '$1 == "          EXCLUDE: " { print $2 }' "$workflows/api-compat.yml")"
+for head in "$h_code" "$h_root_move" "$h_mod" "$h_sum"; do
+	expect true pull_request synchronize "$head" "$include" "$exclude"
+done
+for file in scripts/api-compat/api-compat.sh .github/workflows/api-compat.yml; do
+	expect true pull_request synchronize "$(commit_change "$file")" "$include" "$exclude"
+done
+expect false pull_request synchronize "$h_doc" "$include" "$exclude"
+expect false pull_request synchronize "$h_test" "$include" "$exclude"
+for file in auth/new/subpkg/value.go auth/new/subpkg/deeper/value.go auth/jwt/helper/value.go \
+	auth/internalized/subpkg/value.go auth/jwt/tests_helpers/value.go; do
+	expect true pull_request synchronize "$(commit_change "$file")" "$include" "$exclude"
+done
+# A removal in an existing public subpackage must also activate the comparison.
+git checkout -q "$base"
+printf 'package helper\n' >auth/jwt/helper/value.go
+git add auth/jwt/helper/value.go
+git commit -qm 'remove nested public symbol'
+expect true pull_request synchronize "$(git rev-parse HEAD)" "$include" "$exclude"
+for file in auth/jwt/helper/value_test.go auth/jwt/internal/value.go auth/internal/helper/value.go \
+	auth/jwt/helper/internal/deeper/value.go auth/jwt/tests/value.go auth/tests/helper/value.go \
+	auth/jwt/examples/value.go auth/examples/helper/value.go auth/jwt/cmd/value.go \
+	auth/cmd/helper/value.go internal/value.go tests/value.go examples/value.go cmd/value.go; do
+	expect false pull_request synchronize "$(commit_change "$file")" "$include" "$exclude"
+done
 
 # Use the actual gate patterns: tests alone do not change audit inputs,
 # examples alone do not change hostile inputs, and tests/ must stay covered.
@@ -169,5 +232,7 @@ if [ "$fail" -ne 0 ]; then
 fi
 printf 'passed %d, failed 0\n' "$passed"
 
-# Keep the per-leg selector and aggregate tests in the existing CI entry point.
+# Keep the per-leg selector and aggregate tests in the existing CI entry point,
+# along with the API gate's verdict and Actions bindings.
 bash "$here/examples.test.sh"
+bash "$here/api-compat.test.sh"

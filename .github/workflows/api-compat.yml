@@ -1,7 +1,7 @@
 name: API compatibility
 
-# Compares the public API of a pull request (the module root and auth/*)
-# against the tip of the branch it targets, with apidiff, and fails on an
+# Compares the public API of a pull request (the module root and public auth/
+# packages) against the tip of the branch it targets, with apidiff, and fails on an
 # incompatible change unless the pull request carries the `breaking` label
 # (standards/releases: a breaking change is labelled on the pull request).
 # Additions never fail; they are annotated so a reviewer sees the surface grow.
@@ -41,11 +41,14 @@ permissions:
   contents: read
 
 # Cost, measured on 2026-10-26: 33 s of job time. The public API is the module
-# root and auth/*, so a pull request into develop that changes no non-test Go
-# file there, and no module file, has nothing for it: `decide` skips the
+# root and public auth/ packages at any depth, so a pull request into develop
+# that changes no non-test Go file there, and no module file, has nothing for it: `decide` skips the
 # comparison. A label
 # change always runs it, which is what re-evaluates a pull request. Every pull
 # request into main runs it even when the path filter would skip it.
+# The stable api compatibility check below also runs a shell-only aggregate,
+# without checkout or installation, to reject failed decisions. Measure its
+# runner time on the first Actions runs; its timeout is only a ceiling.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -75,8 +78,10 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          INCLUDE: '^[^/]+\.go$|^auth/[^/]+/[^/]+\.go$|^go\.(mod|sum)$|^scripts/api-compat/|^\.github/workflows/api-compat\.yml$'
-          EXCLUDE: '_test\.go$'
+          # Match public_packages in api-compat.sh: exclude directory components,
+          # not similarly named public packages such as internalized or tests_helpers.
+          INCLUDE: '^[^/]+\.go$|^auth/.*\.go$|^go\.(mod|sum)$|^scripts/api-compat/|^\.github/workflows/api-compat\.yml$'
+          EXCLUDE: '_test\.go$|^auth/(.*/)?(internal|tests|examples|cmd)/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.
@@ -99,9 +104,9 @@ jobs:
   api-compat:
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    # Not a required check yet: the name is chosen once so a ruleset can
-    # require it later without orphaning anything.
-    name: api compatibility
+    # Keep the published check name on the aggregate below so a ruleset can
+    # require it without accepting a skip caused by a failed decision.
+    name: api compatibility run
     runs-on: ubuntu-latest
     # 33 s of job time measured on 2026-10-26; the bound is for a hung
     # runner, not for the comparison.
@@ -154,3 +159,26 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           git archive HEAD scripts/api-compat | tar -x -C "$tmp"
           PATH="$RUNNER_TEMP/bin:$PATH" bash "$tmp/scripts/api-compat/api-compat.test.sh"
+
+  # A failed decision must turn the stable check red even if the comparison skips.
+  # Only a successful comparison or an explicit, successful skip decision passes.
+  api-compat-gate:
+    name: api compatibility
+    needs: [decide, api-compat]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 2 # one shell comparison; measure runner time after adoption
+    steps:
+      - name: Verify decision and result
+        env:
+          DECIDE: ${{ needs.decide.result }}
+          RUN: ${{ needs.decide.outputs.run }}
+          RESULT: ${{ needs.api-compat.result }}
+        run: |
+          printf 'decide=%s run=%s result=%s\n' "$DECIDE" "$RUN" "$RESULT"
+          [ "$DECIDE" = "success" ] || exit 1
+          case "$RUN:$RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac

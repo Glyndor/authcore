@@ -14,6 +14,9 @@
 # let a pull request merge without a gate having looked at it; a wrong "run"
 # costs only minutes.
 #
+# Loading this script from the base does not make a pull_request workflow
+# immutable: the PR can still edit its caller. Review workflow changes too.
+#
 # Environment: EVENT (github.event_name), ACTION (github.event.action), BASE and
 # HEAD (the pull request's base and head commits), BASE_REF (its base branch).
 # Cost reference, measured on 2026-10-27: full release gates took 29.4 min
@@ -53,7 +56,9 @@ fi
 # relevant file could make the whole check skip. A path that contains a newline
 # is split in two by the conversion below, and each half is read as its own path;
 # that can only turn a skip into a run, never the other way.
-if ! files="$(git -c core.quotePath=false diff --name-only -z "${BASE}...${HEAD}" 2>/dev/null | tr '\0' '\n')"; then
+# Disable rename detection so both the removed origin and the added destination
+# are tested, even when the destination has an irrelevant or excluded suffix.
+if ! files="$(git -c core.quotePath=false diff --no-renames --name-only -z "${BASE}...${HEAD}" 2>/dev/null | tr '\0' '\n')"; then
 	say true "could not read the diff"
 	exit 0
 fi
