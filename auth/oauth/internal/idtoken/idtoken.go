@@ -123,20 +123,20 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 
 	var claims gjwt.MapClaims
 	var signer jwks.Candidate
+	var keyErr error
 	_, err := gjwt.ParseWithClaims(idToken, &claims,
 		func(t *gjwt.Token) (any, error) {
 			kid, _ := t.Header["kid"].(string)
-			cand, err := p.Keys.CandidateFor(ctx, kid, t.Method.Alg())
-			if err != nil {
-				return nil, err
+			signer, keyErr = p.Keys.CandidateFor(ctx, kid, t.Method.Alg())
+			if keyErr != nil {
+				return nil, keyErr
 			}
-			signer = cand
-			return cand.Pub, nil
+			return signer.Pub, nil
 		},
 		opts...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", p.Invalid, err)
+		return nil, parseError(p.Invalid, err, keyErr)
 	}
 
 	// Predicate validation (multi-tenant or preset-supplied): the iss claim
@@ -176,6 +176,15 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 		return nil, fmt.Errorf("%w: missing subject", p.Invalid)
 	}
 	return out, nil
+}
+
+// parseError preserves key-selection causes, while parser causes can quote
+// remote claims and belong only as bounded printable text in the diagnostic.
+func parseError(invalid, diagnostic, keyErr error) error {
+	if keyErr != nil {
+		return fmt.Errorf("%w: %w", invalid, keyErr)
+	}
+	return fmt.Errorf("%w: %s", invalid, safetext.Clip(diagnostic.Error(), safetext.DefaultMax))
 }
 
 // checkBinding binds the token to this login and to this client: nonce,

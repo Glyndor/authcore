@@ -312,10 +312,14 @@ RFC 6749 section 3.2 requires of a token endpoint request.
   exceptions stay: a loopback endpoint you write yourself in `Config`, and,
   for `Discover`, loopback endpoints when the issuer is itself loopback (a
   local development provider).
-- **Provider text in errors is bounded and printable.** The `error` and
-  `error_description` a provider returns, and every other remote string an
-  error quotes, are stripped of control characters and cut to a few hundred
-  bytes, so `err.Error()` is safe to log.
+- **Provider text quoted directly by the library is bounded and printable.**
+  The `error` and `error_description` a provider returns, and other remote
+  values the library quotes, are stripped of control characters and cut to a
+  few hundred bytes. ID-token and URL parser diagnostics use the same text limit and do
+  not retain the parser's unbounded error as a cause; the public OAuth error
+  sentinel remains available through `errors.Is`. Key-selection and transport
+  errors retain their causes. These text limits do not guarantee that provider
+  text contains no sensitive information.
 
 ### On-premises providers
 

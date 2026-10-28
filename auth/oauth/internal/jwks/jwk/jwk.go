@@ -92,6 +92,10 @@ func (m *members) twice() (string, bool) {
 // The key is read twice: once to count the writes of each member, once to
 // hold its values.
 func Decode(raw []byte) (JWK, error) {
+	// Key identifiers and issuer restrictions must retain the provider's text.
+	if !jsonstrict.WellFormedText(raw) {
+		return JWK{}, fmt.Errorf("jwk carries text that is not valid UTF-8")
+	}
 	var m members
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return JWK{}, err
