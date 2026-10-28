@@ -41,10 +41,15 @@ updates:
     labels:
       - "type:deps"
     open-pull-requests-limit: 10
+    # Same policy as the root entry: patch and minor bumps ride in the group,
+    # a major gets its own pull request because it is the one worth reading alone.
     groups:
       examples:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "build"
       include: "scope"

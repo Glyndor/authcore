@@ -86,6 +86,7 @@ jobs:
         with:
           go-version-file: examples/${{ matrix.example }}/go.mod
           cache: true
+          cache-dependency-path: examples/${{ matrix.example }}/go.sum
 
       - name: Build, vet & test ${{ matrix.example }}
         working-directory: examples/${{ matrix.example }}
