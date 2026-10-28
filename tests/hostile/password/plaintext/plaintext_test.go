@@ -78,8 +78,8 @@ func TestHostile_Plaintext_lengthBoundsAreExactAndCheap(t *testing.T) {
 
 	for n, ok := range map[int]bool{11: false, 12: true, 64: true, 65: false} {
 		err := m.ValidatePolicy(pad(n))
-		if (err == nil) != ok {
-			t.Errorf("%d characters: ValidatePolicy = %v, want accepted=%v", n, err, ok)
+		if (err == nil) != ok || (!ok && !errors.Is(err, password.ErrWeakPassword)) {
+			t.Errorf("%d characters: ValidatePolicy = %v, want accepted=%v (ErrWeakPassword when refused)", n, err, ok)
 		}
 	}
 
@@ -92,8 +92,8 @@ func TestHostile_Plaintext_lengthBoundsAreExactAndCheap(t *testing.T) {
 	if err := m.ValidatePolicy(wide); err != nil {
 		t.Errorf("64 characters in 244 bytes refused: %v", err)
 	}
-	if err := m.ValidatePolicy(wide + "x"); err == nil {
-		t.Error("65 characters accepted")
+	if err := m.ValidatePolicy(wide + "x"); !errors.Is(err, password.ErrWeakPassword) {
+		t.Errorf("65 characters: ValidatePolicy = %v, want ErrWeakPassword", err)
 	}
 
 	// The limit applies to the NFC form, which is what is hashed: 40 accented

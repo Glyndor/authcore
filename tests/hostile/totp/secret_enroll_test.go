@@ -84,8 +84,8 @@ func TestHostile_TOTP_respelledSecretIsADifferentKey(t *testing.T) {
 		// property that matters is that a different spelling never verifies
 		// the original key's code.
 		atStableStep(t, func(step uint64) string {
-			if _, err := m.VerifyStep(spelled, codeAt(t, secret, step), 0); err == nil {
-				return fmt.Sprintf("a respelled secret verified the original key's code (bit %d)", bit)
+			if _, err := m.VerifyStep(spelled, codeAt(t, secret, step), 0); !errors.Is(err, totp.ErrInvalidCode) {
+				return fmt.Sprintf("a respelled secret (bit %d): VerifyStep = %v, want ErrInvalidCode", bit, err)
 			}
 			refused++
 			return ""

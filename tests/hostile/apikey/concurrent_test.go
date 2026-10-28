@@ -1,10 +1,13 @@
 package apikey_test
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Glyndor/authcore/auth/apikey"
 )
 
 // Class: one module shared by many goroutines (run with -race), then extreme
@@ -86,8 +89,8 @@ func TestHostile_Parse_enormousStringsAreRefusedPromptly(t *testing.T) {
 		"valid key then separators": g.Key + strings.Repeat("_a", 1<<19),
 	} {
 		start := time.Now()
-		if got, err := m.ParseID(key); err == nil || got != "" {
-			t.Errorf("%s: ParseID = %q, %v; want a refusal", name, got, err)
+		if got, err := m.ParseID(key); !errors.Is(err, apikey.ErrInvalidKey) || got != "" {
+			t.Errorf("%s: ParseID = %q, %v; want a refusal with ErrInvalidKey", name, got, err)
 		}
 		if d := time.Since(start); d > 3*time.Second {
 			t.Errorf("%s: took %v", name, d)
