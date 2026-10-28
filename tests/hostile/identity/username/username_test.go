@@ -224,9 +224,8 @@ func TestHostile_Username_operatorReservedListsAreNormalised(t *testing.T) {
 	if got, err := m.ValidateAndNormalize("Admin"); err != nil || got != "admin" {
 		t.Errorf("an allowed name: %q, %v", got, err)
 	}
-	if _, err := m.ValidateAndNormalize("root"); err == nil {
-		t.Error("allowing one name released another")
-	}
+	_, err := m.ValidateAndNormalize("root")
+	mustBeReserved(t, err, "root")
 }
 
 // Configuration bounds.

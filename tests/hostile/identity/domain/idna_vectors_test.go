@@ -3,11 +3,13 @@
 package domain
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"golang.org/x/net/idna"
 
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
@@ -76,8 +78,8 @@ func TestHostile_IDNA_refusedDomains(t *testing.T) {
 		"single IDN label":               "a@日本",
 		"only a fullwidth dot":           "a@．.com",
 	} {
-		if got, err := m.ValidateAndNormalize(in); err == nil {
-			t.Errorf("%s: %q was accepted as %q", name, in, got)
+		if got, err := m.ValidateAndNormalize(in); !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("%s: %q = %q, %v; want ErrInvalidEmail", name, in, got, err)
 		}
 	}
 }
@@ -101,8 +103,8 @@ func TestHostile_IDNA_limitsApplyToThePunycodeForm(t *testing.T) {
 	if got, err := m.ValidateAndNormalize("a@" + strings.Repeat("ü", longest) + ".com"); err != nil {
 		t.Errorf("%d characters (63 bytes of punycode): %v, got %q", longest, err, got)
 	}
-	if got, err := m.ValidateAndNormalize("a@" + strings.Repeat("ü", longest+1) + ".com"); err == nil {
-		t.Errorf("%d characters (over 63 bytes of punycode) was accepted as %q", longest+1, got)
+	if got, err := m.ValidateAndNormalize("a@" + strings.Repeat("ü", longest+1) + ".com"); !errors.Is(err, email.ErrInvalidEmail) {
+		t.Errorf("%d characters (over 63 bytes of punycode) = %q, %v; want ErrInvalidEmail", longest+1, got, err)
 	}
 	// Short as typed, long once converted: thirty-two one-character labels are
 	// 133 bytes of input and 261 bytes of ASCII.
@@ -110,7 +112,7 @@ func TestHostile_IDNA_limitsApplyToThePunycodeForm(t *testing.T) {
 	if len(long) > 254 {
 		t.Fatalf("test bug: the input is %d bytes", len(long))
 	}
-	if got, err := m.ValidateAndNormalize(long); err == nil {
-		t.Errorf("an address of %d bytes after conversion was accepted: %q", len(got), got)
+	if got, err := m.ValidateAndNormalize(long); !errors.Is(err, email.ErrInvalidEmail) {
+		t.Errorf("an address of %d bytes after conversion = %q, %v; want ErrInvalidEmail", len(got), got, err)
 	}
 }

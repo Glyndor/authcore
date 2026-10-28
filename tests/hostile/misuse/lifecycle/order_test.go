@@ -37,8 +37,8 @@ func TestMisuse_Lifecycle_verifyBeforeIssueRefuses(t *testing.T) {
 
 	cr, _ := credential.New(e.AC)
 	for _, c := range [][3]string{{"", "", ""}, {"reset", hostiletest.Subject, ""}, {"reset", hostiletest.Subject, "tok"}} {
-		if err := cr.Verify(c[0], c[1], c[2], "", time.Now()); err == nil {
-			t.Errorf("credential accepted %q with an empty stored hash", c)
+		if err := cr.Verify(c[0], c[1], c[2], "", time.Now()); !errors.Is(err, credential.ErrInvalidCredential) {
+			t.Errorf("credential %q with an empty stored hash: %v; want ErrInvalidCredential", c, err)
 		}
 	}
 
@@ -81,8 +81,8 @@ func TestMisuse_Lifecycle_totpReplayIsRefusedThroughTheRecorder(t *testing.T) {
 	}
 	var typedNil *hostiletest.Recorder
 	hostiletest.NoPanic(t, "Verify with a typed nil recorder", func() {
-		if err := m.Verify(ctx, enr.Secret, code, typedNil); err == nil {
-			t.Error("a typed nil recorder let a code through")
+		if err := m.Verify(ctx, enr.Secret, code, typedNil); !errors.Is(err, totp.ErrStepRecorderRequired) {
+			t.Errorf("a typed nil recorder: %v; want ErrStepRecorderRequired", err)
 		}
 	})
 
@@ -122,8 +122,8 @@ func TestMisuse_Lifecycle_enrollTwiceGivesIndependentSecrets(t *testing.T) {
 	if a.Secret == b.Secret {
 		t.Fatal("two enrolments share a secret")
 	}
-	if _, err := m.VerifyStep(b.Secret, hostiletest.TOTPCode(t, a.Secret, time.Now()), 0); err == nil {
-		t.Error("a code of the first enrolment verifies against the second secret")
+	if _, err := m.VerifyStep(b.Secret, hostiletest.TOTPCode(t, a.Secret, time.Now()), 0); !errors.Is(err, totp.ErrInvalidCode) {
+		t.Errorf("a code of the first enrolment against the second secret: %v; want ErrInvalidCode", err)
 	}
 	if _, ok := m.VerifyRecoveryCode(a.RecoveryCodes[0], b.RecoveryHashes); ok {
 		t.Error("a recovery code of the first enrolment matches the second enrolment's hashes")

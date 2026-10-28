@@ -9,6 +9,7 @@ package keyspace
 
 import (
 	"encoding/binary"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -192,7 +193,7 @@ func TestE2E_Keyspace_anotherDeploymentSharesNoHash(t *testing.T) {
 	if b.jwt.VerifyRefreshTokenHash(pair.RefreshToken, pair.RefreshTokenHash) {
 		t.Error("deployment B verified A's refresh hash")
 	}
-	if _, err := b.jwt.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); err == nil {
-		t.Error("deployment B rotated A's refresh token")
+	if _, err := b.jwt.RotateTokens(pair.RefreshToken, hostiletest.Extra{}); !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Errorf("deployment B rotating A's refresh token: %v; want ErrTokenInvalid", err)
 	}
 }

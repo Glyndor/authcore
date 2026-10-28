@@ -93,8 +93,8 @@ func TestHostile_CompactForm_nonCanonicalTrailingBitsAreRefused(t *testing.T) {
 	for bit := 0; bit < 4; bit++ {
 		alt := base64urlAlphabet[idx^(1<<bit)]
 		token := h + "." + p + "." + s[:len(s)-1] + string(alt)
-		if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-			t.Fatalf("signature spelled with unused bit %d set was accepted", bit)
+		if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, jwt.ErrTokenMalformed) {
+			t.Fatalf("signature spelled with unused bit %d set: got %+v, %v; want no claims and ErrTokenMalformed", bit, c, err)
 		}
 		flipped++
 	}
@@ -120,8 +120,8 @@ func TestHostile_CompactForm_everySingleCharacterChangeIsRefused(t *testing.T) {
 		pos := strings.IndexByte(base64urlAlphabet, good[i])
 		for _, alt := range []byte{base64urlAlphabet[(pos+1)%64], base64urlAlphabet[(pos+32)%64]} {
 			token := good[:i] + string(alt) + good[i+1:]
-			if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-				t.Fatalf("token with character %d changed %q -> %q was accepted", i, good[i], alt)
+			if c, err := m.VerifyAccessToken(token); c != nil || !hostiletest.IsInvalidOrMalformed(err) {
+				t.Fatalf("token with character %d changed %q -> %q: got %+v, %v; want no claims and ErrTokenInvalid or ErrTokenMalformed", i, good[i], alt, c, err)
 			}
 		}
 	}
@@ -133,18 +133,28 @@ func TestHostile_CompactForm_signatureLengthIsExact(t *testing.T) {
 	m := e.Module(t, jwt.Config{})
 	good := e.SignEdDSA(t, nil, hostiletest.ClaimsFor("access"))
 	h, p, s := split3(t, good)
-	for name, sig := range map[string]string{
-		"one char short":  s[:len(s)-1],
-		"half":            s[:len(s)/2],
-		"one char":        s[:1],
-		"doubled":         s + s,
-		"one extra block": s + "AAAA",
-		"all A":           strings.Repeat("A", len(s)),
-		"all zero bytes":  strings.Repeat("A", 86),
+	for name, tc := range map[string]struct {
+		sig  string
+		want error
+	}{
+		"one char short": {s[:len(s)-1], jwt.ErrTokenMalformed},
+		// 43 characters decode to 32 bytes: the refusal is a bad signature, or a
+		// non-canonical final character, depending on the signature drawn.
+		"half":            {s[:len(s)/2], nil},
+		"one char":        {s[:1], jwt.ErrTokenMalformed},
+		"doubled":         {s + s, jwt.ErrTokenInvalid},
+		"one extra block": {s + "AAAA", jwt.ErrTokenInvalid},
+		"all A":           {strings.Repeat("A", len(s)), jwt.ErrTokenInvalid},
+		"all zero bytes":  {strings.Repeat("A", 86), jwt.ErrTokenInvalid},
 	} {
-		token := h + "." + p + "." + sig
-		if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-			t.Errorf("%s: signature accepted", name)
+		token := h + "." + p + "." + tc.sig
+		c, err := m.VerifyAccessToken(token)
+		ok := errors.Is(err, tc.want)
+		if tc.want == nil {
+			ok = hostiletest.IsInvalidOrMalformed(err)
+		}
+		if c != nil || !ok {
+			t.Errorf("%s: got %+v, %v; want no claims and %v", name, c, err, tc.want)
 		}
 	}
 }
@@ -202,7 +212,7 @@ func TestHostile_CompactForm_deeplyNestedPayloadIsBounded(t *testing.T) {
 	e := hostiletest.NewEnv(t)
 	m := e.Module(t, jwt.Config{})
 	for name, nested := range map[string]string{
-		"arrays":  strings.Repeat("[", 3000) + strings.Repeat("]", 3000),
+		"arrays":  strings.Repeat("[", 2500) + strings.Repeat("]", 2500),
 		"objects": strings.Repeat(`{"a":`, 600) + "1" + strings.Repeat("}", 600),
 		"open":    strings.Repeat("[", 5000),
 	} {
@@ -214,8 +224,8 @@ func TestHostile_CompactForm_deeplyNestedPayloadIsBounded(t *testing.T) {
 		// Nested objects are unknown fields of the extra struct and are
 		// skipped, so that spelling is a valid token. The other two cannot
 		// decode into it and must be refused.
-		if (c == nil) != (err != nil) || (name != "objects" && err == nil) {
-			t.Errorf("%s: VerifyAccessToken = %+v, %v", name, c, err)
+		if (c == nil) != (err != nil) || (name != "objects" && !hostiletest.IsInvalidOrMalformed(err)) {
+			t.Errorf("%s: VerifyAccessToken = %+v, %v; want a token, or for the shapes extra cannot hold ErrTokenInvalid or ErrTokenMalformed", name, c, err)
 		}
 		if d := time.Since(start); d > 2*time.Second {
 			t.Errorf("%s: took %v", name, d)

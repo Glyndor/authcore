@@ -121,8 +121,8 @@ func TestMisuse_ConfigZero_jwtEmptyConfigAppliesTheDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.VerifyAccessToken(foreign.AccessToken); err == nil {
-		t.Error("a token for another issuer is accepted by a module with an empty Config")
+	if _, err := m.VerifyAccessToken(foreign.AccessToken); !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Errorf("a token for another issuer against a module with an empty Config: %v; want ErrTokenInvalid", err)
 	}
 }
 

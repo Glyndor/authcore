@@ -82,8 +82,8 @@ func TestHostile_ClaimExtremes_outOfRangeNumbersInExtraAreRefused(t *testing.T) 
 		"float64 1e999":       {func(s string) error { _, err := f64.VerifyAccessToken(s); return err }, "1e999"},
 		"float64 string":      {func(s string) error { _, err := f64.VerifyAccessToken(s); return err }, `"NaN"`},
 	} {
-		if err := tc.verify(e.SignRaw(t, payload(tc.extra))); err == nil {
-			t.Errorf("%s: a payload with extra=%s was accepted", name, tc.extra)
+		if err := tc.verify(e.SignRaw(t, payload(tc.extra))); !errors.Is(err, jwt.ErrTokenMalformed) {
+			t.Errorf("%s: payload with extra=%s: got %v, want ErrTokenMalformed", name, tc.extra, err)
 		}
 	}
 }
