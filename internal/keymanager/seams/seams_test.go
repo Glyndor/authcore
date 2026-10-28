@@ -2,10 +2,17 @@ package seams_test
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 
 	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
+
+func TestGOOS_defaultsToRuntime(t *testing.T) {
+	if seams.GOOS != runtime.GOOS {
+		t.Fatalf("GOOS = %q, want %q", seams.GOOS, runtime.GOOS)
+	}
+}
 
 func TestFault_defaultsToNoFault(t *testing.T) {
 	if err := seams.Fault("staged"); err != nil {
