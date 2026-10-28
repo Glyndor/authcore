@@ -21,8 +21,8 @@ func TestHostile_Email_invalidUTF8InTheDomainIsRefused(t *testing.T) {
 		}
 	}
 	for _, in := range []string{"a@ex\xc3\x28mple.com", "a@\xe2\x82.com", "a@example.\xff", "a@\xed\xa0\x80.com", "a@b\xf0\x9f\x98.com"} {
-		if got, err := m.ValidateAndNormalize(in); err == nil {
-			t.Errorf("%q was accepted as %q", in, got)
+		if got, err := m.ValidateAndNormalize(in); !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("%q = %q, %v; want ErrInvalidEmail", in, got, err)
 		}
 	}
 }

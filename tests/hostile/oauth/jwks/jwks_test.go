@@ -121,14 +121,12 @@ func TestHostile_JWKS_afterAFailureNothingForgedIsAccepted(t *testing.T) {
 		_, _ = w.Write(hostiletest.JWKSDoc(hostiletest.RSAJWK(hostiletest.KID, &a.PublicKey, nil)))
 	}))
 	c := hostiletest.OIDCClient(t, srv.URL, nil)
-	if got, err := hostiletest.Verify(t, c, hostiletest.SignA(t, hostiletest.Claims(hostiletest.Nonce, nil))); err == nil {
-		t.Fatalf("accepted during the outage: %+v", got)
-	}
+	got, err := hostiletest.Verify(t, c, hostiletest.SignA(t, hostiletest.Claims(hostiletest.Nonce, nil)))
+	hostiletest.MustRejectToken(t, got, err)
 	fail.Store(false)
 	forged := hostiletest.Mint{Key: b, Claims: hostiletest.Claims(hostiletest.Nonce, nil)}.String(t)
-	if got, err := hostiletest.Verify(t, c, forged); err == nil {
-		t.Fatalf("a forged token was accepted after the outage: %+v", got)
-	}
+	got, err = hostiletest.Verify(t, c, forged)
+	hostiletest.MustRejectToken(t, got, err)
 }
 
 // A hostile rotation: the endpoint starts publishing the attacker's key under
@@ -153,8 +151,9 @@ func TestHostile_JWKS_rotationToAnAttackerKeyDoesNotRewriteTheCache(t *testing.T
 		"attacker key under the trusted kid": hostiletest.Mint{Key: b, Claims: hostiletest.Claims(hostiletest.Nonce, nil)}.String(t),
 		"attacker key under its own new kid": hostiletest.Mint{Key: b, Kid: "attacker", Claims: hostiletest.Claims(hostiletest.Nonce, nil)}.String(t),
 	} {
-		if got, err := hostiletest.Verify(t, c, tok); err == nil {
-			t.Fatalf("%s: accepted %+v", name, got)
+		got, err := hostiletest.Verify(t, c, tok)
+		if err == nil || !errors.Is(err, oauth.ErrIDTokenInvalid) {
+			t.Fatalf("%s: %+v, %v; want ErrIDTokenInvalid", name, got, err)
 		}
 	}
 	if n := srv.Hits.Load(); n != 1 {

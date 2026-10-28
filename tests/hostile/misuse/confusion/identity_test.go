@@ -172,14 +172,14 @@ func TestMisuse_Confusion_nameAndAddressLookAlikes(t *testing.T) {
 	e := hostiletest.NewEnv(t)
 	u, _ := username.New(e.AC)
 	for _, s := range []string{"ADMIN", "Admin", " admin ", "ａdmin", "admin\u200b", "admın", "bob\x00", "ána"} {
-		if got, err := u.ValidateAndNormalize(s); err == nil {
-			t.Errorf("username %q accepted as %q", s, got)
+		if got, err := u.ValidateAndNormalize(s); !errors.Is(err, username.ErrInvalidUsername) {
+			t.Errorf("username %q = %q, %v; want ErrInvalidUsername", s, got, err)
 		}
 	}
 	m, _ := email.New(e.AC)
 	for _, s := range []string{"", "a@b@c.com", "Ana <a@example.com>", "a@example.com\x00", "a b@example.com", "a@[127.0.0.1]", "a@example.com."} {
-		if got, err := m.ValidateAndNormalize(s); err == nil {
-			t.Errorf("email %q accepted as %q", s, got)
+		if got, err := m.ValidateAndNormalize(s); !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("email %q = %q, %v; want ErrInvalidEmail", s, got, err)
 		}
 	}
 	if got, err := m.ValidateAndNormalize(" Ana.Lopez@EXAMPLE.com "); err != nil || got != "ana.lopez@example.com" {

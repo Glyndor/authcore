@@ -19,11 +19,11 @@ func TestHostile_CompactForm_firstByteOutsideTheAlphabetIsRefused(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, prefix := range []string{"\n", "\r", "\r\n", "\t", "\x00", "=", "+", "/"} {
-		if c, err := m.VerifyAccessToken(prefix + pair.AccessToken); err == nil {
-			t.Errorf("access token behind %q was accepted: %+v", prefix, c)
+		if c, err := m.VerifyAccessToken(prefix + pair.AccessToken); c != nil || !hostiletest.IsInvalidOrMalformed(err) {
+			t.Errorf("access token behind %q = %+v, %v; want ErrTokenInvalid or ErrTokenMalformed", prefix, c, err)
 		}
-		if p, err := m.RotateTokens(prefix+pair.RefreshToken, hostiletest.Extra{}); err == nil {
-			t.Errorf("refresh token behind %q was accepted: %+v", prefix, p)
+		if p, err := m.RotateTokens(prefix+pair.RefreshToken, hostiletest.Extra{}); p != nil || !hostiletest.IsInvalidOrMalformed(err) {
+			t.Errorf("refresh token behind %q = %+v, %v; want ErrTokenInvalid or ErrTokenMalformed", prefix, p, err)
 		}
 	}
 }

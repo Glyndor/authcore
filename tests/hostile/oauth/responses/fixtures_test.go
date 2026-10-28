@@ -22,12 +22,15 @@ type surface struct {
 	good func(t *testing.T, base string) []byte
 	// call runs the fetch against base; hc may be nil. It reports the error.
 	call func(t *testing.T, base string, hc *http.Client) error
+	// refusal is the sentinel the surface fails with when a response is refused.
+	refusal error
 }
 
 func surfaces() []surface {
 	return []surface{
 		{
-			name: "exchange",
+			name:    "exchange",
+			refusal: oauth.ErrExchange,
 			good: func(*testing.T, string) []byte {
 				return []byte(`{"access_token":"at","token_type":"Bearer","id_token":"x.y.z","expires_in":3600}`)
 			},
@@ -38,8 +41,9 @@ func surfaces() []surface {
 			},
 		},
 		{
-			name: "userinfo",
-			good: func(*testing.T, string) []byte { return []byte(`{"id":"42","login":"octo"}`) },
+			name:    "userinfo",
+			refusal: oauth.ErrUserInfo,
+			good:    func(*testing.T, string) []byte { return []byte(`{"id":"42","login":"octo"}`) },
 			call: func(t *testing.T, base string, hc *http.Client) error {
 				c := hostiletest.UserinfoClient(t, base+"/userinfo", func(c *oauth.Config) { c.HTTPClient = hc })
 				_, err := c.UserInfo(hostiletest.Ctx(t), "access-token")
@@ -47,8 +51,9 @@ func surfaces() []surface {
 			},
 		},
 		{
-			name: "jwks",
-			good: func(t *testing.T, _ string) []byte { return hostiletest.StdJWKS(t) },
+			name:    "jwks",
+			refusal: oauth.ErrIDTokenInvalid,
+			good:    func(t *testing.T, _ string) []byte { return hostiletest.StdJWKS(t) },
 			call: func(t *testing.T, base string, hc *http.Client) error {
 				c := hostiletest.OIDCClient(t, base+"/jwks", func(c *oauth.Config) { c.HTTPClient = hc })
 				_, err := c.VerifyIDToken(hostiletest.Ctx(t), hostiletest.SignA(t, hostiletest.Claims(hostiletest.Nonce, nil)), hostiletest.Nonce)
@@ -56,7 +61,8 @@ func surfaces() []surface {
 			},
 		},
 		{
-			name: "discovery",
+			name:    "discovery",
+			refusal: oauth.ErrDiscovery,
 			good: func(_ *testing.T, base string) []byte {
 				b, _ := json.Marshal(hostiletest.GoodDoc(base))
 				return b
