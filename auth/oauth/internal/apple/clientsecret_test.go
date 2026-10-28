@@ -47,7 +47,8 @@ func appleP8PEMFor(t *testing.T) []byte {
 // signer and the parser agree on the same TimeFunc here so the comparison
 // is exact, and the iat is pinned against that value.
 func TestAppleClientSecret_Acceptance(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it replaces the package clock nowFn, which the parallel
+	// tests read, and parallel tests only resume after the sequential ones end.
 	p8 := appleP8PEMFor(t)
 	team := appleTestTeamID
 	kid := appleTestKeyID

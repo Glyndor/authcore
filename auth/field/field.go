@@ -74,6 +74,7 @@ import (
 	"github.com/Glyndor/authcore/auth/field/internal/blind"
 	"github.com/Glyndor/authcore/auth/field/internal/kdf"
 	"github.com/Glyndor/authcore/auth/field/internal/seal"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 )
 
 // Compile-time assertion: *Field must satisfy authcore.Module.
@@ -131,7 +132,7 @@ func New(p authcore.Provider, cfg ...Config) (*Field, error) {
 	if len(cfg) > 1 {
 		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
 	}
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	logger := p.Logger()
@@ -139,7 +140,7 @@ func New(p authcore.Provider, cfg ...Config) (*Field, error) {
 		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
 	}
 	keys := p.Keys()
-	if keys == nil {
+	if nilvalue.IsNil(keys) {
 		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
 	}
 

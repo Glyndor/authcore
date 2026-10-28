@@ -66,6 +66,7 @@ import (
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/password/internal/kdf"
 	"github.com/Glyndor/authcore/auth/password/internal/policy"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -107,7 +108,7 @@ func New(p authcore.Provider, cfg ...Config) (*Password, error) {
 	if len(cfg) > 1 {
 		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
 	}
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	if p.Logger() == nil {

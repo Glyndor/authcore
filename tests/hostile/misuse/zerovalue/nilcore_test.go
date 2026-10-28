@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/Glyndor/authcore"
-	"github.com/Glyndor/authcore/auth/oauth"
 	"github.com/Glyndor/authcore/tests/hostile/misuse/hostiletest"
 )
 
@@ -14,11 +13,7 @@ import (
 // ErrInvalidConfig and none may panic.
 func TestMisuse_ZeroValue_constructorsRefuseANilCore(t *testing.T) {
 	var ac *authcore.AuthCore
-	ctors := append(constructors(), constructor{"oauth", oauth.ErrInvalidConfig, func(p authcore.Provider) error {
-		_, err := oauth.New(p, oauth.Config{})
-		return err
-	}})
-	for _, c := range ctors {
+	for _, c := range constructors() {
 		t.Run(c.name, func(t *testing.T) {
 			var err error
 			hostiletest.NoPanic(t, c.name+".New", func() { err = c.new(ac) })

@@ -63,6 +63,7 @@ import (
 	"github.com/Glyndor/authcore"
 	"github.com/Glyndor/authcore/auth/totp/internal/verifier"
 	"github.com/Glyndor/authcore/internal/clock"
+	"github.com/Glyndor/authcore/internal/nilvalue"
 	"github.com/Glyndor/authcore/internal/redactfmt"
 )
 
@@ -106,14 +107,14 @@ func New(p authcore.Provider, cfg ...Config) (*TOTP, error) {
 	if len(cfg) > 1 {
 		return nil, fmt.Errorf("%w: at most one Config is allowed, got %d", ErrInvalidConfig, len(cfg))
 	}
-	if p == nil {
+	if nilvalue.IsNil(p) {
 		return nil, fmt.Errorf("%w: provider is nil", ErrInvalidConfig)
 	}
 	if p.Logger() == nil {
 		return nil, fmt.Errorf("%w: provider.Logger() returned nil", ErrInvalidConfig)
 	}
 	keys := p.Keys()
-	if keys == nil {
+	if nilvalue.IsNil(keys) {
 		return nil, fmt.Errorf("%w: provider.Keys() returned nil", ErrInvalidConfig)
 	}
 	// An absent or short secret hashed recovery codes under a key anyone can
