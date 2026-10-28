@@ -3,6 +3,7 @@ package flow_test
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -100,8 +101,8 @@ func TestHostile_PKCE_aVerifierThatIsNotTheIssuedOneIsRefused(t *testing.T) {
 			if mutate(r.Verifier) == r.Verifier {
 				t.Skip("the mutation left this verifier unchanged")
 			}
-			if tok, err := c.Exchange(hostiletest.Ctx(t), code, mutate(r.Verifier)); err == nil {
-				t.Fatalf("a different verifier was accepted: %+v", tok)
+			if tok, err := c.Exchange(hostiletest.Ctx(t), code, mutate(r.Verifier)); !errors.Is(err, oauth.ErrExchange) {
+				t.Fatalf("a different verifier was not refused as ErrExchange: %v (tokens %+v)", err, tok)
 			}
 		})
 	}
@@ -111,8 +112,8 @@ func TestHostile_PKCE_aVerifierThatIsNotTheIssuedOneIsRefused(t *testing.T) {
 		if victim.Verifier == other.Verifier {
 			t.Fatal("two logins share a verifier")
 		}
-		if tok, err := c.Exchange(hostiletest.Ctx(t), code, other.Verifier); err == nil {
-			t.Fatalf("the verifier of another login unlocked this code: %+v", tok)
+		if tok, err := c.Exchange(hostiletest.Ctx(t), code, other.Verifier); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("the verifier of another login was not refused as ErrExchange: %v (tokens %+v)", err, tok)
 		}
 	})
 }

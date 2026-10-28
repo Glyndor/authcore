@@ -69,14 +69,14 @@ func TestHostile_JWKS_concurrentUnknownKidFloodCollapsesIntoOneFetch(t *testing.
 			if arrived.Add(1) == n {
 				close(allIn)
 			}
-			if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, hostiletest.Nonce); err == nil {
+			if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, hostiletest.Nonce); !errors.Is(err, oauth.ErrIDTokenInvalid) {
 				accepted.Add(1)
 			}
 		}()
 	}
 	wg.Wait()
 	if accepted.Load() != 0 {
-		t.Fatalf("%d forged tokens were accepted", accepted.Load())
+		t.Fatalf("%d forged tokens were not refused as ErrIDTokenInvalid", accepted.Load())
 	}
 	if got := srv.Hits.Load(); got != 1 {
 		t.Fatalf("%d concurrent unknown-kid tokens caused %d JWKS fetches, want 1", n, got)

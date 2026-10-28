@@ -3,6 +3,7 @@ package tokenshapes_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,8 +80,8 @@ func TestHostile_ClientAuth_basicEncodingRoundTripsEveryAwkwardCharacter(t *test
 				cfg.ClientID, cfg.ClientSecret = "id:"+value, value
 				cfg.Provider.AuthMethods = []string{"client_secret_basic"}
 			})
-			if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); err == nil {
-				t.Fatal("control: the fake endpoint answers 400, so the exchange must fail")
+			if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); !errors.Is(err, oauth.ErrExchange) {
+				t.Fatalf("control: the fake endpoint answers 400, so the exchange must fail as ErrExchange: %v", err)
 			}
 			wire.mu.Lock()
 			defer wire.mu.Unlock()
