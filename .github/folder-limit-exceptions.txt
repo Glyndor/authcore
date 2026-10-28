@@ -1,0 +1,5 @@
+# path<TAB>ceiling<TAB>reason. Use . for the repository root.
+# Measured 2026-10-28 with scripts/folder-limit/folder-limit.sh: . 21, auth/oauth 22.
+# Keep ceilings at or below their base-commit values. Remove entries at 20 or fewer.
+.	21	Public root module plus 8 configuration and metadata files; keep the published Go package at the module root.
+auth/oauth	22	Public library package split by responsibility within the same Go package; moving its files to subpackages would break the API.
