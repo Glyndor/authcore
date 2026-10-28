@@ -23,8 +23,8 @@ Each module is an independent package that takes the `Provider` and is usable on
 |---|---|---|
 | 🔑 | **[password](docs/modules/password.md)** | Hash + verify. Argon2id, policy-enforced, self-describing PHC format. |
 | 🎫 | **[jwt](docs/modules/jwt.md)** | Access + refresh tokens. EdDSA / Ed25519, generic claims, refresh rotation, optional revocation through a denylist you implement. |
-| 📧 | **[email](docs/guides/validation.md)** | Validate + normalize. RFC 5321/5322, optional cached DNS MX check. |
-| 👤 | **[username](docs/guides/validation.md)** | Validate + normalize. Reserved-name blocklist, character rules. |
+| 📧 | **[email](docs/modules/email.md)** | Validate + normalize. RFC 5321/5322, optional cached DNS MX check. |
+| 👤 | **[username](docs/modules/username.md)** | Validate + normalize. Reserved-name blocklist, character rules. |
 | 🗝️ | **[apikey](docs/modules/apikey.md)** | Opaque API keys. Generate, keyed-hash for storage, constant-time verify. |
 | 🔐 | **[totp](docs/modules/totp.md)** | TOTP / RFC 6238 second factor. Enroll, verify, recovery codes; replay protection through a step recorder you implement. |
 | ✉️ | **[credential](docs/modules/credential.md)** | Tokens for password reset and account activation. Bound to a purpose and a subject, TTL enforced; your store makes them single-use. |
@@ -84,7 +84,7 @@ Plain OAuth2 providers without OIDC take a hand-built `Provider`; see [OIDC logi
 |---|---|
 | Start here | [Secure login recipe](docs/guides/secure-login.md), [Configuration](docs/guides/configuration.md), [FAQ](docs/reference/faq.md) |
 | Operations | [Key management](docs/guides/key-management.md), [Containers](docs/guides/containers.md), [Testing & modules](docs/guides/testing.md), [Migrating from bcrypt](docs/guides/migrating.md) |
-| Reference | [Errors](docs/reference/errors.md), [Versioning](docs/guides/versioning.md), [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore) |
+| Reference | [Errors](docs/reference/errors.md), [Email & username validation](docs/guides/validation.md), [Versioning](docs/guides/versioning.md), [pkg.go.dev](https://pkg.go.dev/github.com/Glyndor/authcore) |
 
 ## License
 

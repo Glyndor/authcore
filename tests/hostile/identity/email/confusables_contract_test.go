@@ -14,7 +14,7 @@ import (
 // mailbox, so an application that needs robust uniqueness applies its own
 // policy first (ASCII-only local part, no mixed scripts). If this test starts
 // failing because the module began folding, that is a behaviour change to
-// document in docs/guides/validation.md and release as such, not a quiet fix.
+// document in docs/modules/email.md and release as such, not a quiet fix.
 func TestContract_Email_lookAlikeLocalPartsStayDistinct(t *testing.T) {
 	m := hostiletest.NewEmail(t)
 	latin, err := m.ValidateAndNormalize("alice@example.com")
