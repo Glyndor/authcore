@@ -11,11 +11,25 @@ import (
 	"github.com/Glyndor/authcore/internal/keymanager/seams"
 )
 
+// noticePlatform sets the platform for one test and empties the registry of
+// directories already warned about. The registry compares directories with
+// SameFile, and a temporary directory can reuse the identity of one a previous
+// test deleted, which made a later test think its directory had been seen.
 func noticePlatform(t *testing.T, goos string) {
 	t.Helper()
 	previous := seams.GOOS
 	seams.GOOS = goos
-	t.Cleanup(func() { seams.GOOS = previous })
+	resetNotices()
+	t.Cleanup(func() {
+		seams.GOOS = previous
+		resetNotices()
+	})
+}
+
+func resetNotices() {
+	windowsNotices.Lock()
+	windowsNotices.dirs = nil
+	windowsNotices.Unlock()
 }
 
 func TestNeedsWindowsNotice(t *testing.T) {
