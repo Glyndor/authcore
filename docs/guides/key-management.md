@@ -19,6 +19,25 @@ private key to "regenerate" it, and do not delete `refresh_secret.key` to
 make the directory appear empty. That destroys secrets the rest of the
 deployment still depends on.
 
+## Windows
+
+Windows does not enforce Unix mode bits such as `0600` or `0700`.
+Key files inherit ACLs from their parent directory. Restrict the key directory
+ACLs so only the service account can read it. authcore logs this advice at
+Warn level once per key directory per process when creating or loading keys.
+It leaves ACLs unchanged.
+
+`SyncDir` is a no-op on Windows. Publishing a key set has no directory-sync
+durability guarantee across a crash.
+
+Concurrent initialisation on the first start can return a sharing access
+error. Retry the failed start, or initialise the directory once before
+starting other instances.
+
+Key files stay open during the load stability check. On Windows, these open
+files block replacement or removal during that check. Replace the complete
+set while no instance is loading it.
+
 ## `KeysDir` must not be a symbolic link
 
 `KeysDir` has to name the directory itself. If its last path component is a

@@ -58,6 +58,7 @@ func Open(dir string, log layout.Logger) (ed25519.PrivateKey, ed25519.PublicKey,
 	if err := os.MkdirAll(dir, layout.DirMode); err != nil {
 		return nil, nil, nil, fmt.Errorf("create key directory %q: %w", dir, err)
 	}
+	modecheck.WarnWindowsDirectory(dir, log)
 
 	// MkdirAll does not tighten a directory that already exists, so a pre-created
 	// or volume-mounted KeysDir could sit at a looser mode (e.g. 0755). Tighten
