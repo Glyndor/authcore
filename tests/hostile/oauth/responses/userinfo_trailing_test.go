@@ -1,8 +1,10 @@
 package responses_test
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/Glyndor/authcore/auth/oauth"
 	"github.com/Glyndor/authcore/tests/hostile/oauth/hostiletest"
 )
 
@@ -11,8 +13,8 @@ import (
 func TestHostile_UserInfo_nothingMayFollowTheValue(t *testing.T) {
 	for _, body := range []string{`{"id":"1"}}`, `{"id":"1"}]`, `{"id":"1"}}}]]`, "{\"id\":\"1\"}\n}"} {
 		srv := hostiletest.Serve(t, hostiletest.StaticBody([]byte(body)))
-		if info, err := hostiletest.UserinfoClient(t, srv.URL, nil).UserInfo(hostiletest.Ctx(t), "tok"); err == nil {
-			t.Errorf("body %q accepted as %v", body, info)
+		if info, err := hostiletest.UserinfoClient(t, srv.URL, nil).UserInfo(hostiletest.Ctx(t), "tok"); !errors.Is(err, oauth.ErrUserInfo) {
+			t.Errorf("body %q not refused as ErrUserInfo: %v (profile %v)", body, err, info)
 		}
 	}
 	srv := hostiletest.Serve(t, hostiletest.StaticBody([]byte("{\"id\":\"1\"}\n ")))

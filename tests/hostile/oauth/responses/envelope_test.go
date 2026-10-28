@@ -2,6 +2,7 @@ package responses_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -38,8 +39,8 @@ func TestHostile_Response_errorEnvelopeWith200(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				srv := hostiletest.Serve(t, hostiletest.StaticBody([]byte(body)))
 				c := hostiletest.TokenClient(t, srv.URL+"/token", nil)
-				if tok, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); err == nil {
-					t.Fatalf("accepted as %+v", tok)
+				if tok, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); !errors.Is(err, oauth.ErrExchange) {
+					t.Fatalf("not refused as ErrExchange: %v (tokens %+v)", err, tok)
 				}
 			})
 		}
@@ -47,7 +48,7 @@ func TestHostile_Response_errorEnvelopeWith200(t *testing.T) {
 	t.Run("an OIDC exchange with no id_token is its own error", func(t *testing.T) {
 		srv := hostiletest.Serve(t, hostiletest.StaticBody([]byte(`{"access_token":"a","token_type":"Bearer"}`)))
 		c := hostiletest.TokenClient(t, srv.URL+"/token", nil)
-		if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); err == nil || !strings.Contains(err.Error(), oauth.ErrNoIDToken.Error()) {
+		if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); !errors.Is(err, oauth.ErrNoIDToken) {
 			t.Fatalf("want ErrNoIDToken, got %v", err)
 		}
 	})
@@ -64,8 +65,8 @@ func TestHostile_Response_errorEnvelopeWith200(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				srv := hostiletest.Serve(t, hostiletest.StaticBody([]byte(body)))
 				c := hostiletest.UserinfoClient(t, srv.URL, nil)
-				if info, err := c.UserInfo(hostiletest.Ctx(t), "tok"); err == nil {
-					t.Fatalf("accepted as %v", info)
+				if info, err := c.UserInfo(hostiletest.Ctx(t), "tok"); !errors.Is(err, oauth.ErrUserInfo) {
+					t.Fatalf("not refused as ErrUserInfo: %v (profile %v)", err, info)
 				}
 			})
 		}
@@ -127,8 +128,8 @@ func TestHostile_Response_deeplyNestedJSONIsRefusedWithoutBlowingTheStack(t *tes
 					_, _ = w.Write([]byte(f(string(s.good(t, base)))))
 				}))
 				base = srv.URL
-				if err := s.call(t, base, nil); err == nil {
-					t.Fatal("a document nested 100000 levels deep was accepted")
+				if err := s.call(t, base, nil); !errors.Is(err, s.refusal) {
+					t.Fatalf("a document nested 100000 levels deep was not refused as %v: %v", s.refusal, err)
 				}
 			})
 		}

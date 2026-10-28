@@ -2,6 +2,7 @@ package ssrf_test
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -305,8 +306,8 @@ func TestHostile_Config_urlsThatMustNotBeAccepted(t *testing.T) {
 				t.Parallel()
 				cfg := base
 				f.set(&cfg, v)
-				if _, err := oauth.New(hostiletest.SilentProvider{}, cfg); err == nil {
-					t.Fatalf("%s %q was accepted", f.field, v)
+				if _, err := oauth.New(hostiletest.SilentProvider{}, cfg); !errors.Is(err, oauth.ErrInvalidConfig) {
+					t.Fatalf("%s %q was not refused as ErrInvalidConfig: %v", f.field, v, err)
 				}
 			})
 		}
@@ -326,8 +327,8 @@ func TestHostile_Config_urlsThatMustNotBeAccepted(t *testing.T) {
 	for _, v := range []string{"https://idp.example/auth#x", "https://idp.example/auth#", "https://idp.example/auth?a=1#frag"} {
 		cfg := base
 		cfg.Provider.AuthURL = v
-		if _, err := oauth.New(hostiletest.SilentProvider{}, cfg); err == nil {
-			t.Errorf("auth URL %q with a fragment was accepted", v)
+		if _, err := oauth.New(hostiletest.SilentProvider{}, cfg); !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Errorf("auth URL %q with a fragment was not refused as ErrInvalidConfig: %v", v, err)
 		}
 	}
 }

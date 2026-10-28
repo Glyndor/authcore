@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -171,8 +172,8 @@ func TestHostile_IDToken_emptyNonceIsNeverAMatch(t *testing.T) {
 	c := hostiletest.OIDCClient(t, srv.URL, nil)
 	for name, claimNonce := range map[string]any{"token carries an empty nonce": "", "token carries a nonce": "x", "token carries none": nil} {
 		tok := hostiletest.SignA(t, hostiletest.Claims("", map[string]any{"nonce": claimNonce}))
-		if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, ""); err == nil {
-			t.Errorf("%s: an empty expected nonce was accepted", name)
+		if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, ""); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+			t.Errorf("%s: an empty expected nonce was not refused as ErrIDTokenInvalid: %v", name, err)
 		}
 	}
 }
@@ -180,8 +181,8 @@ func TestHostile_IDToken_emptyNonceIsNeverAMatch(t *testing.T) {
 func TestHostile_IDToken_plainOAuth2ClientRefusesIDTokens(t *testing.T) {
 	c := hostiletest.UserinfoClient(t, "https://api.example/user", nil)
 	_, err := c.VerifyIDToken(hostiletest.Ctx(t), hostiletest.SignA(t, hostiletest.Claims(hostiletest.Nonce, nil)), hostiletest.Nonce)
-	if err == nil {
-		t.Fatal("a client with no issuer/JWKS accepted an id token")
+	if !errors.Is(err, oauth.ErrIDTokenInvalid) {
+		t.Fatalf("a client with no issuer/JWKS did not refuse an id token as ErrIDTokenInvalid: %v", err)
 	}
 }
 
