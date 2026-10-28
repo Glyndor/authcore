@@ -3,6 +3,7 @@ package responses_test
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"testing"
 
 	"github.com/Glyndor/authcore/tests/hostile/oauth/hostiletest"
@@ -62,8 +63,8 @@ func TestHostile_Response_malformedOrWrongShapeNeverCountsAsSuccess(t *testing.T
 				var base string
 				srv := hostiletest.Serve(t, r.handler(t, s, &base))
 				base = srv.URL
-				if err := s.call(t, base, nil); err == nil {
-					t.Fatalf("a hostile answer was accepted")
+				if err := s.call(t, base, nil); !errors.Is(err, s.refusal) {
+					t.Fatalf("a hostile answer was not refused as %v: %v", s.refusal, err)
 				}
 			})
 		}

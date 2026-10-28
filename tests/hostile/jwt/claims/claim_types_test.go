@@ -24,52 +24,53 @@ func TestHostile_ClaimTypes_wrongShapesAreRefused(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		key string
-		v   any
+		key  string
+		v    any
+		want error
 	}{
-		"exp object":           {"exp", map[string]any{"$date": 9999999999}},
-		"exp array":            {"exp", []any{9999999999}},
-		"exp bool":             {"exp", true},
-		"exp null":             {"exp", nil},
-		"iat object":           {"iat", map[string]any{}},
-		"aud object":           {"aud", map[string]any{"a": jwt.DefaultConfig().Audience[0]}},
-		"aud number":           {"aud", 7},
-		"aud empty string":     {"aud", ""},
-		"aud empty array":      {"aud", []any{}},
-		"aud array of numbers": {"aud", []any{1, 2}},
-		"aud other service":    {"aud", "https://other.example"},
-		"aud near miss":        {"aud", jwt.DefaultConfig().Audience[0] + " "},
-		"aud nested array":     {"aud", []any{[]any{jwt.DefaultConfig().Audience[0]}}},
-		"aud missing":          {"aud", nil},
-		"iss array":            {"iss", []any{jwt.DefaultConfig().Issuer}},
-		"iss number":           {"iss", 1},
-		"iss other issuer":     {"iss", "https://attacker.example"},
-		"iss near miss":        {"iss", jwt.DefaultConfig().Issuer + "/"},
-		"iss missing":          {"iss", nil},
-		"sub number":           {"sub", 12345},
-		"sub array":            {"sub", []any{hostiletest.Subject}},
-		"sub missing":          {"sub", nil},
-		"sub not a uuid":       {"sub", "admin"},
-		"sub uuid v4":          {"sub", "0191b432-b5a7-4c4f-b2e6-7a3f1d2e0001"},
-		"sub trailing newline": {"sub", hostiletest.Subject + "\n"},
-		"sub with NUL":         {"sub", hostiletest.Subject[:35] + "\x00"},
-		"sub uuid in braces":   {"sub", "{" + hostiletest.Subject + "}"},
-		"sub urn form":         {"sub", "urn:uuid:" + hostiletest.Subject},
-		"sub bad variant":      {"sub", "0191b432-b5a7-7c4f-c2e6-7a3f1d2e0001"},
-		"jti number":           {"jti", 1},
-		"jti object":           {"jti", map[string]any{}},
-		"jti missing":          {"jti", nil},
-		"jti not a uuid":       {"jti", "session-1"},
-		"jti uppercase v4":     {"jti", "0191B432-B5A7-4C4F-B2E6-7A3F1D2E0002"},
-		"jti unicode digits":   {"jti", "0191b432-b5a7-7c4f-b2e6-7a3f1d2e000\u0661"},
-		"type object":          {"type", map[string]any{}},
+		"exp object":           {"exp", map[string]any{"$date": 9999999999}, jwt.ErrTokenMalformed},
+		"exp array":            {"exp", []any{9999999999}, jwt.ErrTokenMalformed},
+		"exp bool":             {"exp", true, jwt.ErrTokenMalformed},
+		"exp null":             {"exp", nil, jwt.ErrTokenInvalid},
+		"iat object":           {"iat", map[string]any{}, jwt.ErrTokenMalformed},
+		"aud object":           {"aud", map[string]any{"a": jwt.DefaultConfig().Audience[0]}, jwt.ErrTokenMalformed},
+		"aud number":           {"aud", 7, jwt.ErrTokenMalformed},
+		"aud empty string":     {"aud", "", jwt.ErrTokenInvalid},
+		"aud empty array":      {"aud", []any{}, jwt.ErrTokenInvalid},
+		"aud array of numbers": {"aud", []any{1, 2}, jwt.ErrTokenMalformed},
+		"aud other service":    {"aud", "https://other.example", jwt.ErrTokenInvalid},
+		"aud near miss":        {"aud", jwt.DefaultConfig().Audience[0] + " ", jwt.ErrTokenInvalid},
+		"aud nested array":     {"aud", []any{[]any{jwt.DefaultConfig().Audience[0]}}, jwt.ErrTokenMalformed},
+		"aud missing":          {"aud", nil, jwt.ErrTokenInvalid},
+		"iss array":            {"iss", []any{jwt.DefaultConfig().Issuer}, jwt.ErrTokenMalformed},
+		"iss number":           {"iss", 1, jwt.ErrTokenMalformed},
+		"iss other issuer":     {"iss", "https://attacker.example", jwt.ErrTokenInvalid},
+		"iss near miss":        {"iss", jwt.DefaultConfig().Issuer + "/", jwt.ErrTokenInvalid},
+		"iss missing":          {"iss", nil, jwt.ErrTokenInvalid},
+		"sub number":           {"sub", 12345, jwt.ErrTokenMalformed},
+		"sub array":            {"sub", []any{hostiletest.Subject}, jwt.ErrTokenMalformed},
+		"sub missing":          {"sub", nil, jwt.ErrTokenInvalid},
+		"sub not a uuid":       {"sub", "admin", jwt.ErrTokenInvalid},
+		"sub uuid v4":          {"sub", "0191b432-b5a7-4c4f-b2e6-7a3f1d2e0001", jwt.ErrTokenInvalid},
+		"sub trailing newline": {"sub", hostiletest.Subject + "\n", jwt.ErrTokenInvalid},
+		"sub with NUL":         {"sub", hostiletest.Subject[:35] + "\x00", jwt.ErrTokenInvalid},
+		"sub uuid in braces":   {"sub", "{" + hostiletest.Subject + "}", jwt.ErrTokenInvalid},
+		"sub urn form":         {"sub", "urn:uuid:" + hostiletest.Subject, jwt.ErrTokenInvalid},
+		"sub bad variant":      {"sub", "0191b432-b5a7-7c4f-c2e6-7a3f1d2e0001", jwt.ErrTokenInvalid},
+		"jti number":           {"jti", 1, jwt.ErrTokenMalformed},
+		"jti object":           {"jti", map[string]any{}, jwt.ErrTokenMalformed},
+		"jti missing":          {"jti", nil, jwt.ErrTokenInvalid},
+		"jti not a uuid":       {"jti", "session-1", jwt.ErrTokenInvalid},
+		"jti uppercase v4":     {"jti", "0191B432-B5A7-4C4F-B2E6-7A3F1D2E0002", jwt.ErrTokenInvalid},
+		"jti unicode digits":   {"jti", "0191b432-b5a7-7c4f-b2e6-7a3f1d2e000\u0661", jwt.ErrTokenInvalid},
+		"type object":          {"type", map[string]any{}, jwt.ErrTokenMalformed},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), tc.key, tc.v))
 			c, err := m.VerifyAccessToken(token)
-			if c != nil || err == nil {
-				t.Fatalf("accepted %s=%v: %+v", tc.key, tc.v, c)
+			if c != nil || !errors.Is(err, tc.want) {
+				t.Fatalf("%s=%v: got %+v, %v; want no claims and %v", tc.key, tc.v, c, err, tc.want)
 			}
 		})
 	}
@@ -121,8 +122,8 @@ func TestHostile_ClaimTypes_audienceArrayNeedsOurAudience(t *testing.T) {
 	// Only Audience[0] is the audience this module checks: a token for the
 	// second configured audience alone is refused.
 	token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", "https://other.example"))
-	if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-		t.Fatalf("a token for the secondary audience only was accepted: %+v", c)
+	if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Fatalf("a token for the secondary audience only: got %+v, %v; want no claims and ErrTokenInvalid", c, err)
 	}
 }
 
@@ -145,8 +146,8 @@ func TestHostile_ClaimTypes_extraWithWrongShape(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "extra", ex))
-			if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-				t.Fatalf("accepted extra=%v: %+v", ex, c)
+			if c, err := m.VerifyAccessToken(token); c != nil || !errors.Is(err, jwt.ErrTokenMalformed) {
+				t.Fatalf("extra=%v: got %+v, %v; want no claims and ErrTokenMalformed", ex, c, err)
 			}
 		})
 	}

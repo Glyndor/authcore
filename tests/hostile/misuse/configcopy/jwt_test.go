@@ -2,6 +2,7 @@ package configcopy
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"testing"
 	"time"
 
@@ -33,15 +34,15 @@ func TestMisuse_ConfigCopy_jwtAudienceSliceIsSnapshotted(t *testing.T) {
 	if _, err := newJWT(t, e, jwt.Config{Audience: []string{"aud-a"}}).VerifyAccessToken(pair.AccessToken); err != nil {
 		t.Fatalf("the token no longer carries the audience the module was built with: %v", err)
 	}
-	if _, err := newJWT(t, e, jwt.Config{Audience: []string{"aud-evil"}}).VerifyAccessToken(pair.AccessToken); err == nil {
-		t.Fatal("the token carries the audience the caller wrote after New")
+	if _, err := newJWT(t, e, jwt.Config{Audience: []string{"aud-evil"}}).VerifyAccessToken(pair.AccessToken); !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Fatalf("the token against the audience the caller wrote after New: %v; want ErrTokenInvalid", err)
 	}
 	evil, err := newJWT(t, e, jwt.Config{Audience: []string{"aud-evil"}}).CreateTokens(hostiletest.Subject, struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.VerifyAccessToken(evil.AccessToken); err == nil {
-		t.Fatal("the module accepts the audience the caller wrote after New")
+	if _, err := m.VerifyAccessToken(evil.AccessToken); !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Fatalf("the audience the caller wrote after New: %v; want ErrTokenInvalid", err)
 	}
 }
 
@@ -74,8 +75,8 @@ func TestMisuse_ConfigCopy_jwtPreviousKeysAreSnapshotted(t *testing.T) {
 	if _, err := m.VerifyAccessToken(oldTok.AccessToken); err != nil {
 		t.Errorf("wiping the caller's copy of the previous key broke verification: %v", err)
 	}
-	if _, err := m.VerifyAccessToken(strangerTok.AccessToken); err == nil {
-		t.Error("a key the caller put into the slice after New is trusted")
+	if _, err := m.VerifyAccessToken(strangerTok.AccessToken); !errors.Is(err, jwt.ErrTokenInvalid) {
+		t.Errorf("a key the caller put into the slice after New: %v; want ErrTokenInvalid", err)
 	}
 }
 

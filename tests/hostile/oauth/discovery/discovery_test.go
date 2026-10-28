@@ -101,8 +101,8 @@ func TestHostile_Discovery_endpointsThatMustBeRefused(t *testing.T) {
 			t.Run(field+"/"+name, func(t *testing.T) {
 				t.Parallel()
 				srv := hostiletest.DiscoveryServer(t, func(doc map[string]any, _ string) { doc[field] = v })
-				if p, err := oauth.Discover(hostiletest.Ctx(t), srv.URL, nil); err == nil {
-					t.Fatalf("%s=%q accepted: %+v", field, v, p)
+				if p, err := oauth.Discover(hostiletest.Ctx(t), srv.URL, nil); !errors.Is(err, oauth.ErrDiscovery) {
+					t.Fatalf("%s=%q not refused as ErrDiscovery: %v (provider %+v)", field, v, err, p)
 				}
 			})
 		}
@@ -111,8 +111,8 @@ func TestHostile_Discovery_endpointsThatMustBeRefused(t *testing.T) {
 		t.Run("missing "+field, func(t *testing.T) {
 			t.Parallel()
 			srv := hostiletest.DiscoveryServer(t, func(doc map[string]any, _ string) { doc[field] = nil })
-			if _, err := oauth.Discover(hostiletest.Ctx(t), srv.URL, nil); err == nil {
-				t.Fatalf("a document without %s was accepted", field)
+			if _, err := oauth.Discover(hostiletest.Ctx(t), srv.URL, nil); !errors.Is(err, oauth.ErrDiscovery) {
+				t.Fatalf("a document without %s was not refused as ErrDiscovery: %v", field, err)
 			}
 		})
 	}
@@ -140,8 +140,8 @@ func TestHostile_Discovery_issuerArgumentThatMustBeRefusedBeforeAnyRequest(t *te
 		"control character": "https://idp.example/\n", "uppercase LOCALHOST (not the documented spelling)": "http://LOCALHOST:1",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := oauth.Discover(hostiletest.Ctx(t), issuer, hc); err == nil {
-				t.Fatalf("issuer %q accepted", issuer)
+			if _, err := oauth.Discover(hostiletest.Ctx(t), issuer, hc); !errors.Is(err, oauth.ErrDiscovery) {
+				t.Fatalf("issuer %q not refused as ErrDiscovery: %v", issuer, err)
 			}
 		})
 	}

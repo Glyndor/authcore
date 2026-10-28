@@ -1,6 +1,7 @@
 package flow_test
 
 import (
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -15,8 +16,8 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 		victim, _ := c.AuthCodeURL()
 		attacker, _ := c.AuthCodeURL()
 		code := as.authorize(t, victim.URL)
-		if tok, err := c.Exchange(hostiletest.Ctx(t), code, attacker.Verifier); err == nil {
-			t.Fatalf("a code was exchanged with someone else's verifier: %+v", tok)
+		if tok, err := c.Exchange(hostiletest.Ctx(t), code, attacker.Verifier); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("a code exchanged with someone else's verifier was not refused as ErrExchange: %v (tokens %+v)", err, tok)
 		}
 	})
 	t.Run("a code cannot be exchanged twice", func(t *testing.T) {
@@ -26,8 +27,8 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 		if _, err := c.Exchange(hostiletest.Ctx(t), code, r.Verifier); err != nil {
 			t.Fatalf("control: first exchange failed: %v", err)
 		}
-		if tok, err := c.Exchange(hostiletest.Ctx(t), code, r.Verifier); err == nil {
-			t.Fatalf("a replayed code produced tokens: %+v", tok)
+		if tok, err := c.Exchange(hostiletest.Ctx(t), code, r.Verifier); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("a replayed code was not refused as ErrExchange: %v (tokens %+v)", err, tok)
 		}
 	})
 	t.Run("a token from another login fails the nonce check", func(t *testing.T) {
@@ -38,15 +39,15 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, err := c.VerifyIDToken(hostiletest.Ctx(t), tok.IDToken, attacker.Nonce); err == nil {
-			t.Fatalf("the victim's token was accepted for the attacker's login: %+v", got)
+		if got, err := c.VerifyIDToken(hostiletest.Ctx(t), tok.IDToken, attacker.Nonce); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+			t.Fatalf("the victim's token for the attacker's login was not refused as ErrIDTokenInvalid: %v (claims %+v)", err, got)
 		}
 	})
 	t.Run("empty code or verifier never reaches the server", func(t *testing.T) {
 		c, as := flowRig(t, "s3cr3t", nil)
 		for _, args := range [][2]string{{"", "v"}, {"c", ""}, {"", ""}} {
-			if _, err := c.Exchange(hostiletest.Ctx(t), args[0], args[1]); err == nil {
-				t.Errorf("Exchange(%q, %q) succeeded", args[0], args[1])
+			if _, err := c.Exchange(hostiletest.Ctx(t), args[0], args[1]); !errors.Is(err, oauth.ErrExchange) {
+				t.Errorf("Exchange(%q, %q) was not refused as ErrExchange: %v", args[0], args[1], err)
 			}
 		}
 		if n := as.tokens.Load(); n != 0 {
@@ -60,8 +61,8 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 		}))
 		c := hostiletest.TokenClient(t, srv.URL, func(c *oauth.Config) { c.ClientSecret = "s3cr3t" })
-		if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); err == nil {
-			t.Fatal("a 503 was accepted")
+		if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("a 503 was not refused as ErrExchange: %v", err)
 		}
 		if hits.Load() != 1 {
 			t.Fatalf("one Exchange sent %d requests; an authorization code may be presented once", hits.Load())
@@ -71,8 +72,8 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 		c, as := flowRig(t, "s3cr3t", nil)
 		cc, cancel := contextCancelled()
 		defer cancel()
-		if _, err := c.Exchange(cc, "code", "verifier"); err == nil {
-			t.Fatal("a cancelled Exchange succeeded")
+		if _, err := c.Exchange(cc, "code", "verifier"); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("a cancelled Exchange was not refused as ErrExchange: %v", err)
 		}
 		if as.tokens.Load() != 0 {
 			t.Fatal("a cancelled Exchange still reached the server")
@@ -82,8 +83,8 @@ func TestHostile_Flow_attacksOnTheCodeExchange(t *testing.T) {
 		c, as := flowRig(t, "s3cr3t", nil)
 		r, _ := c.AuthCodeURL()
 		code := as.authorize(t, r.URL)
-		if _, err := c.Exchange(hostiletest.Ctx(t), code+"&redirect_uri=https://evil.example", r.Verifier); err == nil {
-			t.Fatal("a doctored code was accepted")
+		if _, err := c.Exchange(hostiletest.Ctx(t), code+"&redirect_uri=https://evil.example", r.Verifier); !errors.Is(err, oauth.ErrExchange) {
+			t.Fatalf("a doctored code was not refused as ErrExchange: %v", err)
 		}
 		if got := as.lastRaw["redirect_uri"]; len(got) != 1 || got[0] != "https://app.example/cb" {
 			t.Fatalf("redirect_uri on the wire = %q", got)

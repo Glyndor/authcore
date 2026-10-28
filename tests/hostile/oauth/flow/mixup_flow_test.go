@@ -2,6 +2,7 @@ package flow_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -123,8 +124,8 @@ func TestHostile_MixUp_theCallbackOfOneProviderHandledByTheOtherClient(t *testin
 		if got.Issuer != issuerX || got.Issuer == issuerH {
 			t.Fatalf("an identity from X is labelled %q; an application keying on (issuer, subject) would merge it with H's", got.Issuer)
 		}
-		if h, err := hostiletest.Verify(t, cH, own); err == nil {
-			t.Fatalf("H's client accepted X's token: %+v", h)
+		if h, err := hostiletest.Verify(t, cH, own); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+			t.Fatalf("H's client did not refuse X's token as ErrIDTokenInvalid: %v (claims %+v)", err, h)
 		}
 	})
 }
@@ -142,7 +143,7 @@ func TestHostile_MixUp_keyCachesOfTwoProvidersNeverMix(t *testing.T) {
 	run := func(name string, c *oauth.Client, tok string, want bool) {
 		defer wg.Done()
 		for range 40 {
-			if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, hostiletest.Nonce); (err == nil) != want {
+			if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok, hostiletest.Nonce); (want && err != nil) || (!want && !errors.Is(err, oauth.ErrIDTokenInvalid)) {
 				bad.Store(name, err)
 			}
 		}

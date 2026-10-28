@@ -1,6 +1,7 @@
 package idtoken_test
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,7 +79,11 @@ func TestHostile_Nonce_concurrentCallbacksNeverCrossTheirAnswers(t *testing.T) {
 					nonce = "someone-else" // a callback for another login, same token
 				}
 				_, err := c.VerifyIDToken(hostiletest.Ctx(t), good, nonce)
-				if (nonce == hostiletest.Nonce) != (err == nil) {
+				if nonce == hostiletest.Nonce {
+					if err != nil {
+						wrong.Add(1)
+					}
+				} else if !errors.Is(err, oauth.ErrIDTokenInvalid) {
 					wrong.Add(1)
 				}
 			}

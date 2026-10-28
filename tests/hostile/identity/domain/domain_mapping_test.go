@@ -1,11 +1,13 @@
 package domain
 
 import (
+	"errors"
 	"testing"
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
@@ -24,8 +26,8 @@ func TestHostile_Email_domainMappingIsTheStandardsNotGosLowerCase(t *testing.T) 
 		t.Errorf("U+0130 folded onto the ASCII domain %q", plain)
 	}
 	for _, r := range []rune{0x10a0, 0x10b5, 0x10c5, 0x04c0} {
-		if got, err := m.ValidateAndNormalize("a@" + string(r) + "x.com"); err == nil {
-			t.Errorf("U+%04X was accepted as %q; UTS #46 disallows it", r, got)
+		if got, err := m.ValidateAndNormalize("a@" + string(r) + "x.com"); !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("U+%04X = %q, %v; UTS #46 disallows it, want ErrInvalidEmail", r, got, err)
 		}
 	}
 }
@@ -53,6 +55,9 @@ func TestHostile_Email_everyBMPDomainCharacterAgreesWithUTS46(t *testing.T) {
 			t.Errorf("U+%04X: module err = %v, UTS #46 err = %v", r, err, refErr)
 			continue
 		}
+		if err != nil && !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("U+%04X: refused with %v, want ErrInvalidEmail", r, err)
+		}
 		if err == nil && got != "a@"+want {
 			t.Errorf("U+%04X: module %q, UTS #46 %q", r, got, "a@"+want)
 		}
@@ -65,8 +70,8 @@ func TestHostile_Email_everyBMPDomainCharacterAgreesWithUTS46(t *testing.T) {
 func TestHostile_Email_domainWhoseASCIIFormIsRefusedOnASecondPassIsRefused(t *testing.T) {
 	m := hostiletest.NewEmail(t)
 	for r := rune(0x2135); r <= 0x2138; r++ {
-		if got, err := m.ValidateAndNormalize("a@" + string(r) + "x.com"); err == nil {
-			t.Errorf("U+%04X was accepted as %q", r, got)
+		if got, err := m.ValidateAndNormalize("a@" + string(r) + "x.com"); !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("U+%04X = %q, %v; want ErrInvalidEmail", r, got, err)
 		}
 	}
 }

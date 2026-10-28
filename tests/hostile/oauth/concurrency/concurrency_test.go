@@ -1,6 +1,7 @@
 package concurrency_test
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,14 @@ func TestHostile_Concurrency_aKeyRotationUnderLoadNeverFlipsAnAnswer(t *testing.
 		tokB := hostiletest.Mint{Key: b, Claims: hostiletest.LongLived(nil)}.String(t)
 
 		// run starts workers that verify tokens signed by A and by B and counts
-		// every answer that disagrees with what the era allows.
+		// every answer that disagrees with what the era allows. A refusal counts
+		// as the era's answer only when it is ErrIDTokenInvalid.
+		agrees := func(err error, ok bool) bool {
+			if ok {
+				return err == nil
+			}
+			return errors.Is(err, oauth.ErrIDTokenInvalid)
+		}
 		run := func(aOK, bOK bool) int64 {
 			var wrong atomic.Int64
 			var wg sync.WaitGroup
@@ -37,10 +45,10 @@ func TestHostile_Concurrency_aKeyRotationUnderLoadNeverFlipsAnAnswer(t *testing.
 				go func() {
 					defer wg.Done()
 					for range 30 {
-						if _, err := c.VerifyIDToken(t.Context(), tokA, hostiletest.Nonce); (err == nil) != aOK {
+						if _, err := c.VerifyIDToken(t.Context(), tokA, hostiletest.Nonce); !agrees(err, aOK) {
 							wrong.Add(1)
 						}
-						if _, err := c.VerifyIDToken(t.Context(), tokB, hostiletest.Nonce); (err == nil) != bOK {
+						if _, err := c.VerifyIDToken(t.Context(), tokB, hostiletest.Nonce); !agrees(err, bOK) {
 							wrong.Add(1)
 						}
 						time.Sleep(time.Second)
@@ -139,8 +147,8 @@ func TestHostile_Concurrency_theWholeFlowOnOneSharedClient(t *testing.T) {
 				if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok.IDToken, hostiletest.Nonce); err != nil {
 					fail(err)
 				}
-				if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok.IDToken, "not-the-nonce"); err == nil {
-					fail(fmt.Errorf("a wrong nonce was accepted"))
+				if _, err := c.VerifyIDToken(hostiletest.Ctx(t), tok.IDToken, "not-the-nonce"); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+					fail(fmt.Errorf("a wrong nonce was not refused as ErrIDTokenInvalid: %v", err))
 				}
 			}
 		}()

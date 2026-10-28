@@ -1,9 +1,11 @@
 package exhaustion
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
@@ -25,8 +27,8 @@ func TestHostile_Exhaustion_domainRefusalTextDoesNotGrowWithTheInput(t *testing.
 	for name, unit := range shapes {
 		refusal := func(n int) string {
 			_, err := em.ValidateAndNormalize("a@" + strings.Repeat(unit, n) + ".com")
-			if err == nil {
-				t.Fatalf("%s: a domain of %d repeats was accepted", name, n)
+			if !errors.Is(err, email.ErrInvalidEmail) {
+				t.Fatalf("%s: a domain of %d repeats = %v, want ErrInvalidEmail", name, n, err)
 			}
 			return err.Error()
 		}
