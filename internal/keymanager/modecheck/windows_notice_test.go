@@ -65,7 +65,9 @@ func TestWindowsNoticeOncePerDirectoryAndProcess(t *testing.T) {
 		"Windows does not enforce Unix mode bits",
 		"inherit ACLs from their parent directory",
 		"operator must restrict the key directory ACLs",
-		"only the service account can read it", dir,
+		"only the service account can read it",
+		// The notice quotes the path, which escapes Windows separators.
+		fmt.Sprintf("%q", dir),
 	} {
 		if !strings.Contains(first.warnings[0], fragment) {
 			t.Errorf("notice %q lacks %q", first.warnings[0], fragment)
