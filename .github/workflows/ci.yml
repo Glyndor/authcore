@@ -60,6 +60,77 @@ jobs:
           fi
           bash "$script" "$INCLUDE" "${EXCLUDE:-}"
 
+  # One checkout answers both meta checks. Measured on 2026-10-28 in #623/#625:
+  # pins cost 12-14 s, notes 8-10 s, and a decision 5-7 s. With no relevant
+  # input, save 13-19 runner seconds; release PRs into main run everything.
+  decide-meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3 # checkout, decisions and relevant candidate-script tests
+    permissions:
+      contents: read
+    outputs:
+      pins: ${{ steps.decide.outputs.pins }}
+      notes: ${{ steps.decide.outputs.notes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PINS_INCLUDE: '^\.github/workflows/|^\.github/dependabot\.yml$'
+          NOTES_INCLUDE: '^scripts/release-notes/|^\.github/workflows/(release|ci)\.yml$'
+          TESTS_INCLUDE: '^scripts/ci-decide/|^\.github/workflows/'
+          EXCLUDE: ''
+        # Read the decision from the base before executing any pull-request code.
+        # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
+        run: |
+          script=scripts/ci-decide/decide.sh
+          run_all() {
+            printf 'pins=true\nnotes=true\ntests=true\n' >>"$GITHUB_OUTPUT"
+          }
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            run_all
+            exit 0
+          fi
+          if [ "$EVENT" = "pull_request" ]; then
+            script="$RUNNER_TEMP/ci-decide-meta.sh"
+            if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
+              echo "base decision script unavailable; running the full suite" >&2
+              run_all
+              exit 0
+            fi
+          fi
+          decide_named() {
+            name="$1"
+            include="$2"
+            # Missing, failed or malformed answers cannot grant a skip.
+            if answer="$(GITHUB_OUTPUT=/dev/stdout bash "$script" "$include" "${EXCLUDE:-}")" &&
+              { [ "$answer" = 'run=true' ] || [ "$answer" = 'run=false' ]; }; then
+              printf '%s=%s\n' "$name" "${answer#run=}" >>"$GITHUB_OUTPUT"
+            else
+              printf '%s=true\n' "$name" >>"$GITHUB_OUTPUT"
+            fi
+          }
+          decide_named pins "$PINS_INCLUDE"
+          decide_named notes "$NOTES_INCLUDE"
+          # Step-only output preserves selector tests without widening notes.
+          decide_named tests "$TESTS_INCLUDE"
+      # Keep candidate-script tests outside the step that makes the trusted decision.
+      - name: Test the decision script
+        if: steps.decide.outputs.tests == 'true'
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git archive HEAD scripts/ci-decide .github/workflows | tar -x -C "$tmp"
+          bash "$tmp/scripts/ci-decide/decide.test.sh"
+
   # Keep this unconditional: tests/meta reads docs and workflows as well as Go
   # source, so a docs-only or CI-only pull request can change its answer.
   go:
@@ -73,6 +144,8 @@ jobs:
       per-package-coverage-threshold: 90
 
   pin-policy:
+    needs: decide-meta
+    if: needs.decide-meta.outputs.pins == 'true'
     uses: Glyndor/.github/.github/workflows/pin-policy-reusable.yml@d5041b038b7d4935e75400dff612962e6fa14893 # v1.21.0
 
   dependabot-freshness:
@@ -81,9 +154,11 @@ jobs:
       max-age-days: 15
 
   # scripts/release-notes/release-notes.sh only runs when a tag is pushed, so a defect in it
-  # would first show up in a release. Its test runs here instead.
+  # would first show up in a release. Its test runs here when its inputs change.
   release-notes:
     name: Release notes script
+    needs: decide-meta
+    if: needs.decide-meta.outputs.notes == 'true'
     runs-on: ubuntu-latest
     # The suite took 0.24 s locally on 2026-09-25; the bound is for a hung
     # runner, not for the test.
@@ -95,13 +170,6 @@ jobs:
         with:
           persist-credentials: false
       - run: bash scripts/release-notes/release-notes.test.sh
-      # Keep candidate-script tests outside the job that makes the trusted decision.
-      - name: Test the decision script
-        run: |
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
-          git archive HEAD scripts/ci-decide .github/workflows | tar -x -C "$tmp"
-          bash "$tmp/scripts/ci-decide/decide.test.sh"
 
   # The shared go-ci reusable runs gofmt, vet and tests but no lint, which
   # is why this job lives here. Pinning the tarball by sha256 is the gate; a
