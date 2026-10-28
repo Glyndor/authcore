@@ -41,8 +41,12 @@ func TestMisuse_Confusion_credentialBindingSurvivesSwappedArguments(t *testing.T
 		"hash of the token elsewhere": cr.Verify("reset", hostiletest.Subject, iss.Token, mustHash(t, e, iss.Token), now),
 	}
 	for name, err := range cases {
-		if err == nil {
-			t.Errorf("%s: verified", name)
+		want := credential.ErrInvalidCredential
+		if name == "issued in the future" {
+			want = credential.ErrExpired
+		}
+		if !errors.Is(err, want) {
+			t.Errorf("%s: %v; want %v", name, err, want)
 		}
 	}
 }
@@ -70,8 +74,8 @@ func TestMisuse_Confusion_credentialFramingHasNoAmbiguousSplit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, split := range [][2]string{{"a", "bc"}, {"abc", ""}, {"", "abc"}, {"ab\x00", "c"}, {"ab:", "c"}} {
-		if err := cr.Verify(split[0], split[1], iss.Token, iss.Hash, time.Now()); err == nil {
-			t.Errorf("split %q verifies as ab+c", split)
+		if err := cr.Verify(split[0], split[1], iss.Token, iss.Hash, time.Now()); !errors.Is(err, credential.ErrInvalidCredential) {
+			t.Errorf("split %q: %v; want ErrInvalidCredential", split, err)
 		}
 	}
 }
@@ -103,8 +107,8 @@ func TestMisuse_Confusion_credentialUnicodeIsBoundAsWritten(t *testing.T) {
 		if err := cr.Verify("reset", nfc, iss.Token, iss.Hash, time.Now()); err != nil {
 			t.Errorf("control: %v", err)
 		}
-		if err := cr.Verify("reset", nfd, iss.Token, iss.Hash, time.Now()); err == nil {
-			t.Error("the decomposed spelling verifies a credential issued for the composed one")
+		if err := cr.Verify("reset", nfd, iss.Token, iss.Hash, time.Now()); !errors.Is(err, credential.ErrInvalidCredential) {
+			t.Errorf("the decomposed spelling against a credential issued for the composed one: %v; want ErrInvalidCredential", err)
 		}
 		for _, odd := range []string{"\u202eevil", "a\x00b", strings.Repeat("é", 4096), "👩‍💻"} {
 			if _, err := cr.Issue(odd, odd); err != nil {

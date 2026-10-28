@@ -103,8 +103,8 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 		// A store that returns (false, err) must not be read as "false".
 		m := e.Module(t, jwt.Config{Denylist: &stubDenylist{err: backendDown, revoked: map[string]bool{}}})
 		pair, _ := e.Module(t, jwt.Config{}).CreateTokens(hostiletest.Subject, hostiletest.Extra{})
-		if c, err := m.VerifyAccessToken(pair.AccessToken); c != nil || err == nil {
-			t.Fatalf("accepted with a failing denylist: %+v", c)
+		if c, err := m.VerifyAccessToken(pair.AccessToken); c != nil || !errors.Is(err, backendDown) {
+			t.Fatalf("VerifyAccessToken = %+v, %v; want the backend error and no claims", c, err)
 		}
 	})
 
@@ -122,8 +122,8 @@ func TestHostile_Denylist_failsClosed(t *testing.T) {
 		if d := time.Since(start); d > 2*time.Second {
 			t.Fatalf("returned after %v, the deadline was 30ms", d)
 		}
-		if p, err := m.RotateTokensContext(ctx, pair.RefreshToken, hostiletest.Extra{}); p != nil || err == nil {
-			t.Fatalf("RotateTokensContext under an expired deadline = %+v, %v", p, err)
+		if p, err := m.RotateTokensContext(ctx, pair.RefreshToken, hostiletest.Extra{}); p != nil || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("RotateTokensContext under an expired deadline = %+v, %v; want context.DeadlineExceeded", p, err)
 		}
 	})
 
@@ -178,17 +178,20 @@ func TestHostile_Denylist_isNotQueriedForTokensThatFailEarlier(t *testing.T) {
 	pair, _ := m.CreateTokens(hostiletest.Subject, hostiletest.Extra{})
 	dl.calls.Store(0)
 
-	hostile := []string{
-		"",
-		"not-a-token",
-		e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", 1)),
-		attacker.SignEdDSA(t, map[string]any{"kid": e.Kid}, hostiletest.ClaimsFor("access")),
-		e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", "https://other.example")),
-		pair.RefreshToken, // right signature, wrong kind for VerifyAccessToken
+	hostile := []struct {
+		token string
+		want  error
+	}{
+		{"", jwt.ErrTokenMalformed},
+		{"not-a-token", jwt.ErrTokenMalformed},
+		{e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "exp", 1)), jwt.ErrTokenExpired},
+		{attacker.SignEdDSA(t, map[string]any{"kid": e.Kid}, hostiletest.ClaimsFor("access")), jwt.ErrTokenInvalid},
+		{e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "aud", "https://other.example")), jwt.ErrTokenInvalid},
+		{pair.RefreshToken, jwt.ErrWrongTokenType}, // right signature, wrong kind for VerifyAccessToken
 	}
-	for _, tok := range hostile {
-		if _, err := m.VerifyAccessToken(tok); err == nil {
-			t.Fatalf("hostile token accepted: %.40q", tok)
+	for _, h := range hostile {
+		if _, err := m.VerifyAccessToken(h.token); !errors.Is(err, h.want) {
+			t.Fatalf("hostile token %.40q: got %v, want %v", h.token, err, h.want)
 		}
 	}
 	if n := dl.calls.Load(); n != 0 {

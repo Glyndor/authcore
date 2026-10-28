@@ -1,11 +1,13 @@
 package email
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Glyndor/authcore/auth/email"
 	"github.com/Glyndor/authcore/tests/hostile/identity/hostiletest"
 )
 
@@ -35,6 +37,9 @@ func TestHostile_EmailLocal_limitIsBytesOfTheCanonicalForm(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: %v (accepted as %q), want accepted = %v", name, err, got, tc.ok)
 			continue
+		}
+		if !tc.ok && !errors.Is(err, email.ErrInvalidEmail) {
+			t.Errorf("%s: refused with %v, want ErrInvalidEmail", name, err)
 		}
 		if err == nil {
 			if local := got[:strings.LastIndexByte(got, '@')]; len(local) > 64 {
@@ -86,8 +91,8 @@ func TestHostile_EmailLocal_combiningMarksAreBoundedAndStable(t *testing.T) {
 	if err != nil || again != got {
 		t.Errorf("not stable: %q then %q, %v", got, again, err)
 	}
-	if _, err := m.ValidateAndNormalize("a" + strings.Repeat("\u0301\u0323", 40) + "@example.com"); err == nil {
-		t.Error("a base with 80 marks (161 bytes) was accepted")
+	if _, err := m.ValidateAndNormalize("a" + strings.Repeat("\u0301\u0323", 40) + "@example.com"); !errors.Is(err, email.ErrInvalidEmail) {
+		t.Errorf("a base with 80 marks (161 bytes) = %v, want ErrInvalidEmail", err)
 	}
 	// Marks in either order are one canonical sequence.
 	x, _ := m.ValidateAndNormalize("a\u0323\u0302@example.com")

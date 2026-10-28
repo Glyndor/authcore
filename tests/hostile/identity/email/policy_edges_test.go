@@ -1,6 +1,7 @@
 package email
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -38,8 +39,8 @@ func TestHostile_Email_plusAddressingPolicyAppliesToEveryLocalPart(t *testing.T)
 		if got, err := lax.ValidateAndNormalize(addr); err != nil || got != addr {
 			t.Errorf("default policy %q: %q, %v; plus-addressing is accepted unless asked otherwise", addr, got, err)
 		}
-		if _, err := strict.ValidateAndNormalize(addr); err == nil || !strings.Contains(err.Error(), "plus-addressing") {
-			t.Errorf("strict policy %q: err = %v, want the plus-addressing refusal", addr, err)
+		if _, err := strict.ValidateAndNormalize(addr); !errors.Is(err, email.ErrInvalidEmail) || !strings.Contains(err.Error(), "plus-addressing") {
+			t.Errorf("strict policy %q: err = %v, want ErrInvalidEmail for plus-addressing", addr, err)
 		}
 	}
 }
