@@ -18,7 +18,8 @@ jobs:
   # Tells the lint job whether any Go source, module file or lint config
   # changed (standards/ci, "A check costs what it learns").
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -36,13 +37,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
           EXCLUDE: ''
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
@@ -93,7 +100,7 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          git archive HEAD scripts/ci-decide | tar -x -C "$tmp"
+          git archive HEAD scripts/ci-decide .github/workflows | tar -x -C "$tmp"
           bash "$tmp/scripts/ci-decide/decide.test.sh"
 
   # The shared go-ci reusable runs gofmt, vet and tests but no lint, which

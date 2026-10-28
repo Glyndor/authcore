@@ -19,10 +19,11 @@ name: Portability
 # about 6 min of runner time per run, billed at the higher macOS and Windows
 # rates. The leg timeout is a little over twice the slower leg.
 #
-# What skips it: `decide` runs first. A pull request that changes no .go file,
-# no go.mod or go.sum and not this workflow has nothing for the matrix, so the
+# What skips it: `decide` runs first. A pull request into develop that changes
+# no .go file, no go.mod or go.sum and not this workflow has nothing for the
+# matrix, so the
 # legs are skipped on purpose. Any other event, a label change and any doubt
-# answer "run".
+# answer "run", as does every pull request into main.
 #
 # Concurrency: one run per pull request or ref; a new push to a pull request
 # cancels the run in flight, scheduled and manual runs never cancel each other.
@@ -48,7 +49,8 @@ concurrency:
 jobs:
   # Tells the matrix whether Go code, the module files or this workflow changed.
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -66,12 +68,18 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/portability\.yml$'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
