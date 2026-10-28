@@ -119,7 +119,8 @@ for workflow in audit hostile; do
 	fi
 done
 
-# Exercise each actual workflow loader, including a base without decide.sh.
+# Exercise each generic workflow loader, including a base without decide.sh.
+# The per-leg Examples loader is exercised by examples.test.sh below.
 # A stale base script that skips must not switch off a release gate.
 git checkout -q "$base"
 mkdir -p scripts/ci-decide
@@ -145,7 +146,7 @@ expect_workflow() {
 	fi
 }
 
-for workflow in api-compat audit ci containers examples hostile portability; do
+for workflow in api-compat audit ci containers hostile portability; do
 	loader="$tmp/$workflow.sh"
 	# Extract the real run block, not a copy of its fallback logic.
 	awk '
@@ -167,3 +168,6 @@ if [ "$fail" -ne 0 ]; then
 	exit 1
 fi
 printf 'passed %d, failed 0\n' "$passed"
+
+# Keep the per-leg selector and aggregate tests in the existing CI entry point.
+bash "$here/examples.test.sh"
