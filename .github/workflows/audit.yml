@@ -13,8 +13,12 @@ on:
   workflow_dispatch:
 
 # Cost, measured on 2026-10-26: gosec 51 s and govulncheck 28 s of job time. On
-# a pull request they look at Go source and module files, so a pull request that
-# changes neither skips them; the schedule and manual runs always run.
+# a pull request into develop they look at non-test Go source and module files,
+# so a pull request that changes neither skips them; the schedule and manual
+# runs always run, as does every pull request into main.
+# Measured on 2026-10-27: test-only PRs #602, #608 and #611 spent 4.25 min
+# on these tools. The pinned reusable enables neither gosec -tests nor
+# govulncheck -test, so excluding *_test.go preserves their analysis coverage.
 
 permissions:
   contents: read
@@ -24,9 +28,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Tells the audit whether any Go file or module file changed.
+  # Tells the audit whether any non-test Go file or module file changed.
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -44,13 +49,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/audit\.yml$'
-          EXCLUDE: ''
+          EXCLUDE: '_test\.go$'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
@@ -63,8 +74,8 @@ jobs:
 
   # A skipped call of a reusable workflow reports as "audit", not as the
   # "audit / gosec" and "audit / govulncheck" the ruleset waits for, so a pull
-  # request that touches no Go code stayed blocked. These two report those names
-  # when the audit is skipped.
+  # request that touches no analyzed Go code stayed blocked. These two report
+  # those names when the audit is skipped.
   skipped-gosec:
     name: audit / gosec
     needs: decide
@@ -74,7 +85,7 @@ jobs:
     # Only echoes; needs no token scope.
     permissions: {}
     steps:
-      - run: echo "no Go or module file changed; gosec skipped"
+      - run: echo "no non-test Go or module file changed; gosec skipped"
 
   skipped-govulncheck:
     name: audit / govulncheck
@@ -85,7 +96,7 @@ jobs:
     # Only echoes; needs no token scope.
     permissions: {}
     steps:
-      - run: echo "no Go or module file changed; govulncheck skipped"
+      - run: echo "no non-test Go or module file changed; govulncheck skipped"
 
   audit:
     needs: decide

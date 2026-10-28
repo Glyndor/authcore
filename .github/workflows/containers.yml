@@ -21,9 +21,11 @@ name: Containers
 # recipe, which a green pull request history cannot.
 #
 # Cost, measured on 2026-10-26: 33 s of job time. The recipe looks at the
-# container example and at the code it builds against, so a pull request that
-# touches only tests, docs or unrelated CI skips it: `decide` answers, and the
-# required `containers recipe` check reports success without having run.
+# container example and at the code it builds against, so a pull request into
+# develop that touches only tests, unrelated docs or unrelated CI skips it:
+# `decide` answers, and the required `containers recipe` check reports success
+# without having run. Pull
+# requests into main always run the recipe.
 
 on:
   pull_request:
@@ -44,7 +46,8 @@ concurrency:
 jobs:
   # Tells the recipe whether the container example, or the code it builds against, changed.
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -62,13 +65,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^examples/deploy/|^docs/guides/containers\.md$|\.go$|^go\.(mod|sum)$|^\.github/workflows/containers\.yml$'
           EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then

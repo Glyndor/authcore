@@ -30,8 +30,12 @@ permissions:
   contents: read
 
 # Cost, measured on 2026-10-26: 123 s of job time per run. The suite is a
-# property of the production code and of its own files, so a pull request that
-# changes only docs, CI or unit tests has nothing for it: `decide` skips it.
+# property of the production code and of its own files, so a pull request
+# into develop that changes only unrelated docs, CI, library unit tests or
+# examples has nothing for it: `decide` skips it. Pull requests into main run it.
+# Measured on 2026-10-27: the examples change in #612 spent 2.38 min here.
+# Exclude only examples/ in addition to the library test patterns; tests/ stays
+# eligible, including the hostile suite itself.
 # The same suite also runs once inside the shared Go CI on every pull request,
 # so this workflow adds only the repeat and the shuffle, which is what it is for.
 
@@ -42,7 +46,8 @@ concurrency:
 jobs:
   # Tells the suite whether the hostile tests, or the code they attack, changed.
   # It always runs and always succeeds; on anything other than a pull request,
-  # on a label change, and whenever it cannot tell, it answers "run".
+  # on a pull request into main, on a label change, and whenever it cannot tell,
+  # it answers "run".
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3  # a checkout and one git diff; tighten it after the first runs
@@ -60,13 +65,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^tests/hostile/|\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
-          EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$'
+          EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$|^examples/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
+        # Release PRs also run if the base script predates the main policy.
         run: |
           script=scripts/ci-decide/decide.sh
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            printf 'run=true\n' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             script="$RUNNER_TEMP/ci-decide.sh"
             if ! git show "$BASE:scripts/ci-decide/decide.sh" >"$script"; then
