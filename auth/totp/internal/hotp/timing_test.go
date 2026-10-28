@@ -11,6 +11,10 @@ import (
 // rollover and excludes secret decoding and the replay recorder from timing.
 // The tolerance detects substantial prefix-dependent work, not nanosecond leaks
 // on a shared runner. It is not a proof of constant-time machine code.
+// Measured 2026-10-28: a comparison that stops at the first wrong digit and
+// rebuilds the code for each digit gave a ratio of 3.66, while two loaded CI
+// runners (Linux with -race, Windows) gave 1.34 and 1.36 on the unchanged code,
+// so the limit sits at 2.0, between the noise and the defect.
 func TestHostile_TOTP_WrongCodeTimingDoesNotRevealMatchingPrefix(t *testing.T) {
 	if testing.Short() {
 		t.Skip("statistical timing check")
@@ -31,6 +35,7 @@ func TestHostile_TOTP_WrongCodeTimingDoesNotRevealMatchingPrefix(t *testing.T) {
 		}
 	}
 	const rounds, batch = 31, 4096
+	const maxRatio = 2.0
 	var samples [Digits][]time.Duration
 	rng := rand.New(rand.NewPCG(71, 93))
 	measure := func(code string) time.Duration {
@@ -67,7 +72,7 @@ func TestHostile_TOTP_WrongCodeTimingDoesNotRevealMatchingPrefix(t *testing.T) {
 		}
 	}
 	ratio := float64(slowest) / float64(fastest)
-	if ratio > 1.30 {
-		t.Fatalf("wrong-code cost depends on matching prefix: max/min median ratio %.3f > 1.30", ratio)
+	if ratio > maxRatio {
+		t.Fatalf("wrong-code cost depends on matching prefix: max/min median ratio %.3f > %.1f", ratio, maxRatio)
 	}
 }
