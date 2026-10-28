@@ -84,8 +84,8 @@ func FetchWith(ctx context.Context, issuer string, httpClient *http.Client, errD
 		return Document{}, fmt.Errorf("%w: status %d", errDiscovery, resp.StatusCode)
 	}
 
-	var doc Document
-	if err := json.Unmarshal(body, &doc); err != nil {
+	doc, err := decodeDocument(body)
+	if err != nil {
 		return Document{}, fmt.Errorf("%w: decode: %w", errDiscovery, err)
 	}
 
@@ -128,5 +128,33 @@ func FetchWith(ctx context.Context, issuer string, httpClient *http.Client, errD
 		}
 	}
 
+	return doc, nil
+}
+
+// decodeDocument matches metadata names exactly; other spellings are unknown
+// extensions under OIDC Discovery §5, regardless of their values' types.
+func decodeDocument(body []byte) (Document, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return Document{}, err
+	}
+	var doc Document
+	for _, field := range []struct {
+		name string
+		dst  any
+	}{
+		{"issuer", &doc.Issuer},
+		{"authorization_endpoint", &doc.AuthURL},
+		{"token_endpoint", &doc.TokenURL},
+		{"jwks_uri", &doc.JWKSURL},
+		{"userinfo_endpoint", &doc.UserInfoURL},
+		{"token_endpoint_auth_methods_supported", &doc.AuthMethods},
+	} {
+		if raw, ok := fields[field.name]; ok {
+			if err := json.Unmarshal(raw, field.dst); err != nil {
+				return Document{}, err
+			}
+		}
+	}
 	return doc, nil
 }

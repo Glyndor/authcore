@@ -130,7 +130,7 @@ func (c *Cache) CandidateFor(ctx context.Context, kid, alg string) (Candidate, e
 	// unknown kids must produce a single outbound JWKS fetch, not one per
 	// request.
 	err := c.waitRefresh(ctx, expires)
-	if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) &&
+	for (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) &&
 		!errors.Is(err, c.errs.Fetch) && ctx.Err() == nil {
 		// The shared fetch runs under the context of the caller that started
 		// it. When that caller went away, every caller that joined got its
