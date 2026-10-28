@@ -54,11 +54,11 @@ func TestMisuse_ConfigZero_totpSkewNilIsTheDefaultAndNeverWiderThanDeclared(t *t
 				t.Fatalf("the current code is refused: %v", err)
 			}
 			_, err = m.VerifyStep(enr.Secret, hostiletest.TOTPCode(t, enr.Secret, now.Add(-30*time.Second)), 0)
-			if (err == nil) != tc.oneAgo {
-				t.Errorf("code from the previous step: accepted=%v, want %v", err == nil, tc.oneAgo)
+			if (err == nil) != tc.oneAgo || (err != nil && !errors.Is(err, totp.ErrInvalidCode)) {
+				t.Errorf("code from the previous step: %v, want accepted=%v and a refusal as ErrInvalidCode", err, tc.oneAgo)
 			}
-			if _, err := m.VerifyStep(enr.Secret, hostiletest.TOTPCode(t, enr.Secret, now.Add(-120*time.Second)), 0); err == nil {
-				t.Error("a code from four steps ago is accepted")
+			if _, err := m.VerifyStep(enr.Secret, hostiletest.TOTPCode(t, enr.Secret, now.Add(-120*time.Second)), 0); !errors.Is(err, totp.ErrInvalidCode) {
+				t.Errorf("a code from four steps ago = %v, want ErrInvalidCode", err)
 			}
 			if len(enr.RecoveryCodes) != 10 {
 				t.Errorf("%d recovery codes, want the default 10", len(enr.RecoveryCodes))

@@ -110,4 +110,4 @@ the [password guide](../modules/password.md)), so two passwords that render the
 same can differ in bytes. If your product needs robust uniqueness or has to
 resist look-alike impersonation, apply your own policy before storing the
 address, for example restrict the local part to ASCII or reject a mix of
-scripts. See [look-alike characters in the local part](../guides/validation.md#look-alike-characters-in-the-local-part).
+scripts. See [look-alike characters in the local part](../modules/email.md#look-alike-characters-in-the-local-part).

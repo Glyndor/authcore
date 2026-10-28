@@ -55,8 +55,8 @@ func TestHostile_TokenType_nearMissesAreRefused(t *testing.T) {
 	} {
 		t.Run("access/"+name, func(t *testing.T) {
 			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("access"), "type", typ))
-			if c, err := m.VerifyAccessToken(token); c != nil || err == nil {
-				t.Fatalf("VerifyAccessToken accepted type %v: %+v", typ, c)
+			if c, err := m.VerifyAccessToken(token); c != nil || !isTypeRefusal(err) {
+				t.Fatalf("VerifyAccessToken with type %v = %+v, %v; want ErrWrongTokenType, ErrTokenInvalid or ErrTokenMalformed", typ, c, err)
 			}
 		})
 	}
@@ -68,8 +68,8 @@ func TestHostile_TokenType_nearMissesAreRefused(t *testing.T) {
 	} {
 		t.Run("refresh/"+name, func(t *testing.T) {
 			token := e.SignEdDSA(t, nil, hostiletest.With(hostiletest.ClaimsFor("refresh"), "type", typ))
-			if p, err := m.RotateTokens(token, hostiletest.Extra{}); p != nil || err == nil {
-				t.Fatalf("RotateTokens accepted type %v", typ)
+			if p, err := m.RotateTokens(token, hostiletest.Extra{}); p != nil || !isTypeRefusal(err) {
+				t.Fatalf("RotateTokens with type %v = %+v, %v; want ErrWrongTokenType, ErrTokenInvalid or ErrTokenMalformed", typ, p, err)
 			}
 		})
 	}
@@ -98,4 +98,10 @@ func TestHostile_TokenType_duplicateTypeKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+// isTypeRefusal reports the sentinels a wrong or unreadable type claim may
+// fail with; nil, and any other error, means the token got further than it should.
+func isTypeRefusal(err error) bool {
+	return errors.Is(err, jwt.ErrWrongTokenType) || hostiletest.IsInvalidOrMalformed(err)
 }

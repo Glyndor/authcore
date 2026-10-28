@@ -107,8 +107,8 @@ func TestHostile_Timeouts_aStalledKeyEndpointIsNotWaitedOnTwiceInAWindow(t *test
 		}
 		took := elapsed(func() {
 			for range 100 {
-				if _, err := c.VerifyIDToken(context.Background(), hostiletest.SignA(t, hostiletest.LongLived(nil)), hostiletest.Nonce); err == nil {
-					t.Error("accepted while the key endpoint stalls")
+				if _, err := c.VerifyIDToken(context.Background(), hostiletest.SignA(t, hostiletest.LongLived(nil)), hostiletest.Nonce); !errors.Is(err, oauth.ErrIDTokenInvalid) {
+					t.Errorf("while the key endpoint stalls: %v, want ErrIDTokenInvalid", err)
 				}
 			}
 		})

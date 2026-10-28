@@ -42,8 +42,8 @@ func TestHostile_Response_endlessBodyIsCutAtTheCap(t *testing.T) {
 			}))
 			start := time.Now()
 			err := s.call(t, srv.URL, &http.Client{Timeout: clientTimeout})
-			if err == nil {
-				t.Fatal("an endless body was accepted")
+			if !errors.Is(err, s.refusal) {
+				t.Fatalf("an endless body: %v, want %v", err, s.refusal)
 			}
 			// The cut must be the cap's, not the client's timeout: a deadline
 			// error says the timeout won, which is a different behaviour.
@@ -102,8 +102,8 @@ func TestHostile_Response_slowlorisIsBoundedByTheClientTimeout(t *testing.T) {
 				srv := hostiletest.Serve(t, http.HandlerFunc(h))
 				start := time.Now()
 				err := s.call(t, srv.URL, &http.Client{Timeout: 300 * time.Millisecond})
-				if err == nil {
-					t.Fatal("a stalled answer was accepted")
+				if !errors.Is(err, s.refusal) {
+					t.Fatalf("a stalled answer: %v, want %v", err, s.refusal)
 				}
 				if elapsed := time.Since(start); elapsed > 3*time.Second {
 					t.Fatalf("a 300 ms client timeout held for %v", elapsed)
@@ -220,8 +220,8 @@ func TestHostile_Response_connectionDroppedMidBody(t *testing.T) {
 				_ = buf.Flush()
 			}))
 			base = srv.URL
-			if err := s.call(t, base, nil); err == nil {
-				t.Fatal("an answer cut short of its Content-Length was accepted")
+			if err := s.call(t, base, nil); !errors.Is(err, s.refusal) {
+				t.Fatalf("an answer cut short of its Content-Length: %v, want %v", err, s.refusal)
 			}
 		})
 	}

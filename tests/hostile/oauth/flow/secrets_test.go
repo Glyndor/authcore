@@ -3,6 +3,7 @@ package flow_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -106,8 +107,8 @@ func TestHostile_Flow_secretsStayOutOfLogsAndBadSecretSourcesSendNothing(t *test
 			"empty": func(context.Context) (string, error) { return "", nil },
 		} {
 			c, as := flowRig(t, "", func(c *oauth.Config) { c.ClientSecretFunc = fn })
-			if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); err == nil {
-				t.Errorf("%s: Exchange succeeded", name)
+			if _, err := c.Exchange(hostiletest.Ctx(t), "code", "verifier"); !errors.Is(err, oauth.ErrExchange) {
+				t.Errorf("%s: Exchange = %v, want ErrExchange", name, err)
 			}
 			if as.tokens.Load() != 0 {
 				t.Errorf("%s: a request was sent without a secret", name)
@@ -120,8 +121,8 @@ func TestHostile_Flow_secretsStayOutOfLogsAndBadSecretSourcesSendNothing(t *test
 			ClientSecretFunc: func(context.Context) (string, error) { return "b", nil },
 			Provider:         oauth.Provider{Issuer: hostiletest.Issuer, AuthURL: "https://idp.example/a", TokenURL: "https://idp.example/t", JWKSURL: "https://idp.example/j"},
 		})
-		if err == nil {
-			t.Fatal("ambiguous secret configuration accepted")
+		if !errors.Is(err, oauth.ErrInvalidConfig) {
+			t.Fatalf("ambiguous secret configuration: %v, want ErrInvalidConfig", err)
 		}
 	})
 }

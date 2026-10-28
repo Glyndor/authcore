@@ -197,7 +197,7 @@ func TestHostile_Interop_foreignSignerIsAcceptedOnlyWithOurKey(t *testing.T) {
 		t.Fatalf("a token signed by independent code with our key was refused: %v", err)
 	}
 	_, other, _ := ed25519.GenerateKey(nil)
-	if c, err := m.VerifyAccessToken(sign(other)); err == nil {
-		t.Fatalf("a token signed with another key was accepted: %+v", c)
+	if c, err := m.VerifyAccessToken(sign(other)); c != nil || !hostiletest.IsInvalidOrMalformed(err) {
+		t.Fatalf("a token signed with another key = %+v, %v; want ErrTokenInvalid or ErrTokenMalformed", c, err)
 	}
 }

@@ -2,6 +2,7 @@ package denylist
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/jwt"
@@ -28,8 +29,8 @@ func TestHostile_Denylist_storeHeldByValueIsConsulted(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := e.Module(t, jwt.Config{Denylist: valueDenylist{revoked: live.SessionID}})
-	if _, err := m.VerifyAccessToken(live.AccessToken); err == nil {
-		t.Fatal("a session the value-typed store revoked was accepted")
+	if _, err := m.VerifyAccessToken(live.AccessToken); !errors.Is(err, jwt.ErrTokenRevoked) {
+		t.Fatalf("a session the value-typed store revoked = %v, want ErrTokenRevoked", err)
 	}
 	if _, err := m.VerifyAccessToken(live2.AccessToken); err != nil {
 		t.Fatalf("a session the store did not revoke was refused: %v", err)
