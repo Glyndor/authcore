@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,9 @@ func TestInvalidFlag(t *testing.T) {
 // used to print a forged "key id" line after the real one; it is written
 // quoted now, and a path without control characters is written as it is.
 func TestControlCharactersInTheOutputPathCannotForgeALine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not allow control characters in a file name, so the directory cannot exist")
+	}
 	for _, name := range []string{"x\nkey id 0000000000000000", "x\ry", "x\ty", "x\x7f"} {
 		dir := filepath.Join(t.TempDir(), name)
 		code, stdout, stderr := runKeygen(t, []string{"-out", dir})
