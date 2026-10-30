@@ -2,54 +2,51 @@ package candidate
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// FuzzPick builds a candidate list from arbitrary alg, use and key_ops values
-// and selects with an arbitrary token alg. The property is the restriction
-// contract itself, checked from the outside: a candidate is returned only if
-// the key allows the token's alg, is a signature key and may verify; and when
-// some candidate does allow it, Pick does not refuse.
+// FuzzPick builds a candidate list of fuzzed length and order, each entry with
+// its own key and its own alg, use and key_ops, and selects with an arbitrary
+// token alg. The property is the restriction contract itself, decided from a
+// table independent of Matches: Pick returns the first candidate the table
+// allows, whole and with its own key, and when none is allowed, including for
+// an empty list, it refuses with an error that wraps the fetch sentinel.
 func FuzzPick(f *testing.F) {
-	f.Add("RS256", "RS256", "sig", "verify,sign", "k1")
-	f.Add("PS256", "RS256", "", "", "k1")
-	f.Add("RS256", "", "enc", "", "")
-	f.Add("RS256", "", "", "encrypt", "k\x00")
-	f.Add("none", "none", "sig", "verify", "k1")
+	f.Add("RS256", "k1", []byte{0x01, 0x00})       // strict first, permissive second
+	f.Add("PS256", "k1", []byte{0x02, 0x00})       // first key declares another alg
+	f.Add("RS256", "", []byte{})                   // no candidates
+	f.Add("RS256", "k1", []byte{0x08, 0x20, 0x08}) // none is allowed
+	f.Add("RS256", "k1", []byte{0x00, 0x00})       // two permissive, distinct keys
+	f.Add("other", "k\x00", []byte{0x03, 0x1c})    // alg "other" is the token's
+	f.Add("none", "k1", []byte{0x31, 0x01})        // verify among the key_ops
 
 	errFetch := errors.New("fetch")
-	f.Fuzz(func(t *testing.T, tokenAlg, keyAlg, use, ops, kid string) {
-		var keyOps map[string]struct{}
-		if ops != "" {
-			keyOps = map[string]struct{}{}
-			for _, op := range strings.Split(ops, ",") {
-				keyOps[op] = struct{}{}
-			}
+	f.Fuzz(func(t *testing.T, tokenAlg, kid string, spec []byte) {
+		if len(spec) > 64 {
+			t.Skip()
 		}
-		// The strict candidate first, then a permissive one, so the case where
-		// the first is skipped and a later one matches is exercised too.
-		list := []Candidate{{Alg: keyAlg, Use: use, KeyOps: keyOps}, {}}
-
-		allows := func(c Candidate) bool {
-			_, canVerify := c.KeyOps["verify"]
-			return (c.Alg == "" || c.Alg == tokenAlg) && (c.Use == "" || c.Use == "sig") && (len(c.KeyOps) == 0 || canVerify)
-		}
+		list := specCandidates(spec, tokenAlg)
+		want := specFirstAllowed(spec, tokenAlg)
 		got, err := Pick(errFetch, list, kid, tokenAlg)
-		if err != nil {
+		if want < 0 {
 			if !errors.Is(err, errFetch) {
-				t.Fatalf("a refusal that does not wrap the fetch sentinel: %v", err)
+				t.Fatalf("no candidate allows alg %q, got %+v, %v", tokenAlg, got, err)
 			}
-			if allows(list[0]) || allows(list[1]) {
-				t.Fatal("refused although a candidate allows this algorithm")
+			if !reflect.DeepEqual(got, Candidate{}) {
+				t.Fatalf("a candidate was returned alongside a refusal: %+v", got)
+			}
+			if strings.Contains(err.Error(), "for kid") != (kid != "") {
+				t.Fatalf("the refusal does not name the kid exactly when one was given: %v", err)
 			}
 			return
 		}
-		if !allows(got) {
-			t.Fatalf("selected a candidate that does not allow alg %q: %+v", tokenAlg, got)
+		if err != nil {
+			t.Fatalf("refused although candidate %d allows alg %q: %v", want, tokenAlg, err)
 		}
-		if allows(list[0]) && got.Alg != list[0].Alg {
-			t.Fatal("skipped the first candidate although it allows the algorithm")
+		if got.Pub != list[want].Pub || !reflect.DeepEqual(got, list[want]) {
+			t.Fatalf("selected %+v, want candidate %d: %+v", got, want, list[want])
 		}
 	})
 }
