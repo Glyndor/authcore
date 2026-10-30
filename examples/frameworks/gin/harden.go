@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -23,6 +24,33 @@ const (
 	// gives login something to verify against when the account is unknown.
 	decoyPassword = "Decoy-P@ssw0rd-never-matches!"
 )
+
+const (
+	// maxConcurrentHashes bounds the Argon2id derivations that run at once.
+	// Each one holds the profile's memory (64 MiB by default) until it ends,
+	// and /register and /login are open to anyone, so without a bound N
+	// connections hold N times that: 64 concurrent logins measured 3.1 GiB.
+	maxConcurrentHashes = 4
+)
+
+// hashWait is how long a request waits for a derivation slot before it is
+// refused with 503. It is a variable so a test can shorten it.
+var hashWait = 2 * time.Second
+
+var hashSlots = make(chan struct{}, maxConcurrentHashes)
+
+// acquireHash waits for a derivation slot, for at most hashWait or until ctx
+// ends. release must be called when the derivation is done.
+func acquireHash(ctx context.Context) (release func(), ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, hashWait)
+	defer cancel()
+	select {
+	case hashSlots <- struct{}{}:
+		return func() { <-hashSlots }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
 
 // hardening runs before every route. It caps the body, and marks every
 // response as uncacheable: they carry tokens, and a shared cache or a browser
