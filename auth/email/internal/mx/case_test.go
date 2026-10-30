@@ -2,9 +2,14 @@ package mx
 
 import (
 	"context"
+	"errors"
 	"net"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/Glyndor/authcore/auth/email/internal/errs"
 )
 
 // DNS names are case-insensitive, so the spellings of one domain are one
@@ -35,5 +40,29 @@ func TestVerifyDomain_unicodeLookalikesAreNotFoldedOntoAsciiDomains(t *testing.T
 	}
 	if got := stub.calls(); got != 4 {
 		t.Errorf("four different domains made %d lookups, want 4", got)
+	}
+}
+
+// A domain of any length is refused before it is copied, so the refusal costs
+// the same for a 16 MiB name as for a 16 byte one.
+func TestVerifyDomain_oversizedDomainIsRefusedWithoutCopyingIt(t *testing.T) {
+	stub := newStub(nil, nil)
+	m := New(stub, time.Minute)
+	address := "a@" + strings.Repeat("A", 16<<20)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	err := m.Verify(context.Background(), address)
+	runtime.ReadMemStats(&after)
+
+	if !errors.Is(err, errs.ErrInvalidEmail) {
+		t.Fatalf("err = %v, want ErrInvalidEmail", err)
+	}
+	if used := after.TotalAlloc - before.TotalAlloc; used > 1<<20 {
+		t.Errorf("refusing a 16 MiB domain allocated %d bytes", used)
+	}
+	if stub.calls() != 0 {
+		t.Error("an oversized domain reached the resolver")
 	}
 }

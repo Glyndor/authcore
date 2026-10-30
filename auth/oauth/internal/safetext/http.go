@@ -25,14 +25,23 @@ func HTTPError(err error, credentials ...string) error {
 		// URLs are dropped from the cause, so the refusal reason stays readable
 		// while a target that carries a credential is never repeated.
 		scrubbed := urlText.ReplaceAllString(text, "[redacted-url]")
-		if scrubbed != text || echoesCredential(scrubbed, credentials) {
-			if echoesCredential(scrubbed, credentials) {
+		if scrubbed != text || echoesCredential(scrubbed, credentials) || quotesLocation(text) {
+			if quotesLocation(text) || echoesCredential(scrubbed, credentials) {
 				scrubbed = "HTTP request failed"
 			}
 			cleaned.Err = hiddenCause{cause: original.Err, text: scrubbed}
 		}
 	}
 	return &cleaned
+}
+
+// quotesLocation reports a Location header that net/http could not parse. It
+// quotes the header whole, as written or escaped for a Go string, and a
+// relative target has no scheme for the URL pattern to find, so the text is not
+// kept: a provider can put the Basic credential it just received, or any
+// encoding of it, in that header.
+func quotesLocation(text string) bool {
+	return strings.Contains(text, "Location header")
 }
 
 func echoesCredential(text string, credentials []string) bool {

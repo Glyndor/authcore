@@ -14,6 +14,11 @@ import (
 	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
+// profileFields are the members a caller keys an account on. A spelling that
+// differs only in case is refused, so one profile cannot name two accounts;
+// every other member keeps its own spelling.
+var profileFields = []string{"id", "sub", "login", "email", "name", "email_verified", "error", "error_description"}
+
 // userInfoMaxBytes caps a userinfo response so a hostile or broken endpoint
 // cannot exhaust memory.
 const userInfoMaxBytes = 1 << 20
@@ -67,7 +72,7 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	if err := checkShape(body); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
 	}
-	if err := jsonstrict.UniqueMembers(body); err != nil {
+	if err := jsonstrict.UniqueMembers(body, profileFields...); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
 	}
 	// Decode once, with UseNumber so a 53-bit-plus integer id (e.g.

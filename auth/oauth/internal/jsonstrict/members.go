@@ -4,85 +4,64 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"unicode"
 )
 
 // ErrMembers reports member names with more than one reading in one object.
 var ErrMembers = errors.New("JSON object carries ambiguous member names")
 
-// maxDepth is how many open objects the scan keeps a name table for. Each table
-// costs memory, so an unbounded stack would let a body at its size cap cost many
-// times its size. Deeper levels are only counted: no member the client reads
-// sits that deep, and a document that nests further is accepted as before, with
-// the names below the limit left unchecked.
+// maxDepth is how many open objects the scan keeps a name table for. Deeper
+// levels are only counted: no member the client reads sits that deep, and a
+// document that nests further is accepted as before, with the names below the
+// limit left unchecked.
 const maxDepth = 64
 
-// UniqueMembers refuses repeated member names, including escaped equivalents
-// and case aliases, in every object down to maxDepth levels. Names in separate objects are independent.
-// When canonical names are supplied, case aliases of those top-level members
-// are refused even when written once. Other extension names remain allowed.
-// Syntax errors are left to the operation's decoder.
+// UniqueMembers refuses a repeated member name in an object, down to maxDepth
+// levels. Names are compared as the decoder reads them, so `"id"` and
+// `"id"` are one name; names that differ only in case are different names,
+// as they are for a map. The exception is the top-level object when canonical
+// names are supplied: those members are read into struct fields, which
+// encoding/json matches without regard to case, so a spelling that matches a
+// canonical name only by case is refused even when it is written once. Every
+// other member keeps its own spelling. Syntax errors are left to the
+// operation's decoder.
 //
-// The scan walks the bytes once and allocates only for member names: a string
-// value is skipped, never copied, so a response at its size cap costs no more
-// than it did before the check.
+// The scan walks the bytes once. A string value is skipped, never copied, and
+// the name tables are reused by depth, so a body at its size cap costs a
+// constant multiple of its size however many objects it holds.
 func UniqueMembers(raw []byte, canonical ...string) error {
-	// A nil map marks an array frame; an object frame holds the names seen.
-	var stack []map[string]struct{}
-	// wantName is true while the next string in an object frame is a member name.
-	wantName := false
-	// beyond counts the levels open below maxDepth, which have no name table.
-	beyond := 0
+	var sc scan
 	for i := 0; i < len(raw); {
 		switch c := raw[i]; c {
-		case ' ', '\t', '\r', '\n', ',':
+		case ' ', '\t', '\r', '\n':
 			i++
-			if c == ',' {
-				wantName = len(stack) > 0 && stack[len(stack)-1] != nil
-			}
-		case '{', '[':
-			if len(stack) >= maxDepth {
-				beyond++
-				wantName = false
-				i++
-				continue
-			}
-			if c == '[' {
-				stack = append(stack, nil)
-				wantName = false
-				i++
-				continue
-			}
-			stack = append(stack, make(map[string]struct{}))
-			wantName = true
-			i++
-		case '}', ']':
-			if beyond > 0 {
-				beyond--
-				i++
-				continue
-			}
-			if len(stack) == 0 {
-				return nil
-			}
-			stack = stack[:len(stack)-1]
-			wantName = false
+		case ',':
+			sc.comma()
 			i++
 		case ':':
-			wantName = false
+			sc.wantName = false
+			i++
+		case '{', '[':
+			sc.open(c)
+			i++
+		case '}', ']':
+			if !sc.close() {
+				return nil
+			}
 			i++
 		case '"':
 			end := stringEnd(raw, i)
 			if end < 0 {
 				return nil
 			}
-			if wantName && beyond == 0 {
-				if err, ok := recordName(stack, raw[i:end], canonical); !ok {
+			if sc.wantName && sc.beyond == 0 {
+				ok, err := recordName(sc.frames[sc.depth-1], raw[i:end], sc.depth == 1, canonical)
+				if !ok {
 					return nil
-				} else if err != nil {
+				}
+				if err != nil {
 					return err
 				}
-				wantName = false
+				sc.wantName = false
 			}
 			i = end
 		default:
@@ -93,28 +72,92 @@ func UniqueMembers(raw []byte, canonical ...string) error {
 	return nil
 }
 
-// recordName registers the member name quoted in text on the innermost object.
-// ok is false when the name cannot be decoded, which is left to the caller's
-// decoder; err is ErrMembers when the name repeats or aliases another.
-func recordName(stack []map[string]struct{}, text []byte, canonical []string) (err error, ok bool) {
-	var name string
-	if json.Unmarshal(text, &name) != nil {
-		return nil, false
+// scan is the state of one UniqueMembers pass.
+type scan struct {
+	// frames[d] is the name table of the open object at depth d, reused by
+	// every object that opens at that depth; isObject tells an object from an
+	// array there.
+	frames   []map[string]struct{}
+	isObject []bool
+	depth    int
+	// wantName is true while the next string in an object is a member name.
+	wantName bool
+	// beyond counts the levels open below maxDepth, which have no name table.
+	beyond int
+}
+
+func (s *scan) comma() {
+	s.wantName = s.beyond == 0 && s.depth > 0 && s.isObject[s.depth-1]
+}
+
+func (s *scan) open(c byte) {
+	if s.depth >= maxDepth {
+		s.beyond++
+		s.wantName = false
+		return
 	}
-	if len(stack) == 1 {
+	if s.depth == len(s.frames) {
+		s.frames = append(s.frames, make(map[string]struct{}))
+		s.isObject = append(s.isObject, false)
+	}
+	s.isObject[s.depth] = c == '{'
+	if c == '{' {
+		clear(s.frames[s.depth])
+	}
+	s.depth++
+	s.wantName = c == '{'
+}
+
+// close ends the innermost level. It reports false on a closer with nothing
+// open, which is a syntax error left to the operation's decoder.
+func (s *scan) close() bool {
+	s.wantName = false
+	if s.beyond > 0 {
+		s.beyond--
+		return true
+	}
+	if s.depth == 0 {
+		return false
+	}
+	s.depth--
+	return true
+}
+
+// recordName registers the member name quoted in text in names. ok is false
+// when the name cannot be decoded, which is left to the operation's decoder;
+// err is ErrMembers when the name repeats or, at the top level, spells a
+// canonical name with other capitalisation.
+func recordName(names map[string]struct{}, text []byte, top bool, canonical []string) (ok bool, err error) {
+	name, plain := plainName(text)
+	if !plain {
+		if json.Unmarshal(text, &name) != nil {
+			return false, nil
+		}
+	}
+	if top {
 		for _, exact := range canonical {
 			if name != exact && strings.EqualFold(name, exact) {
-				return ErrMembers, true
+				return true, ErrMembers
 			}
 		}
 	}
-	name = foldName(name)
-	names := stack[len(stack)-1]
 	if _, exists := names[name]; exists {
-		return ErrMembers, true
+		return true, ErrMembers
 	}
 	names[name] = struct{}{}
-	return nil, true
+	return true, nil
+}
+
+// plainName returns the name inside text when it holds printable ASCII and no
+// escape, so it needs no JSON decoding.
+func plainName(text []byte) (string, bool) {
+	inner := text[1 : len(text)-1]
+	for _, b := range inner {
+		if b == '\\' || b < 0x20 || b >= 0x7f {
+			return "", false
+		}
+	}
+	return string(inner), true
 }
 
 // scalarEnd returns the index of the structural byte that ends the number,
@@ -139,18 +182,4 @@ func stringEnd(raw []byte, start int) int {
 		}
 	}
 	return -1
-}
-
-// foldName gives every rune in a Unicode simple-fold cycle the same spelling,
-// matching encoding/json's case-insensitive field matching.
-func foldName(name string) string {
-	return strings.Map(func(r rune) rune {
-		smallest := r
-		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
-			if next < smallest {
-				smallest = next
-			}
-		}
-		return smallest
-	}, name)
 }
