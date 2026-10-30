@@ -3,6 +3,7 @@ package keyload
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -14,13 +15,17 @@ import (
 )
 
 // FuzzLoadRefreshSecret drives the refresh-secret file parser. It must never
-// panic, must refuse any file over the read cap, and must accept only a
-// secret of exactly layout.RefreshSecretLen bytes that is the hex the file
-// carried.
+// panic, must refuse any file over the read cap, and its verdict must match a
+// standard hex decoding plus the material contract in both directions: an
+// accepted file yields exactly the bytes its hex spelled, whatever the case or
+// the whitespace around it.
 func FuzzLoadRefreshSecret(f *testing.F) {
-	good := strings.Repeat("ab", layout.RefreshSecretLen)
+	good := hex.EncodeToString(fixedSecret())
+	f.Add([]byte(good))
 	f.Add([]byte(good + "\n"))
+	f.Add([]byte("  " + good + " \r\n\t"))
 	f.Add([]byte(strings.ToUpper(good)))
+	f.Add([]byte(strings.Repeat("ab", layout.RefreshSecretLen)))
 	f.Add([]byte(good[:62]))
 	f.Add([]byte(good + good))
 	f.Add([]byte("0x" + good))
@@ -34,22 +39,26 @@ func FuzzLoadRefreshSecret(f *testing.F) {
 			t.Fatal(err)
 		}
 		secret, err := loadRefreshSecret(path)
-		if err != nil {
-			if secret != nil {
-				t.Fatal("a secret was returned alongside an error")
-			}
-			return
+		if err != nil && secret != nil {
+			t.Fatal("a secret was returned alongside an error")
 		}
+		want, ok := referenceSecret(data)
 		if len(data) > layout.MaxKeyFileSize {
-			t.Fatalf("accepted a %d byte file, over the cap", len(data))
+			ok = false
 		}
-		if len(secret) != layout.RefreshSecretLen {
-			t.Fatalf("accepted a %d byte secret", len(secret))
+		if (err == nil) != ok {
+			t.Fatalf("accepted=%v, reference says %v for %q (err=%v)", err == nil, ok, data, err)
 		}
-		if !strings.EqualFold(hex.EncodeToString(secret), strings.TrimSpace(string(data))) {
-			t.Fatalf("the secret is not the hex the file held: %q", data)
+		if err == nil && !bytes.Equal(secret, want) {
+			t.Fatalf("the secret %x is not the hex the file held: %q", secret, data)
 		}
 	})
+}
+
+// fixedSecret is a random-looking 32-byte value derived from a fixed label.
+func fixedSecret() []byte {
+	sum := sha256.Sum256([]byte("authcore fuzz refresh secret"))
+	return sum[:]
 }
 
 // FuzzLoadEd25519 drives the key-pair loader with two arbitrary files. Whatever

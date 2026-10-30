@@ -55,23 +55,40 @@ func TestCanonicalMembersHaveExactNames(t *testing.T) {
 }
 
 func FuzzUniqueMembers(f *testing.F) {
-	f.Add([]byte(`{"id":1,"id":2}`))
-	f.Add([]byte(`{"id":1,"nested":{"id":2}}`))
-	f.Add([]byte(`{"k":1,"K":2}`))
-	f.Fuzz(func(t *testing.T, raw []byte) {
-		// Repeating a complete member in a valid object must always be refused.
+	f.Add([]byte(`{"a":1,"b":{"a":2}}`), "")
+	f.Add([]byte(`{"a":{"x":1,"x":2}}`), "")
+	f.Add([]byte(`{"id":1,"id":2}`), "")
+	f.Add([]byte(`{"ext":{"A":1,"a":2}}`), "")
+	f.Add([]byte(`{"id":1,"\u0069d":2}`), "")
+	f.Add([]byte(`{"k":1,"K":2}`), "")
+	f.Add([]byte(`{"ID":2}`), "id")
+	f.Add([]byte(`{"nested":{"ID":2}}`), "id")
+	f.Add(nestedPair(referenceDepth-1), "")
+	f.Add(nestedPair(referenceDepth), "")
+	f.Fuzz(func(t *testing.T, raw []byte, canonical string) {
 		if len(raw) > 16384 {
 			t.Skip()
 		}
-		_ = jsonstrict.UniqueMembers(raw)
-		if json.Valid(raw) {
-			duplicate := append([]byte(`{"value":`), raw...)
-			duplicate = append(duplicate, []byte(`,"value":`)...)
-			duplicate = append(duplicate, raw...)
-			duplicate = append(duplicate, '}')
-			if !errors.Is(jsonstrict.UniqueMembers(duplicate), jsonstrict.ErrMembers) {
-				t.Fatal("repeated member accepted")
-			}
+		var names []string
+		if canonical != "" {
+			names = []string{canonical}
+		}
+		got := errors.Is(jsonstrict.UniqueMembers(raw, names...), jsonstrict.ErrMembers)
+		// Syntax errors are left to the caller's decoder, so only valid
+		// documents have a verdict to compare.
+		if !json.Valid(raw) {
+			return
+		}
+		if want := referenceAmbiguous(raw, names); got != want {
+			t.Fatalf("ambiguous=%v, reference says %v", got, want)
+		}
+		// Repeating a complete member in a valid object must always be refused.
+		duplicate := append([]byte(`{"value":`), raw...)
+		duplicate = append(duplicate, []byte(`,"value":`)...)
+		duplicate = append(duplicate, raw...)
+		duplicate = append(duplicate, '}')
+		if !errors.Is(jsonstrict.UniqueMembers(duplicate), jsonstrict.ErrMembers) {
+			t.Fatal("repeated member accepted")
 		}
 	})
 }
