@@ -50,7 +50,7 @@ curl -X POST localhost:3000/refresh \
 - `pwdMod.Hash` / `pwdMod.Verify` for registration + login.
 - `jwtMod.CreateTokens` with typed `UserClaims`.
 - `jwtMod.VerifyAccessToken` in a Fiber middleware for `/me`.
-- `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens`: the full anti-reuse rotation pattern.
+- `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens`: single-use refresh tokens: a token that was already rotated is refused with 401. The example does not detect reuse or revoke the session; `docs/guides/secure-login.md` section 5 describes what a service that needs that adds.
 
 ## Before you copy this
 
@@ -59,7 +59,7 @@ The example covers the token flow, not the whole perimeter. What it does and wha
 - **Input is bounded.** Bodies are capped at 16 KiB, the app sets every timeout, the address is normalized and validated, and a login password longer than 1 KiB is refused before it is hashed.
 - **Login does not reveal which accounts exist.** An unknown address is verified against a decoy hash, so it costs one Argon2id derivation and answers byte for byte like a wrong password.
 - **Registration does reveal it.** A taken address answers `409`, which lets a caller enumerate accounts. Accept that in a demo only; in production answer every registration the same way and send the outcome to the mailbox.
-- **No rate limit.** Nothing slows repeated attempts per address or per client, so online password guessing is only bounded by the cost of Argon2id. Put a limiter in front (per address and per IP) and lock or delay after repeated failures.
+- **No rate limit.** Nothing slows repeated attempts per address or per client, so online password guessing is only bounded by the cost of Argon2id. That cost is memory as well as time: the example lets at most four derivations run at once (`maxConcurrentHashes`) and answers 503 with `Retry-After` to a request that waits more than two seconds for a slot, because 64 concurrent logins with the default profile measured 3.1 GiB. Put a limiter in front (per address and per IP) and lock or delay after repeated failures.
 - **No logout and no revocation list.** Rotating or discarding the refresh token ends the session, but an access token that was already issued stays valid until it expires. Keep access tokens short, and add a revocation check on `/me` if you need an immediate cut-off.
 - **Tokens travel in JSON bodies and the `Authorization` header.** There are no cookies, so there is no CSRF surface here; if you move the refresh token to a cookie, make it `HttpOnly`, `Secure` and `SameSite` and add CSRF protection.
 - **One session per account.** A new login replaces the stored refresh hash.

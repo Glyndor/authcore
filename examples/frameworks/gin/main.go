@@ -120,7 +120,14 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod 
 			return
 		}
 
+		release, ok := acquireHash(c.Request.Context())
+		if !ok {
+			c.Header("Retry-After", "1")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "server busy"})
+			return
+		}
 		hash, err := pwdMod.Hash(req.Password)
+		release()
 		if err != nil {
 			// ErrInvalidHash and salt errors are INTERNAL — log, return generic 500.
 			log.Printf("hash error: %v", err)
@@ -181,7 +188,14 @@ func newRouter(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod 
 			hash = u.passwordHash
 		}
 
+		release, slot := acquireHash(c.Request.Context())
+		if !slot {
+			c.Header("Retry-After", "1")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "server busy"})
+			return
+		}
 		ok, err := pwdMod.Verify(req.Password, hash)
+		release()
 		if err != nil {
 			// ErrInvalidHash is INTERNAL — log it, return generic 401.
 			// %q quotes and escapes control characters so a hostile email
