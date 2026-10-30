@@ -13,7 +13,7 @@ import (
 var ErrText = errors.New("jws payload carries text that is not valid UTF-8")
 
 // CheckText refuses a compact JWS whose payload carries text that would be
-// repaired when it is read: a byte that is not valid UTF-8 and a surrogate
+// ambiguous or repaired when it is read: a byte that is not valid UTF-8 and a surrogate
 // escape that stands in no pair both become U+FFFD, and the identity the
 // payload names is read from that text.
 //
@@ -34,5 +34,5 @@ func CheckText(token string) error {
 	if !jsonstrict.WellFormedText(raw) {
 		return ErrText
 	}
-	return nil
+	return jsonstrict.UniqueMembers(raw)
 }

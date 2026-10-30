@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
+	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
 // userInfoMaxBytes caps a userinfo response so a hostile or broken endpoint
@@ -36,7 +37,7 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 
 	resp, err := h.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
+		return nil, fmt.Errorf("%w: %w", errUserInfo, safetext.HTTPError(err, accessToken))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -64,6 +65,9 @@ func Fetch(ctx context.Context, h *http.Client, endpoint, accessToken string, er
 	// Walk the body's shape first, so one made of the shortest possible values
 	// is refused before the decoder allocates a value for each of them.
 	if err := checkShape(body); err != nil {
+		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
+	}
+	if err := jsonstrict.UniqueMembers(body); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUserInfo, err)
 	}
 	// Decode once, with UseNumber so a 53-bit-plus integer id (e.g.

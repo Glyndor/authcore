@@ -67,6 +67,7 @@ jobs:
           {"package":"./internal/keymanager/recovery/match","func":"FuzzFindStaging"},
           {"package":"./internal/keymanager/recovery/leftovers","func":"FuzzReportStagingName"},
           {"package":"./auth/oauth/internal/idtoken","func":"FuzzVerify"},
+          {"package":"./auth/oauth/internal/jsonstrict","func":"FuzzUniqueMembers"},
           {"package":"./auth/oauth/internal/discovery","func":"FuzzFetch"},
           {"package":"./auth/oauth/internal/userinfo","func":"FuzzFetch"},
           {"package":"./auth/oauth/internal/exchange","func":"FuzzDo"},

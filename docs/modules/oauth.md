@@ -265,6 +265,9 @@ RFC 6749 section 3.2 requires of a token endpoint request.
 - `Exchange` refuses an authorization code longer than 8 KiB with `ErrExchange`
   before any request is made. Real providers issue codes of a few hundred bytes.
   This is a change from earlier versions, which forwarded a code of any length.
+- `Exchange` refuses a `code_verifier` longer than 128 bytes (RFC 7636) with
+  `ErrExchange`, before resolving the client secret or constructing a request.
+  This adds only the maximum size check; shorter verifiers remain accepted.
 - A token response whose `access_token` is only whitespace is refused with
   `ErrExchange`, like a missing one. A valid token is returned exactly as the
   provider sent it, never trimmed.
@@ -274,12 +277,19 @@ RFC 6749 section 3.2 requires of a token endpoint request.
   cannot overflow. A string or fractional `expires_in` is still refused, as before.
 - `UserInfo` refuses a profile with more than 16384 JSON tokens (keys, values and
   brackets) or nested deeper than 32 levels, with `ErrUserInfo`. Real profiles
-  have a few dozen tokens. The check runs before decoding, and the cost of one
-  call is now at most about 6 times the size of the body (it was up to 61
-  times). The values it returns are unchanged: numbers are still exact
-  `json.Number`.
+  have a few dozen tokens. Structure and member-name checks run before decoding;
+  returned numbers remain exact `json.Number` values.
 
 ## What it guarantees
+
+- **One reading per JSON object.** ID-token headers and claims, token responses
+  and UserInfo profiles refuse duplicate member names, escaped equivalents and
+  case aliases within the same object, including nested objects. The operation
+  returns `ErrIDTokenInvalid`, `ErrExchange` or `ErrUserInfo` with no result.
+  Token-response fields and the JOSE `alg`, `kid` and `crit` names must also use
+  their exact case. A present `kid` must be a string; an absent `kid` can still
+  select a single anonymous key. Header text with invalid UTF-8 or unpaired
+  surrogate escapes is refused; valid Unicode key identifiers remain supported.
 
 - **PKCE S256 always.** The `plain` method is never offered, so a downgrade
   cannot strip it. Works for public clients (no secret) too.
@@ -318,7 +328,11 @@ RFC 6749 section 3.2 requires of a token endpoint request.
   few hundred bytes. ID-token and URL parser diagnostics use the same text limit and do
   not retain the parser's unbounded error as a cause; the public OAuth error
   sentinel remains available through `errors.Is`. Key-selection and transport
-  errors retain their causes. These text limits do not guarantee that provider
+  errors retain their causes. Exchange and UserInfo HTTP failures omit the
+  request URL from `*url.Error`, since a redirect can reflect credentials there.
+  A cause that repeats a URL or a credential sent by the operation has its
+  diagnostic hidden too. `errors.Is` and timeout checks remain available;
+  the hidden diagnostic is not exposed through `Unwrap`. These text limits do not guarantee that provider
   text contains no sensitive information.
 
 ### On-premises providers
