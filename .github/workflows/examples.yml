@@ -17,6 +17,9 @@ name: Examples
 # against, so a pull request into develop that touches only unrelated tests,
 # docs or unrelated CI has nothing for them: `decide` skips the legs, and the
 # required `Examples` check below reports success without having built anything.
+# Local source and test changes select their example. Any workspace or member
+# go.mod/go.sum change selects all members because dependency resolution is shared.
+# Library tests do not select consumers; the unconditional root Go CI runs them.
 # Cost, measured on 2026-10-27: #616 and #617 each queued 7 unnecessary legs
 # out of 10. Select affected legs before expansion to also avoid that queue work.
 

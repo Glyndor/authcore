@@ -78,11 +78,28 @@ done
 check deduplicate '["modules/jwt"]' "$(change examples/modules/jwt/main.go examples/modules/jwt/README.md)"
 check workspace-sum "$all" "$(change examples/go.work.sum)"
 check shared-unusual "$all" "$(change $'auth/jwt/ñ with\nnewline.go')"
-for file in authcore.go root_test.go go.mod go.sum auth/jwt/jwt.go auth/jwt/jwt_test.go \
+for file in authcore.go go.mod go.sum auth/jwt/jwt.go \
  internal/nested/value.go auth/nested/go.mod internal/nested/go.sum examples/go.work \
  .github/workflows/examples.yml scripts/ci-decide/examples.sh; do
  check "$file" "$all" "$(change "$file")"
 done
+# Workspace dependency directives can affect every member, even when the
+# changed member does not import the dependency whose resolution it changes.
+for example in modules/apikey modules/basic deploy/containers modules/email frameworks/fiber frameworks/gin modules/jwt modules/oauth modules/password modules/username; do
+ for dependency in go.mod go.sum; do
+  check "workspace:$example/$dependency" "$all" "$(change "examples/$example/$dependency")"
+ done
+ check "example-test:$example" "[\"$example\"]" "$(change "examples/$example/main_test.go")"
+done
+check nested-module "$all" "$(change examples/modules/username/review-jwt/go.mod)"
+# Dependency tests are not compiled or executed by consumers. Their production
+# siblings and the tests belonging to an example remain covered above.
+for file in root_test.go auth/jwt/jwt_test.go internal/nested/value_test.go; do
+ check "dependency-test:$file" '[]' "$(change "$file")"
+ check "main-dependency-test:$file" "$all" "$(change "$file")" main
+done
+check mixed-library-test '["modules/jwt"]' "$(change auth/jwt/jwt_test.go examples/modules/jwt/main.go)"
+check mixed-library-source "$all" "$(change auth/jwt/jwt.go examples/modules/jwt/main.go)"
 check two-examples '["frameworks/gin","modules/jwt"]' "$(change examples/frameworks/gin/main.go examples/modules/jwt/main.go)"
 check example-doc '["modules/jwt"]' "$(change examples/modules/jwt/README.md)"
 check unusual-name '["modules/jwt"]' "$(change $'examples/modules/jwt/ñ with\nnewline.go')"

@@ -22,7 +22,9 @@ name: Containers
 #
 # Cost, measured on 2026-10-26: 33 s of job time. The recipe looks at the
 # container example and at the code it builds against, so a pull request into
-# develop that touches only tests, unrelated docs or unrelated CI skips it:
+# develop that touches only library tests, other examples' Go sources,
+# unrelated docs or unrelated CI skips it. Workspace and member dependency
+# files remain inputs because they can change the container build:
 # `decide` answers, and the required `containers recipe` check reports success
 # without having run. Pull
 # requests into main always run the recipe.
@@ -67,8 +69,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          INCLUDE: '^examples/deploy/|^docs/guides/containers\.md$|\.go$|^go\.(mod|sum)$|^\.github/workflows/containers\.yml$'
-          EXCLUDE: '^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
+          INCLUDE: '^examples/deploy/|^examples/go\.work(\.sum)?$|^examples/.*/go\.(mod|sum)$|^docs/guides/containers\.md$|\.go$|^go\.(mod|sum)$|^\.github/workflows/containers\.yml$'
+          EXCLUDE: '^examples/(modules|frameworks)/.*\.go$|^(auth|internal|cmd|tests)/.*_test\.go$|^[^/]+_test\.go$'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.

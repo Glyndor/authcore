@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Tells the lint job whether any Go source, module file or lint config
+  # Tells the lint job whether root-module Go source, module files or lint config
   # changed (standards/ci, "A check costs what it learns").
   # It always runs and always succeeds; on anything other than a pull request,
   # on a pull request into main, on a label change, and whenever it cannot tell,
@@ -40,7 +40,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^\.github/workflows/ci\.yml$'
-          EXCLUDE: ''
+          EXCLUDE: '^examples/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.

@@ -52,7 +52,8 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/audit\.yml$'
-          EXCLUDE: '_test\.go$'
+          # The root audit does not enter standalone example modules.
+          EXCLUDE: '_test\.go$|^examples/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.
