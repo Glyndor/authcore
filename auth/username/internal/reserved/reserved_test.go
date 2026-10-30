@@ -36,3 +36,15 @@ func TestSet_allowWinsOverExtra(t *testing.T) {
 		t.Error("a name both added and allowed must not be reserved")
 	}
 }
+
+// The CA/Browser Forum validates a domain by mail to these mailboxes, and a
+// mail system writes bounce and abuse reports to the others. An application
+// that maps a username to a mailbox or a subdomain must not hand them out.
+func TestDefaults_reserveTheMailboxesACertificateAuthorityWritesTo(t *testing.T) {
+	got := Set(nil, nil)
+	for _, name := range []string{"admin", "administrator", "webmaster", "hostmaster", "postmaster", "abuse", "noreply", "no-reply", "mailer-daemon", "security"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("%q is not reserved", name)
+		}
+	}
+}

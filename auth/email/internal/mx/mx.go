@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -63,9 +64,14 @@ func (v *Verifier) Verify(ctx context.Context, address string) error {
 	if name == "" {
 		return errs.ErrDomainNoMX
 	}
+	// The size is checked before the name is copied for lower-casing, so a
+	// domain of any length costs nothing before it is refused.
 	if !domain.Plausible(name) {
 		return fmt.Errorf("%w: domain exceeds DNS size limits", errs.ErrInvalidEmail)
 	}
+	// DNS names are case-insensitive, so the cache and the shared lookup are
+	// keyed by the lower-case form: five spellings of one domain are one query.
+	name = asciiLower(name)
 
 	// Fast path: valid cache hit.
 	if entry, ok := v.cache.Cached(name); ok {
@@ -93,6 +99,18 @@ func (v *Verifier) Verify(ctx context.Context, address string) error {
 		}
 		return answer.Err(r.Val.(cache.Entry))
 	}
+}
+
+// asciiLower lower-cases the ASCII letters only. strings.ToLower would fold
+// U+212A KELVIN SIGN to "k" and U+0130 to "i", and the lookup would then
+// verify a different domain than the one the caller wrote.
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
 }
 
 // lookup runs the shared MX query for domain and records the outcome in the

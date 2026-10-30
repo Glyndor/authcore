@@ -16,6 +16,11 @@ var Defaults = []string{
 	"api", "auth", "oauth", "webhook", "service", "daemon", "bot",
 	// Protocol and server names
 	"www", "ftp", "smtp", "pop", "imap", "mail", "email",
+	// Mailboxes a certificate authority or a mail system writes to: the
+	// CA/Browser Forum domain-validation addresses (admin, administrator,
+	// webmaster, hostmaster, postmaster) and the usual bounce and abuse ones.
+	"webmaster", "hostmaster", "postmaster", "abuse", "noreply", "no-reply",
+	"mailer-daemon", "security",
 	// Common anonymous / placeholder identities
 	"anonymous", "guest", "user", "self",
 	// UI / navigation routes that would clash with URL paths

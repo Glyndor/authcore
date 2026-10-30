@@ -25,8 +25,8 @@ func HTTPError(err error, credentials ...string) error {
 		// URLs are dropped from the cause, so the refusal reason stays readable
 		// while a target that carries a credential is never repeated.
 		scrubbed := urlText.ReplaceAllString(text, "[redacted-url]")
-		if scrubbed != text || echoesCredential(scrubbed, credentials) {
-			if echoesCredential(scrubbed, credentials) {
+		if scrubbed != text || echoesCredential(scrubbed, credentials) || quotesLocation(text) {
+			if quotesLocation(text) || echoesCredential(scrubbed, credentials) {
 				scrubbed = "HTTP request failed"
 			}
 			cleaned.Err = hiddenCause{cause: original.Err, text: scrubbed}
@@ -35,15 +35,67 @@ func HTTPError(err error, credentials ...string) error {
 	return &cleaned
 }
 
+// quotesLocation reports a Location header that net/http could not parse. It
+// quotes the header whole, as written or escaped for a Go string, and a
+// relative target has no scheme for the URL pattern to find, so the text is not
+// kept: a provider can put the Basic credential it just received, or any
+// encoding of it, in that header.
+func quotesLocation(text string) bool {
+	return strings.Contains(text, "Location header")
+}
+
 func echoesCredential(text string, credentials []string) bool {
-	decoded, _ := url.QueryUnescape(text)
-	path, _ := url.PathUnescape(text)
+	// A stray "%zz" makes url.QueryUnescape give up on the whole text, so the
+	// forms are built by a decoder that skips what it cannot read. Two rounds
+	// cover a credential that a proxy encoded twice.
+	once := percentDecode(text)
+	twice := percentDecode(once)
+	// A form field writes a space as "+" and a real plus as "%2B", so the plus
+	// is turned into a space before each decode round, never after: afterwards
+	// the two can no longer be told apart.
+	plusOnce := percentDecode(strings.ReplaceAll(text, "+", " "))
+	plusTwice := percentDecode(strings.ReplaceAll(plusOnce, "+", " "))
+	forms := []string{text, once, twice, plusOnce, plusTwice}
 	for _, credential := range credentials {
-		if credential != "" && (strings.Contains(text, credential) || strings.Contains(decoded, credential) || strings.Contains(path, credential)) {
-			return true
+		if credential == "" {
+			continue
+		}
+		for _, form := range forms {
+			if strings.Contains(form, credential) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// percentDecode decodes every well-formed %XX escape in s and leaves the rest
+// as it is.
+func percentDecode(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
+			b.WriteByte(unhex(s[i+1])<<4 | unhex(s[i+2]))
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+func unhex(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	}
+	return c - 'A' + 10
 }
 
 // Keep the cause queryable without exposing its credential-bearing text via

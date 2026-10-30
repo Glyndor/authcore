@@ -213,7 +213,9 @@ func (c *Credential) Issue(purpose, subject string) (*Issued, error) {
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	hash := c.computeHash(purpose, subject, token)
 
-	c.log.Debug("credential: issued (purpose=%q, subject=%q)", purpose, subject)
+	// The subject is left out: callers use an email address or an account id
+	// there, and a debug log is the wrong place to keep either.
+	c.log.Debug("credential: issued (purpose=%q)", purpose)
 
 	return &Issued{Token: token, Hash: hash}, nil
 }

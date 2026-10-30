@@ -119,3 +119,28 @@ func TestMisuse_Leak_logOutputCarriesNoSecretMaterial(t *testing.T) {
 		}
 	}
 }
+
+// The subject of a credential is an account id or, as the package example
+// shows, an email address. A debug log is read by more people than the
+// database is, so it must not carry the subject.
+func TestMisuse_Leak_credentialLogDoesNotCarryTheSubject(t *testing.T) {
+	e := hostiletest.NewEnv(t)
+	cr, err := credential.New(e.AC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const address = "alice.subject@example.com"
+	iss, err := cr.Issue("reset", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cr.Verify("reset", address, iss.Token, iss.Hash, time.Now())
+
+	logged := e.Log.Text()
+	if logged == "" {
+		t.Fatal("the logger recorded nothing, so this test would pass on any output")
+	}
+	if strings.Contains(logged, address) {
+		t.Errorf("log output carries the credential subject: %q", logged)
+	}
+}
