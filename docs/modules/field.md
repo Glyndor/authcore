@@ -201,6 +201,31 @@ forgetting any one of them ships a broken field:
    module writes with a verification step on every read, and rotate
    `Keys().RefreshSecret()` only after the dual-key path has caught up.
 
+5. **A ciphertext is bound to its column, not to its row.** `Context`
+   is the additional authenticated data, so a value encrypted for
+   `users.email` does not open under `users.phone`. It does open from
+   any row of `users.email`: someone who can write to the table (a
+   SQL injection that only reaches UPDATE, a compromised replica) can
+   copy `email_ct` from one account to another, and a read by id then
+   returns the first account's address for the second. The blind-index
+   check in the login recipe above only protects the lookup by index.
+   If a read by id feeds something that matters (a password-reset
+   mail, an invoice), compare `BlindIndex(decrypted)` with the stored
+   index of that row before using the value, or give each row its own
+   `Context`.
+
+6. **One AES key serves every column, with random 96-bit nonces.**
+   The key is derived once from the refresh secret and `Context`
+   only enters the additional authenticated data, so every `Field`
+   of the process encrypts under the same key. NIST SP 800-38D caps
+   random-nonce AES-GCM at 2^32 encryptions per key, and every
+   `UPDATE` that writes the column again counts. Past that, two
+   encryptions can share a nonce, which exposes the XOR of their
+   plaintexts and lets an attacker forge tags. A table that
+   re-encrypts a few thousand values a day stays far below it; a
+   service that re-encrypts millions a day across many columns should
+   count its encryptions and rotate the key before 2^32 (see 4).
+
 ## Ciphertext shape
 
 - 12 random bytes (96 bits) of nonce from `crypto/rand`, drawn
