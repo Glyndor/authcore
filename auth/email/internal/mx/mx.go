@@ -60,15 +60,18 @@ func New(resolver Resolver, cacheTTL time.Duration) *Verifier {
 // context, so a caller that gives up or disconnects neither blocks the others
 // nor decides their answer.
 func (v *Verifier) Verify(ctx context.Context, address string) error {
-	// DNS names are case-insensitive, so the cache and the shared lookup are
-	// keyed by the lower-case form: five spellings of one domain are one query.
-	name := asciiLower(domain.Of(address))
+	name := domain.Of(address)
 	if name == "" {
 		return errs.ErrDomainNoMX
 	}
+	// The size is checked before the name is copied for lower-casing, so a
+	// domain of any length costs nothing before it is refused.
 	if !domain.Plausible(name) {
 		return fmt.Errorf("%w: domain exceeds DNS size limits", errs.ErrInvalidEmail)
 	}
+	// DNS names are case-insensitive, so the cache and the shared lookup are
+	// keyed by the lower-case form: five spellings of one domain are one query.
+	name = asciiLower(name)
 
 	// Fast path: valid cache hit.
 	if entry, ok := v.cache.Cached(name); ok {

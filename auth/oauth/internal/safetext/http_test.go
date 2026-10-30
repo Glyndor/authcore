@@ -2,8 +2,10 @@ package safetext_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -99,3 +101,41 @@ func TestHTTPErrorSeesACredentialWithASpaceAndAPlus(t *testing.T) {
 		}
 	}
 }
+
+// net/http refuses a Location it cannot parse and quotes the header whole in the
+// error it returns, before any redirect policy runs. A relative target has no
+// scheme, so the text can carry the Basic credential the provider just received
+// in any encoding, escaped for a Go string or not.
+func TestHTTPErrorDropsAnUnparseableLocationHeader(t *testing.T) {
+	const id, secret = "client-123", `secret+canary"7401`
+	basic := base64.StdEncoding.EncodeToString([]byte(url.QueryEscape(id) + ":" + url.QueryEscape(secret)))
+	for _, location := range []string{"/%zz/" + basic, "/%zz/" + url.QueryEscape(url.QueryEscape(url.QueryEscape(secret))), "/%zz/" + secret} {
+		client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 307, Header: http.Header{"Location": {location}}, Body: http.NoBody, Request: r}, nil
+		})}
+		req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://idp.example/token", strings.NewReader("x"))
+		if reqErr != nil {
+			t.Fatal(reqErr)
+		}
+		resp, err := client.Do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "Location header") {
+			t.Fatalf("net/http did not refuse the Location %q: %v", location, err)
+		}
+		got := safetext.HTTPError(err, id, secret)
+		for current := got; current != nil; current = errors.Unwrap(current) {
+			text := current.Error()
+			for _, leaked := range []string{basic, secret, url.QueryEscape(secret), url.QueryEscape(url.QueryEscape(url.QueryEscape(secret))), "canary"} {
+				if strings.Contains(text, leaked) {
+					t.Fatalf("Location %q: credential form %q remains in %q", location, leaked, text)
+				}
+			}
+		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
