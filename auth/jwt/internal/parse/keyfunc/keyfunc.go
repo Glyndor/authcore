@@ -27,6 +27,10 @@ func EdDSA(keys map[string]ed25519.PublicKey) gjwt.Keyfunc {
 		if _, ok := t.Method.(*gjwt.SigningMethodEd25519); !ok {
 			return nil, fmt.Errorf("%w: unexpected alg %q", jwterr.ErrTokenInvalid, t.Header["alg"])
 		}
+		// Reject crit even when empty or null: no critical extension is supported.
+		if _, ok := t.Header["crit"]; ok {
+			return nil, fmt.Errorf("%w: unsupported crit header", jwterr.ErrTokenInvalid)
+		}
 		// Select the public key by the token's kid. An unknown (or missing) kid
 		// is refused — the verifier never falls back to "try every key".
 		kid, _ := t.Header["kid"].(string)
