@@ -128,7 +128,7 @@ and never overwrites an existing one, so the application image no longer
 needs to perform the one-off generation itself.
 
 ```bash
-# Install once (Go 1.26+). If your application pins an older authcore, install
+# Install once (Go 1.26.10+). If your application pins an older authcore, install
 # the same version instead of @latest: a key directory written by a newer tool
 # is refused by an older library. `go list -m github.com/Glyndor/authcore`
 # prints the version the application uses.

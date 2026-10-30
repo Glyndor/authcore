@@ -28,8 +28,10 @@ still cannot forge new sessions.
 
 ## My access token fails verification in a distributed system: is clock skew the issue?
 
-Yes. Different servers may have clocks that drift a few seconds apart, causing
-`ErrTokenExpired` on a brand-new token. Set `ClockSkewLeeway` in your JWT config:
+Yes. Different servers may have clocks that drift a few seconds apart. A token
+issued by a server whose clock is ahead fails on the others with
+`ErrTokenInvalid`, not `ErrTokenExpired`: its `iat` lies in the future. Set
+`ClockSkewLeeway` in your JWT config:
 
 ```go
 cfg := jwt.DefaultConfig()

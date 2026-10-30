@@ -53,7 +53,7 @@ func TestMyHandler(t *testing.T) {
     if err != nil {
         t.Fatal(err)
     }
-    // ... exercise your handler against jwtMod, with no file I/O.
+    _ = jwtMod // ... exercise your handler against jwtMod, with no file I/O.
 }
 ```
 
@@ -112,12 +112,22 @@ authcore/
 ├── config.go            # Config · DefaultConfig()
 ├── logger.go            # Logger interface · picks the implementation from Config
 ├── keystore.go          # KeyStore interface · NewKeyStoreFromKeys / NewKeyStoreFromPEM
+├── keystore_disk.go     # The default store: keys under Config.KeysDir
+├── keystore_static.go   # Stores built from keys or PEM held in memory
 ├── module.go            # Keys · Provider · Module interfaces
 ├── errors.go            # Sentinel errors
 │
 ├── .github/workflows/   # Flat on purpose: GitHub only registers workflows at this level
 │                        # (a workflow in .github/workflows/nested/ was pushed on 2026-10-25 and never
 │                        # appeared in `gh workflow list`), so it cannot be split into subfolders
+│
+├── cmd/
+│   └── authcore-keygen/ # Writes a key set into a new directory (see the container guide)
+├── scripts/             # The CI selectors and gates, each with its own test script:
+│                        # ci-decide/, api-compat/, folder-limit/, release-notes/
+├── tests/
+│   ├── hostile/         # Attacks on each module and on the modules in composition, one folder per module
+│   └── meta/            # Checks on the repository itself: documentation scope, fuzz wiring
 │
 ├── internal/
 │   ├── clock/           # Timezone-aware Clock: injected for deterministic tests
