@@ -37,9 +37,16 @@ fi
 selected=()
 while IFS= read -r -d '' file; do
  case "$file" in
-  .github/workflows/examples.yml | scripts/ci-decide/* | examples/go.work) all ;;
+  .github/workflows/examples.yml | scripts/ci-decide/* | examples/go.work | examples/go.work.sum | examples/*/go.mod | examples/*/go.sum) all ;;
  esac
- # Every shared Go input counts, including tests and nested module files.
+ # Consumer builds do not compile the dependency's tests. Example-local
+ # tests still select their own leg below.
+ case "$file" in
+  *_test.go)
+   [[ "$file" == examples/* ]] || continue
+   ;;
+ esac
+ # Shared production sources and module files affect every consumer.
  if [[ "$file" =~ ^([^/]+\.go|go\.(mod|sum))$ ||
        "$file" =~ ^(auth|internal)/(.*/)?([^/]+\.go|go\.(mod|sum))$ ]]; then
   all

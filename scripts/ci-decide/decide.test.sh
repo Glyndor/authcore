@@ -163,7 +163,7 @@ for file in auth/jwt/helper/value_test.go auth/jwt/internal/value.go auth/intern
 done
 
 # Use the actual gate patterns: tests alone do not change audit inputs,
-# examples alone do not change hostile inputs, and tests/ must stay covered.
+# examples alone do not change hostile inputs, and hostile tests stay covered.
 for workflow in audit hostile; do
 	include="$(awk -F "'" '$1 == "          INCLUDE: " { print $2 }' "$workflows/$workflow.yml")"
 	exclude="$(awk -F "'" '$1 == "          EXCLUDE: " { print $2 }' "$workflows/$workflow.yml")"
@@ -178,7 +178,7 @@ for workflow in audit hostile; do
 	else
 		expect false pull_request synchronize "$h_example" "$include" "$exclude"
 		expect true pull_request synchronize "$h_hostile" "$include" "$exclude"
-		expect true pull_request synchronize "$h_other_test" "$include" "$exclude"
+		expect false pull_request synchronize "$h_other_test" "$include" "$exclude"
 	fi
 done
 
@@ -384,3 +384,5 @@ printf 'passed %d, failed 0\n' "$passed"
 # along with the API gate's verdict and Actions bindings.
 bash "$here/examples.test.sh"
 bash "$here/api-compat.test.sh"
+
+bash "$here/selection.test.sh"
