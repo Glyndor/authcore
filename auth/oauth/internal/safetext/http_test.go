@@ -59,3 +59,43 @@ func TestHTTPErrorKeepsTimeoutAndCancellation(t *testing.T) {
 		t.Fatal("non-URL error changed")
 	}
 }
+
+// A stray "%zz" made url.QueryUnescape fail on the whole text, so a credential
+// the provider echoed percent-encoded, once or twice, escaped the check.
+func TestHTTPErrorSeesAnEncodedCredentialBesideBrokenEscapes(t *testing.T) {
+	const credential = "canary+secret/7"
+	once := url.QueryEscape(credential)
+	twice := url.QueryEscape(once)
+	for name, text := range map[string]string{
+		"broken escape first": "%zz " + once,
+		"double encoded":      "bad %zz then " + twice,
+		"plus for space":      "q=" + strings.ReplaceAll("canary secret/7", " ", "+"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			cause := errors.New(text)
+			got := safetext.HTTPError(&url.Error{Op: "Post", URL: "https://idp.example/", Err: cause}, credential, "canary secret/7")
+			for current := got; current != nil; current = errors.Unwrap(current) {
+				for _, leaked := range []string{credential, once, twice, "canary+secret/7", "canary secret/7"} {
+					if strings.Contains(current.Error(), leaked) {
+						t.Fatalf("credential form %q remains in %q", leaked, current.Error())
+					}
+				}
+			}
+		})
+	}
+}
+
+// A form field writes a space as "+" and a real plus as "%2B". Turning every
+// "+" into a space after decoding lost the real one, so a credential that held
+// both was echoed in a form the check did not build.
+func TestHTTPErrorSeesACredentialWithASpaceAndAPlus(t *testing.T) {
+	const credential = "canary secret+7"
+	echoed := "q=" + strings.ReplaceAll(url.QueryEscape(credential), "%20", "+")
+	cause := errors.New(echoed)
+	got := safetext.HTTPError(&url.Error{Op: "Post", URL: "https://idp.example/", Err: cause}, credential)
+	for current := got; current != nil; current = errors.Unwrap(current) {
+		if strings.Contains(current.Error(), echoed) || strings.Contains(current.Error(), credential) {
+			t.Fatalf("credential remains in %q", current.Error())
+		}
+	}
+}

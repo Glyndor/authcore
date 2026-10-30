@@ -22,3 +22,18 @@ func TestVerifyDomain_spellingsOfOneDomainShareOneLookup(t *testing.T) {
 		t.Errorf("four spellings of one domain made %d lookups, want 1", got)
 	}
 }
+
+// Folding the whole Unicode range would turn U+212A KELVIN SIGN into "k" and
+// U+0130 into "i", and the lookup would verify another domain than the one the
+// caller wrote. Only ASCII letters fold.
+func TestVerifyDomain_unicodeLookalikesAreNotFoldedOntoAsciiDomains(t *testing.T) {
+	stub := newStub([]*net.MX{{Host: "mx.example."}}, nil)
+	m := New(stub, time.Minute)
+
+	for _, address := range []string{"u@kmail.com", "u@Kmail.com", "u@info.com", "u@İnfo.com"} {
+		_ = m.Verify(context.Background(), address)
+	}
+	if got := stub.calls(); got != 4 {
+		t.Errorf("four different domains made %d lookups, want 4", got)
+	}
+}

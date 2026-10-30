@@ -62,7 +62,7 @@ func New(resolver Resolver, cacheTTL time.Duration) *Verifier {
 func (v *Verifier) Verify(ctx context.Context, address string) error {
 	// DNS names are case-insensitive, so the cache and the shared lookup are
 	// keyed by the lower-case form: five spellings of one domain are one query.
-	name := strings.ToLower(domain.Of(address))
+	name := asciiLower(domain.Of(address))
 	if name == "" {
 		return errs.ErrDomainNoMX
 	}
@@ -96,6 +96,18 @@ func (v *Verifier) Verify(ctx context.Context, address string) error {
 		}
 		return answer.Err(r.Val.(cache.Entry))
 	}
+}
+
+// asciiLower lower-cases the ASCII letters only. strings.ToLower would fold
+// U+212A KELVIN SIGN to "k" and U+0130 to "i", and the lookup would then
+// verify a different domain than the one the caller wrote.
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
 }
 
 // lookup runs the shared MX query for domain and records the outcome in the
