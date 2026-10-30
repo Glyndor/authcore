@@ -10,7 +10,7 @@ import (
 // The names this module reads from a token. A header or payload that spells one
 // of them with other capitalisation, or repeats a key, is refused.
 var (
-	headerNames  = []string{"alg", "kid", "typ"}
+	headerNames  = []string{"alg", "kid", "typ", "crit"}
 	payloadNames = []string{"iss", "sub", "aud", "exp", "nbf", "iat", "jti", "type", "rid", "extra"}
 )
 

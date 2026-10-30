@@ -23,6 +23,7 @@ func TestCheckObjectKeys(t *testing.T) {
 		{"payload name in capitals", seg(head) + "." + seg(`{"EXP":1}`) + ".sig", false},
 		{"repeated header key", seg(`{"kid":"a","kid":"b"}`) + "." + seg(body) + ".sig", false},
 		{"header name in capitals", seg(`{"KID":"a"}`) + "." + seg(body) + ".sig", false},
+		{"critical header name in capitals", seg(`{"CRIT":["policy"]}`) + "." + seg(body) + ".sig", false},
 		{"custom claims in capitals are free", seg(head) + "." + seg(`{"Role":"a"}`) + ".sig", true},
 		{"two segments", seg(head) + "." + seg(body), true},
 		{"payload is not base64url", seg(head) + ".!!." + "sig", true},

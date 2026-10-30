@@ -126,8 +126,7 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 	var keyErr error
 	_, err := gjwt.ParseWithClaims(idToken, &claims,
 		func(t *gjwt.Token) (any, error) {
-			kid, _ := t.Header["kid"].(string)
-			signer, keyErr = p.Keys.CandidateFor(ctx, kid, t.Method.Alg())
+			signer, keyErr = candidateFor(ctx, p.Keys, t)
 			if keyErr != nil {
 				return nil, keyErr
 			}
@@ -176,6 +175,15 @@ func Verify(ctx context.Context, p Params, idToken, nonce string) (*Claims, erro
 		return nil, fmt.Errorf("%w: missing subject", p.Invalid)
 	}
 	return out, nil
+}
+
+func candidateFor(ctx context.Context, keys KeySource, token *gjwt.Token) (jwks.Candidate, error) {
+	rawKid, present := token.Header["kid"]
+	kid, textual := rawKid.(string)
+	if present && !textual {
+		return jwks.Candidate{}, fmt.Errorf("kid must be a string")
+	}
+	return keys.CandidateFor(ctx, kid, token.Method.Alg())
 }
 
 // parseError preserves key-selection causes, while parser causes can quote

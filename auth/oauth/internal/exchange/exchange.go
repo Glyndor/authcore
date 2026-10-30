@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/clientauth"
+	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
 	"github.com/Glyndor/authcore/auth/oauth/internal/safetext"
 )
 
@@ -41,6 +42,9 @@ const exchangeCodeMaxLen = 128
 // codes of a few hundred bytes at most; the bound only keeps an unbounded
 // callback parameter from being copied to the token endpoint.
 const authCodeMaxLen = 8 << 10
+
+// verifierMaxBytes is the RFC 7636 section 4.1 maximum code_verifier length.
+const verifierMaxBytes = 128
 
 // expiresInMax caps the lifetime Do reports: ten years in seconds. No real
 // token lives that long, and the cap keeps a caller's seconds-to-Duration
@@ -87,6 +91,10 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 		return nil, fmt.Errorf("%w: code_verifier must not be empty", p.Errs.Exchange)
 	}
 
+	if len(verifier) > verifierMaxBytes {
+		return nil, fmt.Errorf("%w: code_verifier is longer than %d bytes", p.Errs.Exchange, verifierMaxBytes)
+	}
+
 	// Resolve the secret once per Exchange. ClientSecretFunc is invoked here,
 	// before any HTTP request is constructed, so a failure (including an empty
 	// return) leaves the token endpoint never called. The wrapped sentinel
@@ -103,7 +111,7 @@ func Do(ctx context.Context, h *http.Client, p Params, code, verifier string) (*
 
 	resp, err := h.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", p.Errs.Exchange, err)
+		return nil, fmt.Errorf("%w: %w", p.Errs.Exchange, safetext.HTTPError(err, secret, code, verifier))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -184,6 +192,9 @@ func newRequest(ctx context.Context, p Params, secret, code, verifier string) (*
 // decode turns a 2xx token response body into Tokens, refusing an OAuth error
 // envelope and a response that lacks what the flow needs.
 func decode(p Params, body []byte, secret, authCode, verifier string) (*Tokens, error) {
+	if err := jsonstrict.UniqueMembers(body, "access_token", "token_type", "refresh_token", "id_token", "expires_in", "error", "error_description"); err != nil {
+		return nil, fmt.Errorf("%w: %w", p.Errs.Exchange, err)
+	}
 	// OAuth2 §5.2: an error response uses {"error":"...","error_description":"..."}.
 	// Many providers (and the spec) allow it with HTTP 200, so the status check
 	// above is not enough. Decode the error fields first and refuse the body

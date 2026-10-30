@@ -82,7 +82,7 @@ func FuzzRequestFidelity(f *testing.F) {
 	f.Add("", "s", "c", "v", false)
 
 	f.Fuzz(func(t *testing.T, id, secret, code, verifier string, basic bool) {
-		if secret == "" || code == "" || verifier == "" {
+		if secret == "" || code == "" || verifier == "" || len(code) > 8<<10 || len(verifier) > 128 {
 			return // Do refuses these before any request; other targets cover that
 		}
 		got, form := sendRequest(id, secret, code, verifier, basic)
