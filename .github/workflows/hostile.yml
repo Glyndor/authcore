@@ -34,8 +34,8 @@ permissions:
 # into develop that changes only unrelated docs, CI, library unit tests or
 # examples has nothing for it: `decide` skips it. Pull requests into main run it.
 # Measured on 2026-10-27: the examples change in #612 spent 2.38 min here.
-# Exclude only examples/ in addition to the library test patterns; tests/ stays
-# eligible, including the hostile suite itself.
+# Exclude examples/ and the independent tests/meta tests in addition to library
+# tests. Keep production helpers and every input under tests/hostile eligible.
 # The same suite also runs once inside the shared Go CI on every pull request,
 # so this workflow adds only the repeat and the shuffle, which is what it is for.
 
@@ -68,7 +68,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '^tests/hostile/|\.go$|^go\.(mod|sum)$|^\.github/workflows/hostile\.yml$'
-          EXCLUDE: '^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$|^examples/'
+          EXCLUDE: '^tests/meta/.*_test\.go$|^(auth|internal|cmd)/.*_test\.go$|^[^/]+_test\.go$|^examples/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.

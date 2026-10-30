@@ -40,6 +40,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/Glyndor/authcore/internal/keymanager"
 	"github.com/Glyndor/authcore/internal/keymanager/dirguard"
@@ -156,7 +159,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// Two lines, nothing else. Key material must never reach stdout or
 	// stderr: a shell history, a CI log or a process trace would expose it.
-	_, _ = fmt.Fprintf(stdout, "wrote %s\n", absOut)
+	_, _ = fmt.Fprintf(stdout, "wrote %s\n", printable(absOut))
 	_, _ = fmt.Fprintf(stdout, "key id %s\n", km.KeyID())
 	return 0
 }
@@ -173,6 +176,17 @@ func (stderrLogger) Info(string, ...any) {}
 
 func (l stderrLogger) Warn(msg string, args ...any) {
 	_, _ = fmt.Fprintf(l.w, "authcore-keygen: "+msg+"\n", args...)
+}
+
+// printable returns path as it is written on the "wrote" line. A path is
+// legal with a line break in it, and written raw it would forge a second "key
+// id" line for a script that reads these two lines; one with a control
+// character is written quoted instead, and every other path is unchanged.
+func printable(path string) string {
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		return strconv.Quote(path)
+	}
+	return path
 }
 
 func main() {

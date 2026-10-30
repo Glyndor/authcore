@@ -119,7 +119,13 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod *em
 			})
 		}
 
+		release, ok := acquireHash(c.Context())
+		if !ok {
+			c.Set("Retry-After", "1")
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "server busy"})
+		}
 		hash, err := pwdMod.Hash(req.Password)
+		release()
 		if err != nil {
 			// ErrInvalidHash and salt errors are INTERNAL — log, return generic 500.
 			log.Printf("hash error: %v", err)
@@ -176,7 +182,13 @@ func newApp(pwdMod *password.Password, jwtMod *jwt.JWT[UserClaims], emailMod *em
 			hash = u.passwordHash
 		}
 
+		release, slot := acquireHash(c.Context())
+		if !slot {
+			c.Set("Retry-After", "1")
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "server busy"})
+		}
 		ok, err := pwdMod.Verify(req.Password, hash)
+		release()
 		if err != nil {
 			// ErrInvalidHash is INTERNAL — log it, return generic 401.
 			// %q quotes and escapes control characters so a hostile email

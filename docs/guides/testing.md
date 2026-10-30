@@ -202,3 +202,29 @@ authcore/
 | `…/internal/keystore/contract`, `/keysdir`, `/disk` | internal | KeyStore contract checks, keys directory checks, the disk loader |
 | `…/internal/logging` | internal | Built-in stdlib and noop loggers |
 | `…/internal/keymanager` | internal | Key generation and persistence |
+
+## CI selection
+
+I keep the root Go CI unconditional: its formatting check also reads nested Go
+sources, and `tests/meta` inspects documentation, workflows and fuzz wiring.
+Root lint, security audit and portability skip changes confined to the standalone
+example modules. The Examples workflow builds and tests those modules instead.
+
+I select all ten examples when any workspace member's `go.mod` or `go.sum`
+changes, because dependency resolution is shared through `examples/go.work`.
+Source and test changes inside one example select that example. Library test
+changes alone do not select consumers: those builds do not run dependency tests.
+
+The container recipe keeps workspace files and every example module's dependency
+files as inputs, along with its own sources, deployment files and guide. Go
+sources under `examples/modules` and `examples/frameworks` alone skip the recipe.
+The repeated hostile run skips `tests/meta/*_test.go`; its own tests, fixtures
+and production helpers remain eligible. Unclassified Go inputs stay eligible.
+
+Pull requests into `main` run every selector-controlled check. Failed or uncertain
+decisions retain the existing run policy. I exercise the workflow filters and
+example matrix against real diffs with:
+
+```bash
+bash scripts/ci-decide/decide.test.sh
+```

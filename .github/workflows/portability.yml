@@ -20,10 +20,10 @@ name: Portability
 # rates. The leg timeout is a little over twice the slower leg.
 #
 # What skips it: `decide` runs first. A pull request into develop that changes
-# no .go file, no go.mod or go.sum and not this workflow has nothing for the
-# matrix, so the
-# legs are skipped on purpose. Any other event, a label change and any doubt
-# answer "run", as does every pull request into main.
+# no root-module .go file, no root go.mod or go.sum and not this workflow
+# has nothing for the matrix, so the legs are skipped on purpose. Any other
+# event, a label change and any doubt answer "run", as does every pull request
+# into main.
 #
 # Concurrency: one run per pull request or ref; a new push to a pull request
 # cancels the run in flight, scheduled and manual runs never cancel each other.
@@ -71,6 +71,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           INCLUDE: '\.go$|^go\.(mod|sum)$|^\.github/workflows/portability\.yml$'
+          EXCLUDE: '^examples/'
         # Read the decision from the base before executing any pull-request code.
         # An older base without the script must run the full suite.
         # Release PRs also run if the base script predates the main policy.
