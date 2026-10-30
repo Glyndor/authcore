@@ -28,6 +28,9 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 | `Audience` | `["github.com/Glyndor/authcore"]` | none |
 | `ClockSkewLeeway` | 0 (no leeway) | 5 minutes |
 
+`New` also refuses an `AccessTokenTTL` under one second and a `RefreshTokenTTL` that is not
+strictly longer than `AccessTokenTTL`, with `ErrInvalidConfig`.
+
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
 > issuing effectively permanent bearer tokens by accident (e.g. typing
@@ -292,6 +295,11 @@ d.store.Add(ctx, "revoked:"+pair.SessionID, pair.RefreshTokenExpiresAt)
 claims, err := jwtMod.VerifyAccessTokenContext(ctx, token)
 if errors.Is(err, jwt.ErrTokenRevoked) { /* 401, re-authenticate */ }
 ```
+
+`VerifyAccessToken` and `RotateTokens`, which take no context, bound the denylist
+lookup at five seconds; use `VerifyAccessTokenContext` to choose the bound. A failure of the
+store is not `ErrTokenRevoked`: the token is refused and the error reads
+`jwt: denylist lookup: ...` (fail closed).
 
 The denylist is opt-in: leave `Denylist` nil and verification stays fully
 stateless (no per-request lookup). The lookup runs only for tokens that already

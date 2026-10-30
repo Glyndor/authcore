@@ -11,41 +11,41 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 ## `authcore` package
 
-| Error | When |
-|---|---|
-| `authcore.ErrInvalidConfig` | `Config` validation failed |
-| `authcore.ErrInvalidTimezone` | `Config.Timezone` is nil. Unreachable from `authcore.New`: `New` replaces a nil `Timezone` with `time.UTC` before validation. Reserved for direct calls to the unexported validator. |
-| `authcore.ErrKeyManager` | key generation or loading failed, or a `Config.KeyStore` returned no material or material of the wrong shape (see [Key management](../guides/key-management.md#what-a-custom-load-must-return)) |
+| Error | Client-safe? | When |
+|---|---|---|
+| `authcore.ErrInvalidConfig` | ✗ No | `Config` validation failed |
+| `authcore.ErrInvalidTimezone` | ✗ No | `Config.Timezone` is nil. Unreachable from `authcore.New`: `New` replaces a nil `Timezone` with `time.UTC` before validation. Reserved for direct calls to the unexported validator. |
+| `authcore.ErrKeyManager` | ✗ No | key generation or loading failed, or a `Config.KeyStore` returned no material or material of the wrong shape (see [Key management](../guides/key-management.md#what-a-custom-load-must-return)) |
 
 ## `auth/jwt` package
 
-| Error | When |
-|---|---|
-| `jwt.ErrInvalidConfig` | `jwt.Config` validation failed |
-| `jwt.ErrTokenExpired` | `exp` claim is in the past (beyond leeway) |
-| `jwt.ErrTokenInvalid` | signature invalid, unsupported algorithm, or `iss` / `aud` claim does not match `Config` |
-| `jwt.ErrTokenMalformed` | not a valid three-part JWT string |
-| `jwt.ErrWrongTokenType` | access token passed where refresh expected, or vice-versa |
-| `jwt.ErrInvalidSubject` | subject passed to `CreateTokens` is not a UUID v7 |
-| `jwt.ErrTokenRevoked` | a configured `Denylist` reports the token's session revoked |
-| `jwt.ErrTokenOversized` | a token to verify is over 8 KiB, or the pair to issue would be |
-| `jwt.ErrNotInitialised` | method called on a `JWT` that `New` did not build (a zero value) |
+| Error | Client-safe? | When |
+|---|---|---|
+| `jwt.ErrInvalidConfig` | ✗ No | `jwt.Config` validation failed |
+| `jwt.ErrTokenExpired` | ✓ Yes | `exp` claim is in the past (beyond leeway) |
+| `jwt.ErrTokenInvalid` | ✗ No | signature invalid, unsupported algorithm, `iss` / `aud` claim does not match `Config`, `iat` or `nbf` in the future beyond the leeway, a missing or invalid `sub` or `jti`, a missing required claim, or a `crit` header |
+| `jwt.ErrTokenMalformed` | ✗ No | not a valid three-part JWT string |
+| `jwt.ErrWrongTokenType` | ✗ No | access token passed where refresh expected, or vice-versa |
+| `jwt.ErrInvalidSubject` | ✗ No | subject passed to `CreateTokens` is not a UUID v7 |
+| `jwt.ErrTokenRevoked` | ✗ No | a configured `Denylist` reports the token's session revoked; also returned by `RotateTokens`. A failure of the store is not this error: it arrives as `jwt: denylist lookup: ...` and the token is refused (fail closed) |
+| `jwt.ErrTokenOversized` | ✗ No | a token to verify is over 8 KiB, or the pair to issue would be |
+| `jwt.ErrNotInitialised` | ✗ No | method called on a `JWT` that `New` did not build (a zero value) |
 
 ## `auth/password` package
 
-| Error | When |
-|---|---|
-| `password.ErrInvalidConfig` | `password.Config` validation failed |
-| `password.ErrInvalidHash` | stored hash is malformed or not Argon2id PHC format |
-| `password.ErrWeakPassword` | plaintext does not meet the built-in policy |
-| `password.ErrNonPrintableCharacter` | the reason inside `ErrWeakPassword` when the NFC-normalized plaintext passes the length checks but holds a control, invisible or otherwise non-printable character, or invalid UTF-8 |
+| Error | Client-safe? | When |
+|---|---|---|
+| `password.ErrInvalidConfig` | ✗ No | `password.Config` validation failed |
+| `password.ErrInvalidHash` | ✗ No | stored hash is malformed or not Argon2id PHC format |
+| `password.ErrWeakPassword` | ✓ Yes | plaintext does not meet the built-in policy |
+| `password.ErrNonPrintableCharacter` | ✓ Yes | the reason inside `ErrWeakPassword` when the NFC-normalized plaintext passes the length checks but holds a control, invisible or otherwise non-printable character, or invalid UTF-8 |
 
 ## `auth/email` package
 
 | Error | Client-safe? | When |
 |---|---|---|
 | `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
-| `email.ErrDomainNoMX` | ✓ Yes | Domain exists but has no MX records (cannot receive email) |
+| `email.ErrDomainNoMX` | ✓ Yes | Domain has no MX records or does not exist (the resolver answered NXDOMAIN or NODATA); it cannot receive email |
 | `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
 | `email.ErrInvalidConfig` | ✗ No | `New`/`NewWithConfig` was given a nil provider or a provider with no logger |
 
@@ -80,7 +80,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | Error | Client-safe? | When |
 |---|---|---|
 | `field.ErrInvalidConfig` | ✗ No | `field.Config` validation failed (today: an empty `Context`), or `New` was given a nil provider or a `Keys().RefreshSecret()` of the wrong length: startup error |
-| `field.ErrDecrypt` | ✓ Yes | `Decrypt` failed for any reason: input shorter than the nonce plus GCM tag, input not valid base64, or GCM authentication tag mismatch. The three are not distinguished, so treat the row as corrupt or from the wrong column |
+| `field.ErrDecrypt` | ✓ Yes | The message is safe to show, but the failure is a server-side data problem: return a generic 500, never a 404, and log the row id. `Decrypt` failed for any reason: input shorter than the nonce plus GCM tag, input not valid base64, or GCM authentication tag mismatch. The three are not distinguished, so treat the row as corrupt or from the wrong column |
 | `field.ErrNotInitialised` | ✗ No | `Encrypt`/`Decrypt`/`BlindIndex` called on a zero-value `Field` (a module that was never constructed by `New`) |
 
 ## `auth/oauth` package
@@ -101,7 +101,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `totp.ErrInvalidConfig` | ✗ No | `totp.Config` validation failed at startup (treat as 500) |
+| `totp.ErrInvalidConfig` | ✗ No | `totp.Config` validation failed at startup (treat as 500), or `Enroll` was given an empty or whitespace-only account name (validate the name before calling: a user-supplied empty name is a 400) |
 | `totp.ErrInvalidSecret` | ✗ No | Stored secret is not base32 or not 20 bytes decoded (storage corruption) |
 | `totp.ErrMalformedCode` | ✓ Yes | Presented code is not six decimal digits |
 | `totp.ErrNotInitialised` | ✗ No | Method called on a `TOTP` that `New` did not build (a zero value) |
