@@ -139,3 +139,20 @@ func TestHTTPErrorDropsAnUnparseableLocationHeader(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A provider or a proxy may write the percent escapes in lower case (%2b, %4b).
+// Decoding only the upper-case ones would leave such an echo in the error. The
+// second credential has capitals because a wrongly decoded lower-case digit
+// lands on the same byte when the high nibble is 2, 6 or 7 (the 0x20 bit is
+// already set there), so only a high nibble of 4 or 5 tells the two apart.
+func TestHTTPErrorSeesALowercasePercentEncodedCredential(t *testing.T) {
+	for credential, echoed := range map[string]string{"k+/s:e": "k%2b%2fs%3ae", "KMNO": "%4b%4d%4e%4f"} {
+		cause := errors.New("provider echoed client_secret=" + echoed)
+		got := safetext.HTTPError(&url.Error{Op: "Post", URL: "https://idp.example/token", Err: cause}, credential)
+		for current := got; current != nil; current = errors.Unwrap(current) {
+			if strings.Contains(current.Error(), echoed) {
+				t.Fatalf("credential %q remains as %q in %q", credential, echoed, current.Error())
+			}
+		}
+	}
+}
