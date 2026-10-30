@@ -55,6 +55,13 @@ func FuzzLoadRefreshSecret(f *testing.F) {
 	})
 }
 
+// fixedKeyPair returns the Ed25519 pair whose seed is the hash of label.
+func fixedKeyPair(label string) (ed25519.PublicKey, ed25519.PrivateKey) {
+	seed := sha256.Sum256([]byte(label))
+	priv := ed25519.NewKeyFromSeed(seed[:])
+	return priv.Public().(ed25519.PublicKey), priv
+}
+
 // fixedSecret is a random-looking 32-byte value derived from a fixed label.
 func fixedSecret() []byte {
 	sum := sha256.Sum256([]byte("authcore fuzz refresh secret"))
@@ -65,19 +72,16 @@ func fixedSecret() []byte {
 // it accepts must be a full-size pair whose public key is the one the private
 // key derives, from files within the read cap.
 func FuzzLoadEd25519(f *testing.F) {
-	pub, priv, err := ed25519.GenerateKey(bytes.NewReader(bytes.Repeat([]byte{3, 5, 8, 13}, 64)))
-	if err != nil {
-		f.Fatal(err)
-	}
+	// The seeds come from a hash, not from a repeated pattern: the loader
+	// refuses a key whose seed repeats a short block, so a pattern would make
+	// every seed fail before it reached the checks below.
+	pub, priv := fixedKeyPair("authcore fuzz ed25519 one")
 	privPEM, _ := pemcodec.EncodePrivateKeyPEM(priv)
 	pubPEM, _ := pemcodec.EncodePublicKeyPEM(pub)
 	f.Add(privPEM, pubPEM)
 	f.Add(pubPEM, privPEM)
 	f.Add(privPEM, privPEM)
-	otherPub, _, err := ed25519.GenerateKey(bytes.NewReader(bytes.Repeat([]byte{2, 7, 1, 8}, 64)))
-	if err != nil {
-		f.Fatal(err)
-	}
+	otherPub, _ := fixedKeyPair("authcore fuzz ed25519 two")
 	otherPubPEM, _ := pemcodec.EncodePublicKeyPEM(otherPub)
 	f.Add(privPEM, otherPubPEM) // a valid pair's halves from two different sets
 	f.Add([]byte{}, []byte{})
@@ -93,6 +97,9 @@ func FuzzLoadEd25519(f *testing.F) {
 			t.Fatal(err)
 		}
 		p, q, err := loadEd25519(privPath, pubPath)
+		if err != nil && bytes.Equal(privData, privPEM) && bytes.Equal(pubData, pubPEM) {
+			t.Fatalf("the valid pair was refused: %v", err)
+		}
 		if err != nil {
 			if p != nil || q != nil {
 				t.Fatal("keys were returned alongside an error")
