@@ -21,7 +21,8 @@ cfg.RequireExistingKeys = true // refuse to run if KeysDir is missing or
                               // link in the database.
 auth, err := authcore.New(cfg)
 cred, err := credential.New(auth)                            // defaults (TTL=1h)
-cred, err := credential.New(auth, credential.Config{TTL: 15 * time.Minute})
+// or, with a shorter lifetime:
+cred, err = credential.New(auth, credential.Config{TTL: 15 * time.Minute})
 ```
 
 `RequireExistingKeys` is the load-only flag on `authcore.Config` (see
@@ -117,7 +118,7 @@ forgetting any one of them ships a broken reset flow:
 1. **Single-use is the caller's job.** The module does not remember
    anything; it cannot tell whether a token has been redeemed before.
    Delete or flag the stored hash in the same transaction that applies
-   the effect (the `db.DeleteResetToken` line above). Without that
+   the effect (the conditional `DELETE` and the `RowsAffected` check above). Without that
    step, a stolen link can be spent over and over until it expires on
    its own.
 

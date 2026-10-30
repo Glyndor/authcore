@@ -17,7 +17,8 @@ last-accepted step. See the [error reference](../reference/errors.md).
 ```go
 auth, err := authcore.New(authcore.DefaultConfig())
 totpMod, err := totp.New(auth)                       // defaults
-totpMod, err := totp.New(auth, totp.Config{Issuer: "Acme"})
+// or, with an issuer:
+totpMod, err = totp.New(auth, totp.Config{Issuer: "Acme"})
 ```
 
 ## Enrolling a user

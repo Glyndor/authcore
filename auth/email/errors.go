@@ -22,8 +22,9 @@ import (
 // Use errors.Is to check for this in calling code.
 var ErrInvalidEmail = errs.ErrInvalidEmail
 
-// ErrDomainNoMX is CLIENT-SAFE: the domain exists but has no MX records,
-// meaning it cannot receive email. Safe to return as a 400 response:
+// ErrDomainNoMX is CLIENT-SAFE: the domain has no MX records or does not
+// exist (the resolver answered NXDOMAIN or NODATA), meaning it cannot receive
+// email. Safe to return as a 400 response:
 //
 //	if errors.Is(err, email.ErrDomainNoMX) {
 //	    c.JSON(400, map[string]string{"error": "email domain cannot receive messages"})

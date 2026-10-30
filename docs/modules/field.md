@@ -90,7 +90,7 @@ if err != nil { return serverError() }
 row := db.QueryRow(`SELECT email_ct FROM users WHERE email_idx = $1`, candidate)
 var stored string
 if err := row.Scan(&stored); err != nil { return notFound() }
-plain, err := fldEmail.Decrypt(stored)
+plain, err = fldEmail.Decrypt(stored)
 if err != nil { return serverError() }
 // An index hit is not the same as a plaintext match. Nothing in the
 // database schema prevents a row holding BlindIndex("alice") next to
@@ -117,9 +117,9 @@ unreadable (AES-256-GCM with a fresh 12-byte nonce per call), it
 makes a stolen ciphertext from one column useless against another
 (the column name is bound into the GCM AAD), and it gives the
 caller a deterministic hash so a `UNIQUE` index on the index
-column enforces uniqueness. Four things the module deliberately
-does NOT do, because they belong to the application and
-forgetting any one of them ships a broken field:
+column enforces uniqueness. Six limits the module does not remove,
+because they belong to the application and forgetting any one
+of them ships a broken field:
 
 1. **Normalisation is the caller's.** `BlindIndex` hashes the
    bytes it is handed. Lowercase, trim, Unicode fold, strip
@@ -253,7 +253,7 @@ decryptable.
 
 ## Footguns the caller must handle
 
-Beyond the four above, two smaller traps:
+Beyond the six above, two smaller traps:
 
 - **Use one module per column.** The same `fld` instance
   protects one column, named in its `Context`. Two columns
