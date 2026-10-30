@@ -31,6 +31,7 @@
 package keymanager
 
 import (
+	"bytes"
 	"crypto/ed25519"
 
 	"github.com/Glyndor/authcore/internal/keymanager/bootstrap"
@@ -116,21 +117,23 @@ func newKeyManager(dir string, priv ed25519.PrivateKey, pub ed25519.PublicKey, s
 // duplicating the derivation.
 func KeyID(pub ed25519.PublicKey) string { return material.KeyID(pub) }
 
-// PrivateKey returns the Ed25519 private key used for signing operations.
-// The returned slice must not be modified by the caller.
+// PrivateKey returns a copy of the Ed25519 private key used for signing
+// operations. The caller may clear or modify the copy; the key held here does
+// not change.
 func (km *KeyManager) PrivateKey() ed25519.PrivateKey {
-	return km.material.privateKey
+	return bytes.Clone(km.material.privateKey)
 }
 
-// PublicKey returns the Ed25519 public key used for signature verification.
-// The returned slice must not be modified by the caller.
+// PublicKey returns a copy of the Ed25519 public key used for signature
+// verification.
 func (km *KeyManager) PublicKey() ed25519.PublicKey {
-	return km.material.publicKey
+	return bytes.Clone(km.material.publicKey)
 }
 
-// RefreshSecret returns the 32-byte secret used as the HMAC-SHA256 key when
-// hashing refresh tokens (and, in the apikey module, as the key-hash pepper).
-// The returned slice must not be modified by the caller.
+// RefreshSecret returns a copy of the 32-byte secret used as the HMAC-SHA256
+// key when hashing refresh tokens (and, in the apikey module, as the key-hash
+// pepper). The caller may clear the copy after use, as the wipe-after-read
+// pattern does; a module built later still reads the secret that was loaded.
 //
 // The secret is intentionally shared across those uses. HMAC-SHA256 is a secure
 // PRF under multi-purpose use and the message namespaces differ (a compact JWT
@@ -140,7 +143,7 @@ func (km *KeyManager) PublicKey() ed25519.PublicKey {
 // stored refresh-token and API-key hash on upgrade, forcing all users to
 // re-authenticate — a breaking change the library avoids by design.
 func (km *KeyManager) RefreshSecret() []byte {
-	return km.material.refreshSecret
+	return bytes.Clone(km.material.refreshSecret)
 }
 
 // KeyID returns the stable identifier for the current signing key.

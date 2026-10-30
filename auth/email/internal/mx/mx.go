@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -59,7 +60,9 @@ func New(resolver Resolver, cacheTTL time.Duration) *Verifier {
 // context, so a caller that gives up or disconnects neither blocks the others
 // nor decides their answer.
 func (v *Verifier) Verify(ctx context.Context, address string) error {
-	name := domain.Of(address)
+	// DNS names are case-insensitive, so the cache and the shared lookup are
+	// keyed by the lower-case form: five spellings of one domain are one query.
+	name := strings.ToLower(domain.Of(address))
 	if name == "" {
 		return errs.ErrDomainNoMX
 	}
