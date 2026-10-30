@@ -9,16 +9,16 @@ import "crypto/ed25519"
 // cache or copy the raw key bytes — always call the accessor methods.
 type Keys interface {
 	// PrivateKey returns the Ed25519 private key used for signing tokens.
-	// The caller must not modify the returned slice.
+	// The returned slice is a copy; the caller may clear it.
 	PrivateKey() ed25519.PrivateKey
 
 	// PublicKey returns the Ed25519 public key used for signature verification.
-	// The caller must not modify the returned slice.
+	// The returned slice is a copy; the caller may clear it.
 	PublicKey() ed25519.PublicKey
 
 	// RefreshSecret returns the 32-byte HMAC-SHA256 key used to hash refresh
 	// tokens before they are stored in a database.
-	// The caller must not modify the returned slice.
+	// The returned slice is a copy; the caller may clear it.
 	RefreshSecret() []byte
 
 	// KeyID returns the stable, non-empty identifier for the current signing

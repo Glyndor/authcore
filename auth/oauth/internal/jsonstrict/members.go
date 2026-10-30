@@ -10,8 +10,15 @@ import (
 // ErrMembers reports member names with more than one reading in one object.
 var ErrMembers = errors.New("JSON object carries ambiguous member names")
 
+// maxDepth is how many open objects the scan keeps a name table for. Each table
+// costs memory, so an unbounded stack would let a body at its size cap cost many
+// times its size. Deeper levels are only counted: no member the client reads
+// sits that deep, and a document that nests further is accepted as before, with
+// the names below the limit left unchecked.
+const maxDepth = 64
+
 // UniqueMembers refuses repeated member names, including escaped equivalents
-// and case aliases, in every object. Names in separate objects are independent.
+// and case aliases, in every object down to maxDepth levels. Names in separate objects are independent.
 // When canonical names are supplied, case aliases of those top-level members
 // are refused even when written once. Other extension names remain allowed.
 // Syntax errors are left to the operation's decoder.
@@ -24,6 +31,8 @@ func UniqueMembers(raw []byte, canonical ...string) error {
 	var stack []map[string]struct{}
 	// wantName is true while the next string in an object frame is a member name.
 	wantName := false
+	// beyond counts the levels open below maxDepth, which have no name table.
+	beyond := 0
 	for i := 0; i < len(raw); {
 		switch c := raw[i]; c {
 		case ' ', '\t', '\r', '\n', ',':
@@ -31,15 +40,28 @@ func UniqueMembers(raw []byte, canonical ...string) error {
 			if c == ',' {
 				wantName = len(stack) > 0 && stack[len(stack)-1] != nil
 			}
-		case '{':
+		case '{', '[':
+			if len(stack) >= maxDepth {
+				beyond++
+				wantName = false
+				i++
+				continue
+			}
+			if c == '[' {
+				stack = append(stack, nil)
+				wantName = false
+				i++
+				continue
+			}
 			stack = append(stack, make(map[string]struct{}))
 			wantName = true
 			i++
-		case '[':
-			stack = append(stack, nil)
-			wantName = false
-			i++
 		case '}', ']':
+			if beyond > 0 {
+				beyond--
+				i++
+				continue
+			}
 			if len(stack) == 0 {
 				return nil
 			}
@@ -54,7 +76,7 @@ func UniqueMembers(raw []byte, canonical ...string) error {
 			if end < 0 {
 				return nil
 			}
-			if wantName {
+			if wantName && beyond == 0 {
 				if err, ok := recordName(stack, raw[i:end], canonical); !ok {
 					return nil
 				} else if err != nil {

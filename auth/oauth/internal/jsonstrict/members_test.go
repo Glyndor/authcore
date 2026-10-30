@@ -3,6 +3,7 @@ package jsonstrict_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/jsonstrict"
@@ -63,4 +64,31 @@ func FuzzUniqueMembers(f *testing.F) {
 			}
 		}
 	})
+}
+
+// Each open object holds a name table, so a body made only of openers used to
+// cost many times its size (1 MiB of `{"a":` allocated 92 MiB). Deep documents
+// stay accepted, as the ID token control test requires, and an ambiguity back at
+// a level the scan tracks is still found after a deep value.
+func TestUniqueMembersAcceptsDeepNestingAndStillFindsLaterDuplicates(t *testing.T) {
+	deep := strings.Repeat(`{"a":`, 200) + `1` + strings.Repeat(`}`, 200)
+	if err := jsonstrict.UniqueMembers([]byte(deep)); err != nil {
+		t.Fatalf("200 levels: %v", err)
+	}
+	after := `{"x":` + deep + `,"id":1,"id":2}`
+	if err := jsonstrict.UniqueMembers([]byte(after)); !errors.Is(err, jsonstrict.ErrMembers) {
+		t.Fatalf("duplicate after a deep value: %v, want ErrMembers", err)
+	}
+	arrays := `{"x":` + strings.Repeat(`[`, 200) + strings.Repeat(`]`, 200) + `,"y":1}`
+	if err := jsonstrict.UniqueMembers([]byte(arrays)); err != nil {
+		t.Fatalf("200 array levels: %v", err)
+	}
+}
+
+func TestUniqueMembersCostsLittleOnAHostileBody(t *testing.T) {
+	body := []byte(strings.Repeat(`{"a":`, 200_000))
+	allocated := testing.AllocsPerRun(1, func() { _ = jsonstrict.UniqueMembers(body) })
+	if allocated > 400 {
+		t.Fatalf("%v allocations for a 1 MB body of openers", allocated)
+	}
 }
