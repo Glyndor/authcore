@@ -216,6 +216,12 @@ recommendation (2 GiB, 1 pass) is above the default 1 GiB memory ceiling and
 verifies under a module configured with that `Memory`. Rate-limit the login
 endpoint regardless: a ceiling bounds one call, not the number of calls.
 
+`Hash` and `Verify` do not limit how many calls run at once. Each one holds its
+`Memory` for the whole derivation, so 500 simultaneous logins at the default
+64 MiB hold about 32 GiB. Put a semaphore in front of them, sized to the memory
+you can spare (`golang.org/x/sync/semaphore` or a buffered channel), and answer
+the overflow with a 429 instead of queueing without bound.
+
 > [!NOTE]
 > Both `Hash` and `Verify` normalise plaintext to **Unicode NFC** before
 > processing. A password like `café` hashes the same whether the user typed it
