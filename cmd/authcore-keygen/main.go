@@ -137,7 +137,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr,
 			"authcore-keygen: could not create directory %s: %v\n"+
 				"the directory was NOT created; nothing was written.\n",
-			printable(absOut), err)
+			printable(absOut), printable(err.Error()))
 		return exitFailure
 	}
 
@@ -153,7 +153,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				"the directory exists but is INCOMPLETE and must not be mounted "+
 				"or used. Inspect it (it may hold a .staging-* worth keeping) "+
 				"and remove it manually when you are sure.\n",
-			printable(absOut), err)
+			printable(absOut), printable(err.Error()))
 		return exitFailure
 	}
 
@@ -175,7 +175,7 @@ type stderrLogger struct {
 func (stderrLogger) Info(string, ...any) {}
 
 func (l stderrLogger) Warn(msg string, args ...any) {
-	_, _ = fmt.Fprintf(l.w, "authcore-keygen: "+msg+"\n", args...)
+	_, _ = fmt.Fprintf(l.w, "authcore-keygen: %s\n", printable(fmt.Sprintf(msg, args...)))
 }
 
 // printable returns path as it is written on the "wrote" line. A path is

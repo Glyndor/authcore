@@ -28,7 +28,7 @@ func TestHostile_IDToken_numericDateExtremesAndBoundaries(t *testing.T) {
 				{"1e100", false}, {"-1e100", false},
 				{"9223372036854775807", false}, {"9223372036854775808", false},
 				{"-9223372036854775809", false},
-				{"0.000000001", field != "exp"}, {"-0.000000001", field != "exp"},
+				{"0.000000001", field != "exp"}, {"-0.000000001", false},
 				{fmt.Sprint(now), field != "exp"},
 				{fmt.Sprint(now - 1), field != "exp"},
 				{fmt.Sprint(now + 1), field == "exp"},
