@@ -104,7 +104,14 @@ configured to receive email. Call it after `ValidateAndNormalize` when you want
 to reject obviously fake domains before sending a verification email.
 
 Results are cached per domain (default 5 minutes) and DNS lookups for the same
-domain are deduplicated via `singleflight`. Safe for high-concurrency workloads.
+domain are deduplicated via `singleflight`. Safe for high-concurrency workloads
+on a bounded set of domains.
+
+The deduplication is per domain, so a flood of *distinct* domains starts one
+lookup each, and a lookup keeps running to its own timeout even if the caller
+cancels. The cache holds at most 10,000 domains; once it is full, new domains
+are not cached until entries expire. Do not call `VerifyDomain` on an
+unauthenticated path without a rate limit in front of it.
 
 ```go
 ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
