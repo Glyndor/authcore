@@ -229,6 +229,11 @@ func checkBinding(p Params, claims gjwt.MapClaims, nonce string) ([]string, erro
 	if _, ok := claimread.Numeric(claims, "iat"); !ok {
 		return nil, fmt.Errorf("%w: missing or non-numeric iat", p.Invalid)
 	}
+	for _, name := range []string{"iat", "nbf", "exp"} {
+		if !claimread.DateInRange(claims, name) {
+			return nil, fmt.Errorf("%w: %s is outside the supported date range", p.Invalid, name)
+		}
+	}
 	return aud, nil
 }
 
