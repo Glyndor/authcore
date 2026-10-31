@@ -180,8 +180,11 @@ func FuzzVerify(f *testing.F) {
 			}
 			return
 		}
-		if len(asked) != 1 || asked[0] != name {
-			t.Fatalf("Verify(%q) looked up %v, want exactly [%q]", address, asked, name)
+		// The lookup is for the domain with its ASCII letters in lower case: DNS
+		// names do not distinguish case, so the spellings of a domain share a
+		// cache entry and a lookup. Other characters are left as they are.
+		if want := asciiLower(name); len(asked) != 1 || asked[0] != want {
+			t.Fatalf("Verify(%q) looked up %v, want exactly [%q]", address, asked, want)
 		}
 	})
 }
