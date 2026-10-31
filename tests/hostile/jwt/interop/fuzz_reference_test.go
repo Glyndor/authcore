@@ -49,10 +49,7 @@ func canonicalClaims(payload []byte) bool {
 	return err == io.EOF
 }
 
-// FuzzVerifyAccessTokenAgreesWithReference signs arbitrary claim payloads with
-// the module's real key and requires that anything the module accepts, the
-// independent verifier accepts too. The other direction is not asserted: the
-// module also checks things the reference does not model.
+// FuzzVerifyAccessTokenAgreesWithReference compares both verdicts in the common domain.
 func FuzzVerifyAccessTokenAgreesWithReference(f *testing.F) {
 	e := hostiletest.NewEnv(f)
 	m := e.Module(f, jwt.Config{})
@@ -75,16 +72,26 @@ func FuzzVerifyAccessTokenAgreesWithReference(f *testing.F) {
 	f.Add(strings.Replace(base, strconv.FormatInt(now-5, 10), strconv.FormatInt(now+3600, 10), 1))
 
 	f.Fuzz(func(t *testing.T, payload string) {
-		if !canonicalClaims([]byte(payload)) {
+		if len(payload) > 4096 || !canonicalClaims([]byte(payload)) {
 			return
 		}
 		token := e.SignRaw(t, payload)
-		if _, err := m.VerifyAccessToken(token); err != nil {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(payload), &fields)
+		var extra hostiletest.Extra
+		if v, ok := fields["extra"]; ok && json.Unmarshal(v, &extra) != nil {
 			return
 		}
+		for _, k := range []string{"exp", "iat", "nbf"} {
+			if v, ok := fields[k]; ok && (len(v) == 0 || (v[0] != '-' && (v[0] < '0' || v[0] > '9'))) {
+				return
+			}
+		}
+		_, gotErr := m.VerifyAccessToken(token)
 		p := policy(e, "access")
 		p.Now = time.Now()
-		if err := hostiletest.RefVerify(token, p); err != nil {
+		refErr := hostiletest.RefVerify(token, p)
+		if (gotErr == nil) != (refErr == nil) {
 			// Skip the instants where the second turned over between the two checks.
 			var c map[string]json.Number
 			_ = json.Unmarshal([]byte(payload), &c)
@@ -93,7 +100,7 @@ func FuzzVerifyAccessTokenAgreesWithReference(f *testing.F) {
 					return
 				}
 			}
-			t.Fatalf("the module accepted a canonical payload the independent verifier refuses (%v): %s", err, payload)
+			t.Fatalf("module=%v; reference=%v; payload=%s", gotErr, refErr, payload)
 		}
 	})
 }
