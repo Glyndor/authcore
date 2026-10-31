@@ -1,37 +1,36 @@
 package field
 
-// Fuzz targets for the field module. Two are required: feed arbitrary
-// strings to Decrypt and assert it never panics and never returns a
-// nil error for a random input, and round trip arbitrary plaintexts
-// through Encrypt and Decrypt and assert equality. Modeled on
-// auth/credential/credential_fuzz_test.go.
-
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"testing"
 )
 
-// FuzzDecrypt drives Decrypt with arbitrary input. Decrypt accepts
-// ciphertext from the database, so every input is potentially
-// adversarial: it must never panic and must never return a nil error
-// for a ciphertext the module did not produce. The only path to a
-// nil result is a ciphertext that (a) base64-decodes, (b) is at
-// least nonce+tag bytes long, and (c) authenticates against the
-// AAD the module was built with. The fuzzer can construct (a) and
-// (b) but not (c) without breaking AES-GCM.
+// FuzzDecrypt compares acceptance and plaintext with standard-library AES-GCM.
 func FuzzDecrypt(f *testing.F) {
-	mod, err := New(newFakeProvider(f), Config{Context: "email"})
+	pepper := []byte("0123456789abcdef0123456789abcdef")
+	mod, err := New(fakeProvider{keys: fakeKeys{secret: pepper}}, Config{Context: "email"})
 	if err != nil {
 		f.Fatalf("field.New: %v", err)
 	}
 
-	// Seed corpus: empty, a few shapes that should fail (too
-	// short, bad base64), and a tampered ciphertext that should
-	// still fail. We deliberately do NOT seed the happy-path
-	// ciphertext the module just produced, because the fuzz body
-	// treats any nil result as a failure and the only path to
-	// nil is a ciphertext the module minted. The fuzzer cannot
-	// reconstruct that without the AES key.
+	key, err := hkdf.Key(sha256.New, pepper, nil, "authcore/field/aes-256-gcm/v1", 32)
+	if err != nil {
+		f.Fatal(err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		f.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		f.Fatal(err)
+	}
+	aad := append(binary.BigEndian.AppendUint32(nil, 5), "email"...)
 	ct, err := mod.Encrypt("alice@example.com")
 	if err != nil {
 		f.Fatalf("Encrypt: %v", err)
@@ -41,6 +40,7 @@ func FuzzDecrypt(f *testing.F) {
 	copy(tampered, raw)
 	tampered[len(tampered)-1] ^= 0xFF
 
+	f.Add(ct)
 	f.Add("")
 	f.Add("!")
 	f.Add("abc")
@@ -50,14 +50,17 @@ func FuzzDecrypt(f *testing.F) {
 	f.Add("eA") // a real base64 string of 1 byte
 
 	f.Fuzz(func(t *testing.T, ciphertext string) {
-		// Decrypt must never panic. Returning ErrDecrypt is the
-		// expected outcome for every seed; the only path to a
-		// non-error result is a ciphertext the module produced
-		// under the same context, which the fuzzer cannot
-		// reconstruct without the AES key.
+		raw, decodeErr := base64.RawStdEncoding.DecodeString(ciphertext)
+		var want []byte
+		var openErr error
+		valid := decodeErr == nil && base64.RawStdEncoding.EncodeToString(raw) == ciphertext && len(raw) >= 28
+		if valid {
+			want, openErr = gcm.Open(nil, raw[:12], raw[12:], aad)
+			valid = openErr == nil
+		}
 		pt, err := mod.Decrypt(ciphertext)
-		if err == nil {
-			t.Fatalf("Decrypt accepted adversarial input %q (got %q)", ciphertext, pt)
+		if (err == nil) != valid || (valid && pt != string(want)) {
+			t.Fatalf("Decrypt = %q, %v; reference = %q, accept=%v", pt, err, want, valid)
 		}
 	})
 }

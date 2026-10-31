@@ -1,61 +1,56 @@
 package verify_test
 
 import (
-	"errors"
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"testing"
+	"time"
 
-	"github.com/Glyndor/authcore"
-	"github.com/Glyndor/authcore/auth/jwt"
+	"github.com/Glyndor/authcore/auth/jwt/internal/verify"
+	"github.com/Glyndor/authcore/tests/hostile/jwt/hostiletest"
 )
 
-// FuzzVerifyAccessToken drives the verifier with arbitrary input. It must
-// never panic, the only input it accepts is the access token the module
-// issued, and every refusal is one of the documented sentinels. Until
-// 2026-09-25 the target discarded the result, so it checked none of that.
+// FuzzVerifyAccessToken authenticates each mutation before comparing verdicts.
 func FuzzVerifyAccessToken(f *testing.F) {
-	auth, err := authcore.New(authcore.Config{EnableLogs: false, KeysDir: f.TempDir()})
-	if err != nil {
-		f.Fatal(err)
+	seed := sha256.Sum256([]byte("access token signing fixture"))
+	key := ed25519.NewKeyFromSeed(seed[:])
+	pub := key.Public().(ed25519.PublicKey)
+	now := time.Unix(1700000000, 0)
+	p := verify.Params{Keys: map[string]ed25519.PublicKey{"test": pub}, Issuer: "issuer", Audience: "audience"}
+	ref := hostiletest.RefPolicy{Kid: "test", Pub: pub, Issuer: "issuer", Audience: "audience", Typ: "access", Now: now}
+	for _, offsets := range [][3]int64{{3600, -1, -1}, {0, -1, -1}, {-1, -1, -1}, {1, 0, 0}, {3600, 1, -1}, {3600, -1, 1}} {
+		f.Add("issuer", "audience", hostiletest.Subject, "access", offsets[0], offsets[1], offsets[2], false)
 	}
-	mod, err := jwt.New[struct{}](auth, jwt.DefaultConfig())
-	if err != nil {
-		f.Fatal(err)
-	}
-
-	pair, err := mod.CreateTokens("018f0c8e-9b2a-7c3a-8b1e-1234567890ab", struct{}{})
-	if err != nil {
-		f.Fatal(err)
-	}
-
-	seeds := []string{
-		"", ".", "..", "a.b.c",
-		"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.",
-		pair.AccessToken, pair.RefreshToken,
-		pair.AccessToken + "tampered",
-		pair.AccessToken[:20] + "\n" + pair.AccessToken[20:],
-	}
-	for _, s := range seeds {
-		f.Add(s)
-	}
-
-	sentinels := []error{jwt.ErrTokenExpired, jwt.ErrTokenInvalid, jwt.ErrTokenMalformed, jwt.ErrWrongTokenType, jwt.ErrTokenRevoked, jwt.ErrTokenOversized}
-
-	f.Fuzz(func(t *testing.T, in string) {
-		claims, err := mod.VerifyAccessToken(in)
-		if err == nil {
-			if in != pair.AccessToken {
-				t.Fatalf("accepted %q, which is not the issued access token", in)
-			}
-			if claims.Subject != "018f0c8e-9b2a-7c3a-8b1e-1234567890ab" {
-				t.Fatalf("the issued token verified with subject %q", claims.Subject)
-			}
+	f.Add("issuer", "audience", hostiletest.Subject, "access", int64(3600), int64(-1), int64(-1), true)
+	f.Add("other", "audience", hostiletest.Subject, "access", int64(3600), int64(-1), int64(-1), false)
+	f.Add("issuer", "audience", hostiletest.Subject, "refresh", int64(3600), int64(-1), int64(-1), false)
+	f.Fuzz(func(t *testing.T, issuer, audience, subject, typ string, exp, iat, nbf int64, list bool) {
+		// Bound dates to the common NumericDate domain and strings below the token cap.
+		if len(issuer)+len(audience)+len(subject)+len(typ) > 256 {
 			return
 		}
-		for _, s := range sentinels {
-			if errors.Is(err, s) {
-				return
-			}
+		exp, iat, nbf = exp%86400, iat%86400, nbf%86400
+		var aud any = audience
+		if list {
+			aud = []string{audience}
 		}
-		t.Fatalf("VerifyAccessToken(%q) failed with %v, which is none of the documented sentinels", in, err)
+		payload, err := json.Marshal(map[string]any{"iss": issuer, "aud": aud, "sub": subject, "jti": hostiletest.JtiA, "type": typ, "exp": now.Unix() + exp, "iat": now.Unix() + iat, "nbf": now.Unix() + nbf})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b64 := base64.RawURLEncoding.EncodeToString
+		input := b64([]byte(`{"alg":"EdDSA","kid":"test","typ":"JWT"}`)) + "." + b64(payload)
+		token := input + "." + b64(ed25519.Sign(key, []byte(input)))
+		claims, got := verify.Access[struct{}](context.Background(), p, now, token)
+		want := hostiletest.RefVerify(token, ref)
+		if (got == nil) != (want == nil) {
+			t.Fatalf("verification = %v; reference = %v; payload=%s", got, want, payload)
+		}
+		if got == nil && claims.Subject != subject {
+			t.Fatalf("subject = %q, want %q", claims.Subject, subject)
+		}
 	})
 }

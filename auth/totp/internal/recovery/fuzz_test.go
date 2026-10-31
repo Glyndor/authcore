@@ -1,6 +1,7 @@
 package recovery_test
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
@@ -30,7 +31,7 @@ import (
 // returned index must point at that hash; for nil and empty it must
 // always be false.
 func FuzzVerifyRecoveryCode(f *testing.F) {
-	mod, err := totp.New(newFakeProvider(f))
+	mod, err := totp.New(fakeProvider{keys: fakeKeys{secret: []byte("0123456789abcdef0123456789abcdef")}})
 	if err != nil {
 		f.Fatalf("totp.New: %v", err)
 	}
@@ -53,7 +54,7 @@ func FuzzVerifyRecoveryCode(f *testing.F) {
 	oversizedB[0] = strings.Repeat("a", 1<<20)
 	copy(oversizedB[1:], stored)
 
-	cases := [][]string{nil, {}, stored, oversizedA, oversizedB}
+	cases := [][]string{nil, {}, stored, oversizedA, oversizedB, {stored[0], "invalid", stored[0]}}
 
 	// Seeds: real codes from this module, plus adversarial garbage
 	// that must not be accepted. The last recovery code hashes to the
@@ -72,16 +73,19 @@ func FuzzVerifyRecoveryCode(f *testing.F) {
 		// Each variation is fed as a sub-call rather than as a
 		// fuzzer argument because Go fuzzing accepts only a limited
 		// set of types in the signature.
-		h, err := mod.HashRecoveryCode(code)
+		h, valid := referenceRecoveryHash(code)
+		gotHash, err := mod.HashRecoveryCode(code)
+		if err == nil && gotHash != h {
+			t.Fatalf("hash=%q; reference=%q", gotHash, h)
+		}
 		if err != nil {
 			t.Fatalf("HashRecoveryCode(%q): %v", code, err)
 		}
 		for _, hashes := range cases {
 			want := -1
 			for i, e := range hashes {
-				if e == h {
+				if valid && e == h {
 					want = i
-					break
 				}
 			}
 
@@ -89,7 +93,7 @@ func FuzzVerifyRecoveryCode(f *testing.F) {
 
 			// nil and empty must always reject, regardless of code.
 			if len(hashes) == 0 {
-				if ok {
+				if ok || idx != 0 {
 					t.Fatalf("VerifyRecoveryCode(%q, len=%d) returned ok=true; want false",
 						code, len(hashes))
 				}
@@ -97,7 +101,7 @@ func FuzzVerifyRecoveryCode(f *testing.F) {
 			}
 
 			if want == -1 {
-				if ok {
+				if ok || idx != 0 {
 					t.Fatalf("VerifyRecoveryCode(%q) accepted code whose hash %q is not in list; got idx=%d",
 						code, h, idx)
 				}
@@ -108,10 +112,23 @@ func FuzzVerifyRecoveryCode(f *testing.F) {
 				t.Fatalf("VerifyRecoveryCode(%q) rejected code whose hash %q is in list at index %d",
 					code, h, want)
 			}
-			if hashes[idx] != h {
+			if idx != want {
 				t.Fatalf("VerifyRecoveryCode(%q) returned idx=%d pointing at %q, want %q",
 					code, idx, hashes[idx], h)
 			}
 		}
 	})
+}
+
+func referenceRecoveryHash(code string) (string, bool) {
+	// Preserve arbitrary bytes; normalization only folds ASCII.
+	normalized := []byte(strings.ReplaceAll(strings.ReplaceAll(code, "-", ""), " ", ""))
+	for i, c := range normalized {
+		if c >= 'a' && c <= 'z' {
+			normalized[i] = c - 32
+		}
+	}
+	mac := hmac.New(sha256.New, []byte("0123456789abcdef0123456789abcdef"))
+	mac.Write(normalized)
+	return hex.EncodeToString(mac.Sum(nil)), len(normalized) > 0 && len(normalized) <= 16
 }
