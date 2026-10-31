@@ -28,6 +28,14 @@ func (s *stubProvider) Config() authcore.Config { return s.cfg }
 func (s *stubProvider) Logger() authcore.Logger { return s.logger }
 func (s *stubProvider) Keys() authcore.Keys     { return s.keys }
 
+// noopLogger satisfies authcore.Logger and drops every entry.
+type noopLogger struct{}
+
+func (noopLogger) Debug(string, ...any) {}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}
+
 // stubKeys satisfies authcore.Keys with values you control in the test.
 type stubKeys struct {
     priv   ed25519.PrivateKey
@@ -45,7 +53,7 @@ func TestMyHandler(t *testing.T) {
     pub, priv, _ := ed25519.GenerateKey(nil)
     p := &stubProvider{
         cfg:    authcore.DefaultConfig(),
-        logger: &noopLogger{},
+        logger: noopLogger{},
         keys:   &stubKeys{priv: priv, pub: pub, secret: []byte("test-secret-32-bytes-long-xxxxxx"), kid: "test"},
     }
 
@@ -181,7 +189,7 @@ authcore/
 │           └── oauthtest/    # Test-only fixtures: provider, keys, client
 │
 └── examples/
-    ├── modules/         # One standalone module per auth package
+    ├── modules/         # One standalone module per package listed below
     │   ├── basic/       # authcore initialisation strategies
     │   ├── jwt/         # JWT: create, verify, rotate
     │   ├── password/    # Password: policy, hash, verify

@@ -15,7 +15,7 @@ go run .
 |---|---|
 | Normalize + validate in one call | `userMod.ValidateAndNormalize(input)` |
 | Character rules (`[a-z0-9_-]`, no consecutive specials, length 3–32) | `errors.Unwrap(err).Error()` |
-| Reserved-name blocklist (built-in, fixed) | `username.ErrInvalidUsername` |
+| Reserved-name blocklist (built-in, extensible with `Config.ExtraReservedNames`) | `username.ErrInvalidUsername` |
 | Idempotent normalization: `Alice_Dev99` and `alice_dev99` collapse to the same canonical form |
 
 ## Expected output (abridged)

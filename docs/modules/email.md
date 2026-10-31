@@ -120,7 +120,7 @@ defer cancel()
 err = emailMod.VerifyDomain(ctx, normalized)
 switch {
 case errors.Is(err, email.ErrDomainNoMX):
-    // 400: domain exists but cannot receive email
+    // 400: domain has no MX records or does not exist
     c.JSON(400, map[string]string{"error": "email domain cannot receive messages"})
     return
 case errors.Is(err, email.ErrDomainUnresolvable):

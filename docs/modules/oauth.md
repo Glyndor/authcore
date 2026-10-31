@@ -208,7 +208,7 @@ mod, err := oauth.New(auth, oauth.Config{
 })
 ```
 
-Two things the Apple integration has to get right:
+Three things the Apple integration has to get right:
 
 - The first authorization only. Apple posts an unauthenticated `user` JSON
   blob on the first login. It holds the user's name (when the `name` scope

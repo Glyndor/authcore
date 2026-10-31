@@ -62,7 +62,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 |---|---|---|
 | `apikey.ErrInvalidConfig` | ✗ No | `apikey.Config` validation failed (e.g. malformed prefix): startup error |
 | `apikey.ErrInvalidKey` | ✗ No | Presented key is malformed (`ParseID`); return a generic unauthorized |
-| `apikey.ErrNotInitialised` | ✗ No | `Generate`/`Hash` called on a zero-value `APIKey` (a module that was never constructed by `New`) |
+| `apikey.ErrNotInitialised` | ✗ No | `Generate`/`Hash`/`ParseID` called on a zero-value `APIKey` (a module that was never constructed by `New`) |
 
 ## `auth/credential` package
 
