@@ -2,6 +2,7 @@ package fileio
 
 import (
 	"errors"
+	"io/fs"
 	"testing"
 	"time"
 )
@@ -59,6 +60,24 @@ func TestRetryTransient_boundedAndReturnsLastError(t *testing.T) {
 	}
 	if calls != transientAttempts || sleeps != transientAttempts-1 {
 		t.Fatalf("calls=%d sleeps=%d, want %d and %d", calls, sleeps, transientAttempts, transientAttempts-1)
+	}
+}
+
+// A file whose delete is pending answers an open with access denied until the
+// last handle closes, then with not-exist. The reader must outlast a pending
+// delete of 64 ms and report the file gone, not the transient error.
+func TestRetryTransient_outlastsAPendingDeleteAndReportsTheFileGone(t *testing.T) {
+	const pending = 64 * time.Millisecond
+	busy := errors.New("access denied")
+	var elapsed time.Duration
+	err := retryTransient(func() error {
+		if elapsed < pending {
+			return busy
+		}
+		return fs.ErrNotExist
+	}, func(e error) bool { return e == busy }, func(d time.Duration) { elapsed += d })
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err = %v after %v of waiting, want not-exist once the delete completed", err, elapsed)
 	}
 }
 
