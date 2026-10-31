@@ -49,7 +49,7 @@ curl -X POST localhost:3000/refresh \
 - `Provider` passed to multiple modules once at startup.
 - `pwdMod.Hash` / `pwdMod.Verify` for registration + login.
 - `jwtMod.CreateTokens` with typed `UserClaims`.
-- `jwtMod.VerifyAccessToken` in a Fiber middleware for `/me`.
+- `jwtMod.VerifyAccessToken` in the `/me` handler.
 - `jwtMod.HashRefreshToken` → DB lookup → `jwtMod.VerifyRefreshTokenHash` → `jwtMod.RotateTokens`: single-use refresh tokens: a token that was already rotated is refused with 401. The example does not detect reuse or revoke the session; `docs/guides/secure-login.md` section 5 describes what a service that needs that adds.
 
 ## Before you copy this
