@@ -53,6 +53,43 @@ func TestCheck_aNilDenylistNeverRevokes(t *testing.T) {
 	}
 }
 
+// A store that ignores its context answers "not revoked" after the deadline
+// has passed. That late "no" must not let the token through.
+func TestCheck_aLateNotRevokedAnswerFailsClosed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	late := &lateStub{cancel: cancel}
+
+	err := denylist.Check(ctx, late, "jti-1")
+	if err == nil {
+		t.Fatal("Check accepted on an answer given after the deadline, want an error")
+	}
+	if !errors.Is(err, context.Canceled) || errors.Is(err, jwterr.ErrTokenRevoked) {
+		t.Fatalf("Check = %v, want the context error and no revocation", err)
+	}
+}
+
+// A revocation that arrives late is still a revocation.
+func TestCheck_aLateRevokedAnswerStillRevokes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	late := &lateStub{cancel: cancel, revoked: true}
+
+	if err := denylist.Check(ctx, late, "jti-1"); !errors.Is(err, jwterr.ErrTokenRevoked) {
+		t.Fatalf("Check = %v, want ErrTokenRevoked", err)
+	}
+}
+
+// lateStub cancels the context it was given and answers anyway, the way a
+// driver that does not watch its context behaves once the deadline fires.
+type lateStub struct {
+	cancel  context.CancelFunc
+	revoked bool
+}
+
+func (l *lateStub) IsRevoked(context.Context, string) (bool, error) {
+	l.cancel()
+	return l.revoked, nil
+}
+
 func TestCheck_reportsRevocationAndStoreFailuresApart(t *testing.T) {
 	s := &stub{}
 	if err := denylist.Check(context.Background(), s, "jti-1"); err != nil {

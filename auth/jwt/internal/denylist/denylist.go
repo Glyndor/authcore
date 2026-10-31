@@ -42,6 +42,12 @@ func Check(ctx context.Context, r Revoker, jti string) error {
 	if err != nil {
 		return fmt.Errorf("jwt: denylist lookup: %w", err)
 	}
+	// A store that ignores its context can answer "not revoked" after the
+	// deadline already passed. That answer was not given in time, so it cannot
+	// vouch for the token: fail closed rather than accept on a late "no".
+	if !revoked && ctx.Err() != nil {
+		return fmt.Errorf("jwt: denylist lookup: %w", ctx.Err())
+	}
 	if revoked {
 		return jwterr.ErrTokenRevoked
 	}
