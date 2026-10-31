@@ -14,6 +14,17 @@ if err != nil {
 }
 ```
 
+`New` uses the defaults. To change the length bounds or the reserved names, start
+from `DefaultConfig` and pass it to `NewWithConfig`:
+
+```go
+cfg := username.DefaultConfig()
+cfg.MinLength = 4
+cfg.ExtraReservedNames = []string{"billing"}
+cfg.AllowReservedNames = []string{"support"} // a real account runs under this name
+userMod, err := username.NewWithConfig(auth, cfg)
+```
+
 ## Validating and normalizing
 
 Always call `ValidateAndNormalize`. It lowercases, trims whitespace, and

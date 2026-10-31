@@ -28,8 +28,9 @@ enr, err := totpMod.Enroll("alice@example.com")
 if err != nil { return http.StatusInternalServerError }
 
 // Show the URI to the user as a QR code; show RecoveryCodes as a
-// printable list, exactly once. The user types RecoveryCodes into the
-// app OR the app scans the QR code, which encodes the URI.
+// printable list, exactly once. The app scans the QR code, which encodes
+// the URI; enr.Secret is the same secret for typing in by hand. The user
+// keeps RecoveryCodes and enters one only when the app is lost.
 qrImageFromURI(enr.URI)
 printAndWipe(enr.RecoveryCodes) // 10 codes by default
 

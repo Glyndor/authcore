@@ -89,7 +89,17 @@ func (v *Verifier) Verify(ctx context.Context, address string) error {
 	// result; an early return on ctx.Done() abandons the channel for this
 	// caller only, and the in-flight lookup completes for the others. The cache is populated inside the function
 	// so a deadline-limited caller benefits from another caller's answer.
-	ch := v.group.DoChan(name, func() (any, error) { return v.lookup(ctx, name) })
+	//
+	// The cache is read again inside the shared function. A caller that missed
+	// the cache above can reach DoChan after the flight it was about to join
+	// has finished and stored its answer; with no flight left it would start a
+	// second query for a domain that was just answered.
+	ch := v.group.DoChan(name, func() (any, error) {
+		if entry, ok := v.cache.Cached(name); ok {
+			return entry, nil
+		}
+		return v.lookup(ctx, name)
+	})
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
