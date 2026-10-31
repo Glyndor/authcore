@@ -50,11 +50,14 @@ var (
 func fuzzSetup(tb testing.TB) (fuzzKeys, string) {
 	tb.Helper()
 	fuzzOnce.Do(func() {
-		d := big.NewInt(42)
-		x, y := elliptic.P256().ScalarBaseMult(d.Bytes())
-		key := &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, D: d}
+		// A fixed scalar keeps the fixture the same on every run.
+		scalar := make([]byte, 32)
+		scalar[31] = 42
+		key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), scalar)
+		if err != nil {
+			tb.Fatalf("parse key: %v", err)
+		}
 		fuzzPrivate = key
-		var err error
 		tok := gjwt.NewWithClaims(gjwt.SigningMethodES256, gjwt.MapClaims{
 			"iss": fuzzIssuer, "aud": fuzzClient, "sub": "user-1", "nonce": fuzzNonce,
 			"iat": time.Now().Add(-time.Hour).Unix(), "exp": time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC).Unix(),
