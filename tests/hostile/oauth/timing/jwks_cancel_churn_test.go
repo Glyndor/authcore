@@ -131,6 +131,39 @@ func TestHostile_JWKS_cancelChurn_honestFollowerSurvivesCancelledInitiators(t *t
 	})
 }
 
+// Guards the DeadlineExceeded half of auth/oauth/internal/jwks/jwks.go:133: an
+// initiator whose own deadline ended the shared flight is a caller failure, so
+// the honest follower retries under its live context instead of inheriting it.
+func TestHostile_JWKS_cancelChurn_honestFollowerSurvivesAnInitiatorDeadline(t *testing.T) {
+	hostiletest.InBubble(t, func(t *testing.T) {
+		a, b := hostiletest.RSAKeys()
+		rig := newChurnRig()
+		c := rig.client(t)
+		if _, err := hostiletest.Verify(t, c, hostiletest.SignA(t, hostiletest.LongLived(nil))); err != nil {
+			t.Fatalf("prime: %v", err)
+		}
+		time.Sleep(2 * time.Minute) // past the unknown-kid cooldown, inside the TTL
+		honest := hostiletest.Mint{Key: b, Kid: "k2", Claims: hostiletest.LongLived(nil)}.String(t)
+		forged := hostiletest.Mint{Key: a, Kid: "k2", Claims: hostiletest.LongLived(nil)}.String(t)
+
+		leaderCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		leader := verifyAsync(t, c, leaderCtx, forged)
+		<-rig.entered
+		follower := verifyAsync(t, c, hostiletest.Ctx(t), honest)
+		time.Sleep(10 * time.Second) // past the initiator's deadline
+		if v := <-leader; v.err == nil || !errors.Is(v.err, context.DeadlineExceeded) {
+			t.Errorf("initiator: %v (claims %+v), want its own deadline", v.err, v.claims)
+		}
+		if v := <-follower; v.err != nil || v.claims == nil {
+			t.Fatalf("honest follower inherited the initiator's deadline: %v", v.err)
+		}
+		if n := rig.calls.Load(); n != 3 {
+			t.Fatalf("%d fetches, want 3 (prime, flight ended by the deadline, one more)", n)
+		}
+	})
+}
+
 // Guards auth/oauth/internal/jwks/jwks.go:134 (!errors.Is(err, c.errs.Fetch)):
 // a deadline that is the provider's own, the HTTP client timeout, is a
 // provider failure, so it keeps the one-minute cooldown instead of being

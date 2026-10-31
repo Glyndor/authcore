@@ -17,6 +17,15 @@ import (
 // State on the callback (auth/oauth/authurl.go, AuthRequest.State). This is a
 // minimal caller that follows that contract, so the tests can attack the
 // callback leg the way a hostile browser would.
+//
+// What these tests pin is the caller contract, not a production guard: the
+// refusal of a bad, repeated, expired or raced state, and the single winner,
+// are enforced by this harness, because the library has no callback or session
+// to enforce them. The part that does reach production is a fresh State per
+// AuthCodeURL call and the State in the returned URL agreeing with the one
+// returned to the caller (authurl.go:33 and :60). Read a failure here as
+// "the documented way to write a callback no longer works", not as a library
+// bug.
 
 const stateTTL = 10 * time.Minute
 
