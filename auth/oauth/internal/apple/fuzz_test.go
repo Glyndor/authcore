@@ -5,29 +5,28 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"math/big"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/Glyndor/authcore/auth/oauth/internal/apple"
 )
 
 var errFuzzApple = errors.New("oauth: invalid configuration")
 
-// FuzzClientSecret feeds the Apple client-secret builder arbitrary
-// identifiers and key bytes. The property: no panic, every refusal wraps the
-// config sentinel, and a builder that is returned was given ten-character
-// [A-Z0-9] identifiers, a non-empty client id without surrounding whitespace
-// and a key an independent PEM/PKCS#8 parse also accepts, and its secret
-// verifies under that key.
+// FuzzClientSecret compares acceptance with a standard-library key parser and
+// checks the signature, identifiers and five-minute lifetime of every secret.
 func FuzzClientSecret(f *testing.F) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	seed := sha256.Sum256([]byte("apple client secret fuzz key"))
+	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), seed[:])
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -47,38 +46,43 @@ func FuzzClientSecret(f *testing.F) {
 	f.Add(good, "ABCDE12345", "KEYID67890", " x")
 	f.Add(good[:len(good)/2], "ABCDE12345", "KEYID67890", "x")
 	f.Add([]byte{}, "", "", "")
+	f.Add(good, "ZXCVB98765", "QWERT12345", "service/é\\\"value")
 
 	f.Fuzz(func(t *testing.T, p8 []byte, team, keyID, client string) {
+		// JSON strings preserve only valid UTF-8; compare opaque IDs in that domain.
+		if !utf8.ValidString(client) {
+			t.Skip("client ID is outside the JSON string domain")
+		}
+		ec := oracleAppleKey(p8)
+		want := ec != nil && client != "" && strings.TrimSpace(client) == client
+		for _, id := range []string{team, keyID} {
+			want = want && len(id) == 10 && strings.Trim(id, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == ""
+		}
 		sign, err := apple.ClientSecret(errFuzzApple, team, keyID, client, p8)
+		if (err == nil) != want {
+			t.Fatalf("builder acceptance = %v, want %v: %v", err == nil, want, err)
+		}
 		if err != nil {
 			if !errors.Is(err, errFuzzApple) {
 				t.Fatalf("a refusal that does not wrap the config sentinel: %v", err)
 			}
 			return
 		}
-		for _, id := range []string{team, keyID} {
-			if len(id) != 10 || strings.Trim(id, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != "" {
-				t.Fatalf("accepted the identifier %q", id)
-			}
-		}
-		if client == "" || strings.TrimSpace(client) != client {
-			t.Fatalf("accepted the client id %q", client)
-		}
-		block := oraclePEMBlock(t, p8)
-		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		ec, ok := parsed.(*ecdsa.PrivateKey)
-		if err != nil || !ok || ec.Curve != elliptic.P256() {
-			t.Fatalf("accepted a key that is not a P-256 PKCS#8 key: %v %T", err, parsed)
-		}
+		before := time.Now().Unix()
 		secret, err := sign(context.Background())
 		if err != nil {
 			t.Fatalf("a builder that was returned could not sign: %v", err)
 		}
+		after := time.Now().Unix()
 		parts := strings.Split(secret, ".")
-		sig, derr := base64.RawURLEncoding.DecodeString(parts[len(parts)-1])
-		if len(parts) != 3 || derr != nil || len(sig) != 64 {
+		if len(parts) != 3 {
 			t.Fatalf("malformed secret %q", secret)
 		}
+		sig, derr := base64.RawURLEncoding.DecodeString(parts[len(parts)-1])
+		if derr != nil || len(sig) != 64 {
+			t.Fatalf("malformed secret %q", secret)
+		}
+		oracleAppleClaims(t, parts, team, keyID, client, before, after)
 		sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 		if !ecdsa.Verify(&ec.PublicKey, sum[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
 			t.Fatal("the secret does not verify under the configured key")
@@ -86,30 +90,55 @@ func FuzzClientSecret(f *testing.F) {
 	})
 }
 
-// oraclePEMBlock decodes p8 the way the product decodes it, and asserts the
-// shape the contract promises: one clean "PRIVATE KEY" block, with no headers
-// and nothing but whitespace around it.
-//
-// The bytes are trimmed first because that is what the product does: the .p8
-// may carry whitespace around the block, and pem.Decode on the raw bytes skips
-// a block whose END line ends in something other than a space or a tab, or
-// whose BEGIN line does not start a line. The oracle would then report a key
-// with no PRIVATE KEY block that the product had in fact accepted.
-func oraclePEMBlock(t *testing.T, p8 []byte) *pem.Block {
-	t.Helper()
+// oracleAppleKey accepts one clean PKCS#8 P-256 PEM block using only the
+// standard library, independently of the builder's validation helpers.
+func oracleAppleKey(p8 []byte) *ecdsa.PrivateKey {
 	trimmed := bytes.TrimSpace(p8)
-	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN PRIVATE KEY-----")) {
-		t.Fatal("accepted key bytes with text before the PRIVATE KEY block")
-	}
-	if bytes.Contains(trimmed[len("-----BEGIN "):], []byte("-----BEGIN ")) {
-		t.Fatal("accepted key bytes with a skipped PEM prefix")
+	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN PRIVATE KEY-----")) ||
+		bytes.Count(trimmed, []byte("-----BEGIN ")) != 1 {
+		return nil
 	}
 	block, rest := pem.Decode(trimmed)
-	if block == nil || block.Type != "PRIVATE KEY" {
-		t.Fatal("accepted key bytes that carry no PRIVATE KEY block")
+	if block == nil || block.Type != "PRIVATE KEY" || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+		return nil
 	}
-	if len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
-		t.Fatal("accepted key bytes that carry more than one clean PRIVATE KEY block")
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	ec, ok := parsed.(*ecdsa.PrivateKey)
+	if err != nil || !ok || ec.Curve != elliptic.P256() {
+		return nil
 	}
-	return block
+	return ec
+}
+
+func oracleAppleClaims(t *testing.T, parts []string, team, keyID, client string, before, after int64) {
+	t.Helper()
+	objects := make([]map[string]any, 2)
+	for i := range objects {
+		raw, err := base64.RawURLEncoding.DecodeString(parts[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if err := dec.Decode(&objects[i]); err != nil {
+			t.Fatalf("invalid JWT JSON: %v", err)
+		}
+	}
+	header, claims := objects[0], objects[1]
+	if header["alg"] != "ES256" || header["kid"] != keyID {
+		t.Fatalf("wrong JWT header: %v", header)
+	}
+	if claims["iss"] != team || claims["sub"] != client || claims["aud"] != "https://appleid.apple.com" {
+		t.Fatalf("wrong JWT identity: %v", claims)
+	}
+	iat, iatOK := claims["iat"].(json.Number)
+	exp, expOK := claims["exp"].(json.Number)
+	issued, iatErr := iat.Int64()
+	expires, expErr := exp.Int64()
+	if !iatOK || !expOK || iatErr != nil || expErr != nil {
+		t.Fatalf("iat/exp must be integer NumericDates: %v", claims)
+	}
+	if issued < before || issued > after || expires != issued+300 {
+		t.Fatalf("iat/exp = %d/%d, signing window = [%d,%d], lifetime = 300s", issued, expires, before, after)
+	}
 }
