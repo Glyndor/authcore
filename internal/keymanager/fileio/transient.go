@@ -14,9 +14,12 @@ const (
 
 // transientAttempts bounds how often a transient open is tried. The wait
 // between attempts grows from transientFirstWait, doubling each time, so the
-// whole budget stays in the tens of milliseconds.
+// whole budget is 2+4+...+512 ms, about a second. Thirty milliseconds (five
+// attempts) was shorter than the time a loaded Windows runner kept a file in
+// delete-pending while its owner cleaned a staging directory, and the reader
+// then failed instead of seeing the file gone.
 const (
-	transientAttempts  = 5
+	transientAttempts  = 10
 	transientFirstWait = 2 * time.Millisecond
 )
 
