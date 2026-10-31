@@ -131,13 +131,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 				"authcore-keygen: %s already exists; authcore-keygen never "+
 					"writes into an existing directory. Pick a new path; an "+
 					"existing directory may hold keys that are in use.\n",
-				absOut)
+				printable(absOut))
 			return exitFailure
 		}
 		_, _ = fmt.Fprintf(stderr,
 			"authcore-keygen: could not create directory %s: %v\n"+
 				"the directory was NOT created; nothing was written.\n",
-			absOut, err)
+			printable(absOut), err)
 		return exitFailure
 	}
 
@@ -153,7 +153,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				"the directory exists but is INCOMPLETE and must not be mounted "+
 				"or used. Inspect it (it may hold a .staging-* worth keeping) "+
 				"and remove it manually when you are sure.\n",
-			absOut, err)
+			printable(absOut), err)
 		return exitFailure
 	}
 
