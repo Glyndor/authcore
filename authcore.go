@@ -20,6 +20,9 @@
 //	auth/username — username validation and normalization
 //	auth/apikey   — opaque API key generation and validation
 //	auth/oauth    — OpenID Connect / OAuth 2.0 client (social login)
+//	auth/totp     — time-based one-time passwords (RFC 6238)
+//	auth/credential — short-lived signed credentials (magic links, verification codes)
+//	auth/field    — authenticated encryption and blind index of sensitive fields
 //
 // # Key management
 //

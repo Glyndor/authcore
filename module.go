@@ -70,19 +70,25 @@ type Provider interface {
 //	                  password.New(p authcore.Provider, cfg ...password.Config) (*password.Password, error)
 //	auth/email    — email validation, normalization, DNS MX verification
 //	                  email.New(p authcore.Provider) (*email.Email, error)
+//	                  email.NewWithConfig(p authcore.Provider, cfg email.Config) (*email.Email, error)
 //	auth/username — username validation, normalization, reserved name blocklist
 //	                  username.New(p authcore.Provider) (*username.Username, error)
+//	                  username.NewWithConfig(p authcore.Provider, cfg username.Config) (*username.Username, error)
 //	auth/apikey   — opaque API key generation, hashing, and verification
 //	                  apikey.New(p authcore.Provider, cfg ...apikey.Config) (*apikey.APIKey, error)
 //	auth/oauth    — OpenID Connect client (login with Google / Microsoft / OIDC)
 //	                  oauth.New(p authcore.Provider, cfg oauth.Config) (*oauth.Client, error)
+//	auth/totp, auth/credential, auth/field — see each package; credential and
+//	                  field require a Config
 //
 // Conventions shared by every module:
 //
 //  1. The first argument is always an authcore.Provider (never a concrete *AuthCore).
-//  2. Where a module takes a Config, it is variadic-optional: omit it, or pass a
-//     zero-value Config, to apply safe production defaults via applyDefaults.
-//     The email and username modules need no Config. Construct any module and
+//  2. Where a module takes a variadic Config (jwt, password, apikey), omit it, or
+//     pass a zero-value Config, to apply safe production defaults. oauth,
+//     credential and field require a Config and reject an empty one with
+//     ErrInvalidConfig. The email and username modules take an optional Config
+//     through NewWithConfig. Construct any module and
 //     use it — none requires cleanup.
 //  3. Constructors return a pointer receiver; concrete types are safe for
 //     concurrent use across goroutines after construction completes.
