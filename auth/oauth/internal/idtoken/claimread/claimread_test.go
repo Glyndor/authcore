@@ -2,6 +2,7 @@ package claimread
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	gjwt "github.com/golang-jwt/jwt/v5"
@@ -33,6 +34,38 @@ func TestNumeric_typeBranch(t *testing.T) {
 	_, ok := Numeric(gjwt.MapClaims{"iat": "1700000000"}, "iat")
 	if ok {
 		t.Errorf("Numeric with a string iat returned ok=true, want false")
+	}
+}
+
+func TestDateInRange(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		v    any
+		want bool
+	}{
+		{"epoch", float64(0), true},
+		{"last second of 9999", float64(253402300799), true},
+		{"fractional", 1.5, true},
+		{"fraction below the epoch truncates to zero", -0.5, true},
+		{"fraction inside the last second", 253402300799.5, true},
+		{"json number", json.Number("1700000000"), true},
+		{"before the epoch", float64(-1), false},
+		{"after 9999", float64(253402300800), false},
+		{"1e100", 1e100, false},
+		{"minus 1e100", -1e100, false},
+		{"NaN", math.NaN(), false},
+		{"infinity", math.Inf(1), false},
+		{"json number too large", json.Number("1e400"), false},
+		{"string", "1700000000", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DateInRange(gjwt.MapClaims{"nbf": tc.v}, "nbf"); got != tc.want {
+				t.Fatalf("DateInRange(%v) = %v, want %v", tc.v, got, tc.want)
+			}
+		})
+	}
+	if !DateInRange(gjwt.MapClaims{}, "nbf") {
+		t.Fatal("an absent claim is not out of range")
 	}
 }
 
