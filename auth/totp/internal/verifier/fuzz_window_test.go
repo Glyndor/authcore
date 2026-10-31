@@ -1,6 +1,7 @@
 package verifier_test
 
 import (
+	"encoding/base32"
 	"errors"
 	"testing"
 )
@@ -18,12 +19,21 @@ func FuzzVerifyStepWindow(f *testing.F) {
 	f.Add(int64(253_402_300_799), uint8(10), int8(-10), uint64(1))
 	f.Add(int64(1<<40), uint8(3), int8(4), uint64(1<<62))
 
+	f.Add(int64(31556160*30), uint8(10), int8(-9), uint64(0))
+	f.Add(int64(31556160*30+60), uint8(10), int8(-4), uint64(31556158))
 	f.Fuzz(func(t *testing.T, sec int64, skewIn uint8, offset int8, lastUsed uint64) {
 		skew := int(skewIn % 11)
 		if sec < int64(skew+2)*timeStep || sec > 1<<58 {
 			return // the first steps of 1970 and absurd years are not the clock's domain
 		}
-		secret, key := mustSecret(t)
+		const secret = "AAAAAAAAAABZ6AAAAAAAAAAAAAAAAAAA"
+		key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hotpOracle(key, 31556151) != "604344" || hotpOracle(key, 31556158) != "604344" {
+			t.Fatal("collision fixture changed")
+		}
 		m := newTOTP(t, Config{SkewSteps: Int(skew)})
 		atUnix(m, sec, 0)
 		cur := sec / timeStep
@@ -31,12 +41,12 @@ func FuzzVerifyStepWindow(f *testing.F) {
 		if step < 0 {
 			return
 		}
-		code := generateTOTP(key, uint64(step))
+		code := hotpOracle(key, uint64(step))
 
 		inside := false // does this code equal the code of any step in the window?
 		var matched uint64
 		for s := cur - int64(skew); s <= cur+int64(skew); s++ {
-			if generateTOTP(key, uint64(s)) == code {
+			if hotpOracle(key, uint64(s)) == code {
 				inside, matched = true, uint64(s) // the module keeps the highest match
 			}
 		}

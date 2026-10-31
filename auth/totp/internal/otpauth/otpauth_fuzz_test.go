@@ -12,7 +12,7 @@ import (
 // non-ASCII byte, and keep at most one raw colon in its label.
 func FuzzURI(f *testing.F) {
 	for _, s := range [][2]string{
-		{"", ""}, {"Acme", "alice@example.com"}, {"Acme:Co", "a:b"}, {"A&secret=X", "b&secret=Y"},
+		{"", ""}, {"Acme", "alice@example.com"}, {"Acme:Co", "alice/a:b%é"}, {"Acme:Co", "a:b"}, {"A&secret=X", "b&secret=Y"},
 		{"x", "y#z?w"}, {"\x00", "\n"}, {"\u00dc", "\u65e5\u672c"}, {"%", "%00"}, {"a/b", "../c"},
 		{"\xff", "\xfe"}, {strings.Repeat("a", 5000), "z"},
 	} {
@@ -33,6 +33,7 @@ func FuzzURI(f *testing.F) {
 		if u.Scheme != "otpauth" || u.Host != "totp" || u.Fragment != "" {
 			t.Fatalf("scheme=%q host=%q fragment=%q", u.Scheme, u.Host, u.Fragment)
 		}
+		assertLabel(t, u, issuer, account)
 		q := u.Query()
 		for k, want := range map[string]string{"secret": secret, "algorithm": "SHA1", "digits": "6", "period": "30"} {
 			if v := q[k]; len(v) != 1 || v[0] != want {
@@ -53,4 +54,16 @@ func FuzzURI(f *testing.F) {
 			t.Fatalf("%d raw colons in the label %q, want %d", n, u.EscapedPath(), wantColons)
 		}
 	})
+}
+
+func assertLabel(t *testing.T, u *url.URL, issuer, account string) {
+	t.Helper()
+	want := account
+	if issuer != "" {
+		want = issuer + ":" + account
+	}
+	label, err := url.PathUnescape(strings.TrimPrefix(u.EscapedPath(), "/"))
+	if err != nil || label != want {
+		t.Fatalf("label=%q, %v; want %q", label, err, want)
+	}
 }

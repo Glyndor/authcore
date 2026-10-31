@@ -1,6 +1,7 @@
 package apikey_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -52,10 +53,12 @@ func FuzzParseIDIsExactOrRefuses(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
+	f.Add(g.Key, uint16(0), byte('a'))
 	f.Add(g.Key, uint16(0), byte(0))
 	f.Add(g.Key, uint16(5), byte('A'))
 	f.Add(g.Key, uint16(40), byte('_'))
 
+	shape := regexp.MustCompile(`^ak_([0-9a-f]{32})_[0-9a-f]{64}$`)
 	f.Fuzz(func(t *testing.T, key string, at uint16, with byte) {
 		if key != "" {
 			b := []byte(key)
@@ -63,6 +66,10 @@ func FuzzParseIDIsExactOrRefuses(f *testing.F) {
 			key = string(b)
 		}
 		id, err := m.ParseID(key)
+		match := shape.FindStringSubmatch(key)
+		if (err == nil) != (match != nil) || (err == nil && id != match[1]) {
+			t.Fatalf("ParseID = %q, %v; reference = %q", id, err, match)
+		}
 		if err != nil {
 			if id != "" {
 				t.Fatalf("a refusal returned an id: %q", id)
