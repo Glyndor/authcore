@@ -95,6 +95,29 @@ func TestControlCharactersInTheOutputPathCannotForgeALine(t *testing.T) {
 	}
 }
 
+// stderr is read by a person at a terminal. The same path in an error message
+// used to be printed raw, so an escape sequence in the name reached the
+// terminal; the refusal for an existing directory quotes it like stdout does.
+func TestControlCharactersInTheOutputPathDoNotReachStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not allow control characters in a file name, so the directory cannot exist")
+	}
+	dir := filepath.Join(t.TempDir(), "x\x1b[31mred")
+	if code, _, stderr := runKeygen(t, []string{"-out", dir}); code != 0 {
+		t.Fatalf("first run: exit code = %d; stderr=%q", code, stderr)
+	}
+	code, _, stderr := runKeygen(t, []string{"-out", dir})
+	if code == 0 {
+		t.Fatal("second run into the same directory succeeded")
+	}
+	if strings.ContainsFunc(stderr, func(r rune) bool { return r == '\x1b' }) {
+		t.Errorf("stderr carries a raw escape byte: %q", stderr)
+	}
+	if !strings.Contains(stderr, "already exists") {
+		t.Errorf("stderr is not the existing-directory refusal: %q", stderr)
+	}
+}
+
 func TestAPlainOutputPathIsWrittenAsItIs(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "plain keys")
 	_, stdout, _ := runKeygen(t, []string{"-out", dir})
