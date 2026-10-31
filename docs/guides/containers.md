@@ -123,7 +123,7 @@ have generated keys of its own.
 To create the keys **once** into that volume: install `authcore-keygen` on
 the host, point it at a directory that does not exist yet, then copy the
 resulting files into the volume. `authcore-keygen` is a small tool that exists
-precisely for this step: it writes the three key files into a new directory
+precisely for this step: it writes the three key files plus `metadata.json` and `.gitignore` into a new directory
 and never overwrites an existing one, so the application image no longer
 needs to perform the one-off generation itself.
 
@@ -147,7 +147,7 @@ authcore-keygen -out ./keys
 podman volume create authcore-production-keys \
   && podman run --rm --user 1000:1000 --userns=keep-id \
        -v ./keys:/src:ro -v authcore-production-keys:/dst \
-       docker.io/library/debian:trixie-slim sh -c 'cp -p /src/* /dst/'
+       docker.io/library/debian:trixie-slim sh -c 'cp -pa /src/. /dst/'
 ```
 
 Creation fails when the volume already exists, and that is deliberate: this

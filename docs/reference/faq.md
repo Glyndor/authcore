@@ -83,7 +83,7 @@ volume), then mount them read-only into your app.
 
 ## The `Hash` call is slower than expected in tests. Is that normal?
 
-Yes. Argon2id deliberately takes ~100–300 ms and allocates 64 MiB of RAM per
+Yes. Argon2id deliberately takes tens to a few hundred milliseconds (see the measured table in docs/modules/password.md) and allocates 64 MiB of RAM per
 call. In tests, use a low-cost config to avoid slow suites:
 
 ```go

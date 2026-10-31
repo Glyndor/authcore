@@ -127,7 +127,7 @@ Three leaks to close, all in your handler:
   (`unauthorized`), whether the user is missing or the password is wrong.
 - **Timing:** the not-found path must do the same Argon2id work as the found path
   (the `dummyHash` verify in §2). Without it, "no such user" returns in
-  microseconds and "wrong password" in roughly 100 ms (hardware dependent). A trivial oracle.
+  microseconds and "wrong password" in tens of milliseconds (hardware dependent). A trivial oracle.
 - **Side channels:** registration, password reset, and resend-verification must
   not reveal existence either. Prefer "if that address exists, we sent a link"
   over "no account with that email."
