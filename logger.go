@@ -8,6 +8,8 @@ import (
 
 // Logger is the logging interface used throughout authcore.
 // Implement this interface to plug in any logging backend (slog, zap, zerolog, etc.).
+// The arguments are printf operands, not key/value pairs: wrap a structured logger so
+// the message is formatted with fmt.Sprintf first (docs/guides/configuration.md).
 type Logger interface {
 	Debug(msg string, args ...any)
 	Info(msg string, args ...any)

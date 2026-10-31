@@ -23,7 +23,7 @@
 //	http.Redirect(w, r, req.URL, http.StatusFound)
 //
 //	// 2. Callback: check state, exchange the code, validate the ID token.
-//	if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(savedState)) != 1 { return /* 400 */ }
+//	if savedState == "" || subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(savedState)) != 1 { return /* 400 */ }
 //	tok, _ := mod.Exchange(r.Context(), r.FormValue("code"), savedVerifier)
 //	claims, err := mod.VerifyIDToken(r.Context(), tok.IDToken, savedNonce)
 //	if err != nil { return /* 401 */ }

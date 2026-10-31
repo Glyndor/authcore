@@ -83,11 +83,22 @@ type Logger interface {
 }
 ```
 
-`*slog.Logger` satisfies this interface directly:
+`*slog.Logger` has the same method set, so it compiles, but authcore passes printf
+verbs and arguments (`Info("ttl=%s", ttl)`), while slog reads `args` as key/value
+pairs. Wrap it so the message is formatted first:
+
+```go
+type slogAdapter struct{ l *slog.Logger }
+
+func (a slogAdapter) Debug(m string, args ...any) { a.l.Debug(fmt.Sprintf(m, args...)) }
+func (a slogAdapter) Info(m string, args ...any)  { a.l.Info(fmt.Sprintf(m, args...)) }
+func (a slogAdapter) Warn(m string, args ...any)  { a.l.Warn(fmt.Sprintf(m, args...)) }
+func (a slogAdapter) Error(m string, args ...any) { a.l.Error(fmt.Sprintf(m, args...)) }
+```
 
 ```go
 cfg := authcore.DefaultConfig()
-cfg.Logger = slog.Default() // or slog.New(yourHandler)
+cfg.Logger = slogAdapter{slog.Default()} // or slog.New(yourHandler)
 ```
 
 When `Config.Logger` is non-nil it takes precedence over `EnableLogs`.

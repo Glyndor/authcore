@@ -77,7 +77,7 @@ fmt.Println(claims.ExpiresAt)  // time.Time
 ```
 
 > [!NOTE]
-> Verification enforces both **`iss` (issuer)** and **`aud` (audience)** match
+> Verification enforces that **`iss` (issuer)** matches and that the first **`aud` (audience)** entry matches
 > the values in `jwt.Config`. A token signed by a trusted key but minted for a
 > different service is rejected with `ErrTokenInvalid`. This is the defense
 > against accidental key reuse across services.

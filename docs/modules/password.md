@@ -225,7 +225,7 @@ endpoint regardless: a ceiling bounds one call, not the number of calls.
 ## Tuning work parameters (optional)
 
 The defaults are sized for 2 vCPUs / 4 GiB RAM. On more powerful hardware, crank
-them up. A hash should take roughly 200–500 ms:
+them up. Aim for a hash of roughly 200–500 ms on your hardware (the default is faster; the table above is measured):
 
 ```go
 pwdMod, err := password.New(auth, password.Config{
