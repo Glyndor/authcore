@@ -1,6 +1,6 @@
 # authcore
 
-Authentication library for Go: Argon2id password hashing, EdDSA access and refresh tokens with rotation, opaque API keys, TOTP, OIDC and OAuth2 social login, and email and username validation. It runs in your process and needs no database or framework.
+Authentication library for Go: Argon2id password hashing, EdDSA access and refresh tokens with rotation, opaque API keys, TOTP, single-use reset and activation tokens, column encryption with a blind index, OIDC and OAuth2 social login, and email and username validation. It runs in your process and needs no database or framework.
 
 [![CI](https://github.com/Glyndor/authcore/actions/workflows/ci.yml/badge.svg)](https://github.com/Glyndor/authcore/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Glyndor/authcore.svg)](https://pkg.go.dev/github.com/Glyndor/authcore)

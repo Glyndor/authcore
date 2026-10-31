@@ -140,7 +140,7 @@ if savedState == "" || subtle.ConstantTimeCompare([]byte(gotState), []byte(saved
     return
 }
 tok, err := mod.Exchange(r.Context(), r.FormValue("code"), savedVerifier)
-if err != nil { /* 401, Exchange returns nil on transport errors, non-2xx, and decode failures */ }
+if err != nil { /* 401: Exchange returns ErrExchange for transport errors, non-2xx and decode failures, and ErrNoIDToken when an OIDC response has no id_token */ }
 
 claims, err := mod.VerifyIDToken(r.Context(), tok.IDToken, savedNonce)
 if err != nil { /* 401, never show the reason */ }
@@ -164,7 +164,7 @@ mod, _ := oauth.New(auth, oauth.Config{
 
 // Callback: check state, exchange, then fetch the profile.
 tok, err := mod.Exchange(r.Context(), code, savedVerifier)
-if err != nil { /* 401, Exchange returns nil on transport errors, non-2xx, and decode failures */ }
+if err != nil { /* 401: Exchange returns ErrExchange for transport errors, non-2xx and decode failures, and ErrNoIDToken when an OIDC response has no id_token */ }
 info, err := mod.UserInfo(r.Context(), tok.AccessToken)
 if err != nil { /* 401 */ }
 // info is the provider's raw JSON: GitHub "id"/"login", Discord "id"/"username".
