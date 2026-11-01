@@ -145,6 +145,14 @@ of them ships a broken field:
    enough that equality is the right tradeoff. For a PIN, it
    is not.
 
+   The ciphertext also leaks the length of the plaintext: it is the
+   nonce, the plaintext and the tag with no padding, so its length is
+   the value's length plus a constant. Anyone who can read the column
+   can group rows by length, and together with the equality above
+   that can confirm a guess about a short value. If the length of a
+   value is itself sensitive, pad it to a fixed size before you pass
+   it to `Encrypt`.
+
 3. **Losing the key loses the data.** There is no recovery
    path. The library-managed refresh secret (the input to the
    HKDF derivation) is the only thing that can produce the
