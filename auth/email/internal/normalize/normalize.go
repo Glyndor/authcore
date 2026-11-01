@@ -18,6 +18,11 @@ import (
 // processing, matching what a browser's URL bar does when resolving a host.
 var idnaProfile = idna.Lookup
 
+// maxAddressBytes bounds the input before any Unicode processing. It is well
+// above the longest address that can be valid and low enough that IDNA over it
+// costs a few milliseconds.
+const maxAddressBytes = 2048
+
 // Address lowercases the address, trims surrounding whitespace, and
 // converts a Unicode (IDN) domain to its ASCII (punycode) form. Internal
 // only — callers outside this package must use ValidateAndNormalize.
@@ -30,6 +35,15 @@ var idnaProfile = idna.Lookup
 // canonical form to store or query.
 func Address(address string) (string, error) {
 	trimmed := strings.TrimSpace(address)
+	// The punycode step of IDNA costs time quadratic in the number of distinct
+	// code points, and the 254 byte limit of syntax.Validate runs after it. A
+	// body of a few hundred kilobytes of distinct characters kept a core busy
+	// for minutes, then was refused. An address that could pass is far below
+	// this: 254 ASCII characters is at most four times as many UTF-8 bytes in
+	// the domain, and the local part adds a few hundred more.
+	if len(trimmed) > maxAddressBytes {
+		return "", errs.Invalid(fmt.Errorf("must be at most 254 characters"))
+	}
 	atIdx := strings.LastIndexByte(trimmed, '@')
 	if atIdx < 0 {
 		// Addresses without an "@" fail validation regardless of IDN, so
