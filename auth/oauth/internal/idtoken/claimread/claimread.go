@@ -60,9 +60,11 @@ func DateInRange(m gjwt.MapClaims, key string) bool {
 	default:
 		return false
 	}
-	// The whole seconds must lie in range, as auth/jwt reads them with Unix():
-	// a fraction below the epoch truncates to zero. False for NaN and infinities.
-	return f > minNumericDate-1 && f < maxNumericDate+1
+	// The whole seconds must lie in range, as auth/jwt reads them with Unix().
+	// golang-jwt turns -0.5 into time.Unix(0, -5e8), whose Unix() is -1, so a
+	// fraction below the epoch is out of range; above the last second it is
+	// not, because a fraction truncates down. False for NaN and infinities.
+	return f >= minNumericDate && f < maxNumericDate+1
 }
 
 // Bool reads a boolean claim, tolerating the string forms ("true"/"false")

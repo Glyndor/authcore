@@ -46,7 +46,7 @@ func TestDateInRange(t *testing.T) {
 		{"epoch", float64(0), true},
 		{"last second of 9999", float64(253402300799), true},
 		{"fractional", 1.5, true},
-		{"fraction below the epoch truncates to zero", -0.5, true},
+		{"fraction below the epoch is second -1", -0.5, false},
 		{"fraction inside the last second", 253402300799.5, true},
 		{"json number", json.Number("1700000000"), true},
 		{"before the epoch", float64(-1), false},

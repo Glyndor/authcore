@@ -118,6 +118,28 @@ func TestControlCharactersInTheOutputPathDoNotReachStderr(t *testing.T) {
 	}
 }
 
+// The path comes back a second time inside the error from os.Mkdir, whose text
+// repeats it verbatim. A missing parent made that error reachable with a
+// newline or an escape in the name, past the quoting of the path itself.
+func TestControlCharactersInAMissingParentDoNotReachStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not allow control characters in a file name")
+	}
+	dir := filepath.Join(t.TempDir(), "no-such-parent\nFORGED\x1b[31m", "keys")
+	code, _, stderr := runKeygen(t, []string{"-out", dir})
+	if code == 0 {
+		t.Fatal("keygen into a missing parent succeeded")
+	}
+	if strings.Contains(stderr, "\x1b") {
+		t.Errorf("stderr carries a raw escape byte: %q", stderr)
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(stderr, "\n"), "\n") {
+		if strings.HasPrefix(line, "FORGED") {
+			t.Errorf("a forged line reached stderr: %q", stderr)
+		}
+	}
+}
+
 func TestAPlainOutputPathIsWrittenAsItIs(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "plain keys")
 	_, stdout, _ := runKeygen(t, []string{"-out", dir})
