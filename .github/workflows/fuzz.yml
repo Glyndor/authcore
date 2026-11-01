@@ -97,6 +97,7 @@ jobs:
           {"package":"./auth/oauth/internal/issuer","func":"FuzzIssuerPredicates"},
           {"package":"./auth/oauth/internal/jwks/candidate","func":"FuzzPick"},
           {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzClaimRead"},
+          {"package":"./auth/oauth/internal/idtoken/claimread","func":"FuzzDateInRange"},
           {"package":"./tests/hostile/keymanager/filetypes","func":"FuzzOpenWithHostileFile"},
           {"package":"./tests/hostile/field","func":"FuzzOracleAgreement"},
           {"package":"./tests/hostile/field","func":"FuzzBlindIndexBoundary"},
