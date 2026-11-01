@@ -110,6 +110,21 @@ def load(source) -> list:
 	return parsed
 
 
+def _command_data(text: str) -> str:
+	"""Escape text printed inside a `::error::` workflow command.
+
+	The runner reads `::error::` at the start of a line and ends the message at
+	the first line break, so a title with a break in it could start a second
+	command of its own. GitHub's escapes are `%` first, then `\\r` and `\\n`.
+	"""
+	return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _one_line(text: str) -> str:
+	"""A title as one line of the plain list, so it cannot begin a line of its own."""
+	return " ".join(text.splitlines())
+
+
 def report(stuck: list, now: datetime, out) -> int:
 	"""Print the verdict and return the exit code."""
 	if not stuck:
@@ -123,8 +138,8 @@ def report(stuck: list, now: datetime, out) -> int:
 		number = pull_request["number"]
 		title = pull_request.get("title", "")
 		age = _age_days(pull_request.get("createdAt"), now)
-		print(f"::error::#{number} stuck against main for {age} days: {title}", file=out)
-		print(f"  #{number}  {age:>3} days  {title}", file=out)
+		print(f"::error::#{number} stuck against main for {age} days: {_command_data(title)}", file=out)
+		print(f"  #{number}  {age:>3} days  {_one_line(title)}", file=out)
 	print(file=out)
 	print(RELAND_PROCEDURE, end="", file=out)
 	return 1

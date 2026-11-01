@@ -54,10 +54,19 @@ fi
 # character it does not like (a non-ASCII letter, a tab) inside double quotes
 # with escapes, and that line would no longer match the include pattern, so a
 # relevant file could make the whole check skip. A path that contains a newline
-# is split in two by the conversion below, and each half is read as its own path;
-# that can only turn a skip into a run, never the other way.
+# would be split in two by the conversion below, and neither half need look
+# relevant, which turns a run into a skip: it is detected first and answered
+# with a run.
 # Disable rename detection so both the removed origin and the added destination
 # are tested, even when the destination has an irrelevant or excluded suffix.
+if ! newlines="$(git -c core.quotePath=false diff --no-renames --name-only -z "${BASE}...${HEAD}" 2>/dev/null | tr -d '\0' | tr -cd '\n' | wc -c)"; then
+	say true "could not read the diff"
+	exit 0
+fi
+if [ "$newlines" != 0 ]; then
+	say true "a path contains a newline"
+	exit 0
+fi
 if ! files="$(git -c core.quotePath=false diff --no-renames --name-only -z "${BASE}...${HEAD}" 2>/dev/null | tr '\0' '\n')"; then
 	say true "could not read the diff"
 	exit 0
