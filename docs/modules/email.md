@@ -50,6 +50,14 @@ Validation rules (RFC 5321 / RFC 5322):
 > consistent lookup: `User@EXAMPLE.COM` and `user@example.com` are the same
 > address.
 
+`ValidateAndNormalize` also applies the module's policy, so a stored address
+can start to fail it later: turning on `RejectPlusAddressing` makes
+`a+b@example.com` invalid even though the account exists. At login, treat a
+validation error on the lookup as "no such account" (run the dummy hash and
+answer with the usual wrong-credentials message), not as a bad request, or
+the users registered before a policy change get a different answer from the
+rest. Throttle by the normalised address, not by the text that was typed.
+
 ## Plus-addressing
 
 Plus-addressing (`user+tag@example.com`) is accepted by default: this is an

@@ -41,6 +41,17 @@ if err != nil {
 db.StoreUser(normalized, ...) // always lowercase, trimmed, validated
 ```
 
+Two consequences for login:
+
+- The lowercase folds some letters to ASCII, so `"\u212Aevin"` (Kelvin sign)
+  and `"KEVIN"` both become `kevin`. Rate-limit and lock out by the normalised
+  name, never by the text that was typed, or one account has many spellings
+  for the counter.
+- `ValidateAndNormalize` applies the current policy. If you raise `MinLength`
+  or add to `ExtraReservedNames`, an existing name can start to fail it. At
+  login answer such an error as "no such account" (dummy hash included), not
+  as a bad request.
+
 Validation rules:
 
 | Rule | Default |
