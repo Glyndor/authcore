@@ -29,7 +29,8 @@ jwtMod, err := jwt.New[UserClaims](auth, cfg)
 | `ClockSkewLeeway` | 0 (no leeway) | 5 minutes |
 
 `New` also refuses an `AccessTokenTTL` under one second and a `RefreshTokenTTL` that is not
-strictly longer than `AccessTokenTTL`, with `ErrInvalidConfig`.
+strictly longer than `AccessTokenTTL`, with `ErrInvalidConfig`. A TTL left at zero is "not set" and takes the
+default (15 minutes and 24 hours); it never means "no expiry".
 
 > [!NOTE]
 > `validateConfig` rejects TTLs above the ceilings listed above. This prevents
@@ -66,7 +67,7 @@ case errors.Is(err, jwt.ErrTokenExpired):
 case errors.Is(err, jwt.ErrTokenInvalid):
     // 401: tampered, wrong key, or issuer/audience mismatch
 case errors.Is(err, jwt.ErrTokenMalformed):
-    // 400: not a JWT at all
+    // 400: not a well-formed JWT (a claim with the wrong JSON type lands here too)
 case err != nil:
     // 401: catch-all
 }
@@ -77,15 +78,19 @@ fmt.Println(claims.ExpiresAt)  // time.Time
 ```
 
 > [!NOTE]
-> Verification enforces that **`iss` (issuer)** matches and that the first **`aud` (audience)** entry matches
-> the values in `jwt.Config`. A token signed by a trusted key but minted for a
-> different service is rejected with `ErrTokenInvalid`. This is the defense
-> against accidental key reuse across services.
+> Verification enforces that **`iss` (issuer)** matches `Config.Issuer` and that the token's
+> **`aud` (audience)** names `Config.Audience[0]`, in any position of its list: one match is
+> enough. A token signed by a trusted key whose audience does not name it is rejected with
+> `ErrTokenInvalid`. This is the defense against accidental key reuse across services, and it
+> holds only while the services have different primary audiences: the module issues tokens
+> carrying the whole `Config.Audience` list, so a service whose `Audience[0]` is `b` accepts a
+> token issued with `["a","b"]`.
 
 > [!NOTE]
 > `iat`, `nbf` and `exp` must lie between 1970-01-01 and 9999-12-31 (UTC). A
-> signed token with a date outside that range, or a number too large to be a
-> date, is rejected with `ErrTokenInvalid`.
+> signed token with an `iat` or `nbf` outside that range is rejected with
+> `ErrTokenInvalid`. An `exp` too large to be a date wraps into the past inside the
+> parser and is rejected with `ErrTokenExpired`, not `ErrTokenInvalid`.
 
 > [!NOTE]
 > Access-token verification and refresh-token rotation reject any `crit` header
