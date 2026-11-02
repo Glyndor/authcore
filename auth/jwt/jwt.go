@@ -135,6 +135,13 @@ func New[T any](p authcore.Provider, cfg ...Config) (*JWT[T], error) {
 	if !utf8.ValidString(keys.KeyID()) {
 		return nil, fmt.Errorf("%w: provider key id is not valid UTF-8", ErrInvalidConfig)
 	}
+	// The Keys contract asks for a non-empty id and authcore.New enforces it,
+	// but a Provider can reach this constructor without going through there.
+	// The current key would be registered under "", and a token with no kid
+	// header reads as "" and would verify against it.
+	if keys.KeyID() == "" {
+		return nil, fmt.Errorf("%w: provider key id is empty", ErrInvalidConfig)
+	}
 
 	// The key slices are copied like the secret: the provider's accessors
 	// return its own memory, and a caller clearing them after use must not
