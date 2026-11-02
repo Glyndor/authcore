@@ -40,11 +40,13 @@ Validation rules (RFC 5321 / RFC 5322):
 
 | Rule | Requirement |
 |---|---|
-| Total length | 1 – 254 characters |
+| Total length | 1 – 254 bytes of the canonical form |
 | Format | One `@` separating a non-empty local part and domain |
-| Local part | ≤ 64 characters |
+| Local part | ≤ 64 bytes of the canonical form |
 | Domain | At least one dot; no leading, trailing, or consecutive dots |
 | Domain labels | 1 – 63 characters each |
+| Address literal | Refused: `user@[192.168.1.1]` and `user@[IPv6:...]` |
+| Top-level label | Not all digits: `user@127.0.0.1` and `user@example.123` are refused |
 
 > **Always normalize before storing and before querying.** This ensures
 > consistent lookup: `User@EXAMPLE.COM` and `user@example.com` are the same
@@ -90,7 +92,8 @@ unaffected.
 ## Look-alike characters in the local part
 
 The local part is opaque. `ValidateAndNormalize` brings it to NFC and
-lowercases it, and refuses invisible and control characters, but it does **not**
+lowercases it, and refuses invisible and control characters, and any character whose lowercase is an
+ASCII letter (the dotted capital `İ`), but it does **not**
 fold characters that only look alike. `аlice@example.com` (Cyrillic `а`,
 U+0430) and `alice@example.com` (Latin `a`) are two different addresses and
 both are accepted. This is by design: the local part is opaque (RFC 5321) and
@@ -111,7 +114,7 @@ to it is a deliberate, visible one.
 configured to receive email. Call it after `ValidateAndNormalize` when you want
 to reject obviously fake domains before sending a verification email.
 
-Results are cached per domain (default 5 minutes) and DNS lookups for the same
+Results are cached per domain (default 5 minutes for a confirmed answer, 30 seconds for a DNS failure) and DNS lookups for the same
 domain are deduplicated via `singleflight`. Safe for high-concurrency workloads
 on a bounded set of domains.
 
@@ -131,9 +134,13 @@ case errors.Is(err, email.ErrDomainNoMX):
     // 400: domain has no MX records or does not exist
     c.JSON(400, map[string]string{"error": "email domain cannot receive messages"})
     return
-case errors.Is(err, email.ErrDomainUnresolvable):
-    // DNS lookup failed. Do NOT block the user; log and continue
+case errors.Is(err, email.ErrDomainUnresolvable),
+    errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+    // DNS lookup failed, or your own deadline ran out first (the context error
+    // comes back as it is). Do NOT block the user; log and continue
     log.Warn("DNS check unavailable: %v", err)
+case errors.Is(err, email.ErrInvalidEmail):
+    // 400: the domain exceeds the DNS size limits and was not looked up
 }
 ```
 

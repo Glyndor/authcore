@@ -92,7 +92,12 @@ address already exists.
 
 ```go
 emailNorm, err := emailMod.ValidateAndNormalize(req.Email)
-if err != nil { return unauthorized() } // generic. See §3
+if err != nil {
+    // A policy that tightened after the account was created fails here too, so
+    // this is "no such account": same Argon2id work, same generic answer. See §3
+    _, _ = pwdMod.Verify(req.Password, dummyHash)
+    return unauthorized()
+}
 
 user, err := db.FindUserByEmail(emailNorm)
 if err != nil {
