@@ -24,7 +24,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `jwt.ErrInvalidConfig` | ✗ No | `jwt.Config` validation failed |
 | `jwt.ErrTokenExpired` | ✓ Yes | `exp` claim is in the past (beyond leeway) |
 | `jwt.ErrTokenInvalid` | ✗ No | signature invalid, unsupported algorithm, `iss` / `aud` claim does not match `Config`, `iat` or `nbf` in the future beyond the leeway, a missing or invalid `sub` or `jti`, a missing required claim, or a `crit` header |
-| `jwt.ErrTokenMalformed` | ✗ No | not a valid three-part JWT string |
+| `jwt.ErrTokenMalformed` | ✗ No | not a valid three-part JWT string, or a claim of the wrong JSON type (`aud` that is not text, `exp` that is not a number) |
 | `jwt.ErrWrongTokenType` | ✗ No | access token passed where refresh expected, or vice-versa |
 | `jwt.ErrInvalidSubject` | ✗ No | subject passed to `CreateTokens` is not a UUID v7 |
 | `jwt.ErrTokenRevoked` | ✗ No | a configured `Denylist` reports the token's session revoked; also returned by `RotateTokens`. A failure of the store is not this error: it arrives as `jwt: denylist lookup: ...` and the token is refused (fail closed) |
@@ -35,8 +35,8 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `password.ErrInvalidConfig` | ✗ No | `password.Config` validation failed |
-| `password.ErrInvalidHash` | ✗ No | stored hash is malformed or not Argon2id PHC format |
+| `password.ErrInvalidConfig` | ✗ No | `password.Config` validation failed, `New` was given a nil provider, a provider with no logger or more than one `Config`, or a method was called on a `Password` that `New` did not build |
+| `password.ErrInvalidHash` | ✗ No | stored hash is malformed, is not in the canonical Argon2id PHC spelling, or asks for more Argon2 work than this module accepts |
 | `password.ErrWeakPassword` | ✓ Yes | plaintext does not meet the built-in policy |
 | `password.ErrNonPrintableCharacter` | ✓ Yes | the reason inside `ErrWeakPassword` when the NFC-normalized plaintext passes the length checks but holds a control, invisible or otherwise non-printable character, or invalid UTF-8 |
 

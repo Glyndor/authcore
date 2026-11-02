@@ -96,6 +96,16 @@ class TestStuck(unittest.TestCase):
 		self.assertIn("#106", proc.stdout)
 		self.assertNotIn("#105", proc.stdout)
 
+	def test_a_title_cannot_start_a_workflow_command(self) -> None:
+		# A title with a line break would end the `::error::` message and let
+		# the rest of it begin a command of its own at the start of a line.
+		pr = _pr(109, "app/dependabot", "dependabot/go_modules/main/x-1.0.0")
+		pr["title"] = "bump x\n::warning::injected\r%0A"
+		proc = _run_json([pr])
+		self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+		for line in proc.stdout.splitlines():
+			self.assertFalse(line.startswith("::warning::"), msg=proc.stdout)
+
 	def test_author_as_user_login_object(self) -> None:
 		proc = _run_json([_pr(107, "dependabot[bot]", "dependabot/go_modules/main/x-1.0.0")])
 		self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
