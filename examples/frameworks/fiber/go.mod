@@ -3,7 +3,7 @@ module github.com/Glyndor/authcore/examples/frameworks/fiber
 go 1.26.10
 
 require (
-	github.com/Glyndor/authcore v1.20.15
+	github.com/Glyndor/authcore v1.22.13
 	github.com/gofiber/fiber/v3 v3.6.1
 )
 
@@ -21,7 +21,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.75.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
