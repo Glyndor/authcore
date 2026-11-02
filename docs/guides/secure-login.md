@@ -56,7 +56,7 @@ sequenceDiagram
 | Concern | authcore does | You must do |
 |---|---|---|
 | Password storage | Argon2id, salt, PHC, constant-time verify | Store the hash; never the plaintext |
-| Password strength | length + composition policy | Decide your own extra rules if any |
+| Password strength | length + composition + printable characters | Decide your own extra rules if any |
 | Token signing | EdDSA, alg-confusion-proof, `iss`/`aud`/`exp` enforced | Send/store tokens correctly |
 | Refresh tokens | issue + hash + timing-safe compare | Persist the hash, rotate, delete on logout |
 | Brute force | none | Rate-limit and lock out |
@@ -110,10 +110,24 @@ if err != nil || !ok {
 // Authenticated. Issue tokens (§4).
 ```
 
-`dummyHash` is one precomputed Argon2id hash of any throwaway password, stored as
-a constant. Verifying against it on the not-found path makes both paths cost the
-same Argon2id work, so an attacker cannot tell "no such user" from "wrong
-password" by timing.
+`dummyHash` is an Argon2id hash of a throwaway password that **this module wrote**,
+so it carries the module's own `Memory`, `Iterations` and `Parallelism`. Build it
+once at startup and keep it in memory:
+
+```go
+dummyHash, err := pwdMod.Hash(randomThrowawayPassword()) // same module, same work factor
+```
+
+`Verify` derives the key with the parameters stored in the hash, not the module's,
+so the hash you verify against decides how much work the not-found path does. A
+hash made with a lighter setting (or copied from an example as a constant, and
+left behind when you raised the work factor) makes "no such user" answer many
+times faster than "wrong password": measured with the default module, 82 ms
+against the real hash and 5 ms against one made with `Memory: 8192, Iterations: 1,
+Parallelism: 1`. A hash above the module's cost ceiling is worse, because `Verify`
+refuses it before deriving anything and the not-found path returns at once.
+Building the dummy from the module at startup keeps both paths equal after any
+change to the work factor.
 
 authcore: constant-time hash verify. You: identical error **and** identical
 timing on every failure (see §3).
@@ -252,7 +266,8 @@ Still yours:
 - **Account lockout and rate limiting.** They need state authcore does not
   hold, and the right policy is a property of your product.
 - **Breached-password rejection** is intentionally not part of authcore. The
-  built-in policy is length + composition only.
+  built-in policy is length, composition and printable characters only; the
+  printable rule has no setting and stays on in every configuration.
 
 ## The one-line summary
 

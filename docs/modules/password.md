@@ -43,7 +43,7 @@ not a security primitive:
 
 | Rule | Default |
 |---|---|
-| Length | `MinLength` – `MaxLength` (default 12 – 64 characters) |
+| Length | `MinLength` – `MaxLength` (default 12 – 64 characters; `MinLength` at least 8, `MaxLength` at most 1024 and never below `MinLength`) |
 | Uppercase | `RequireUpper` (default `true`) |
 | Lowercase | `RequireLower` (default `true`) |
 | Digit | `RequireDigit` (default `true`) |
@@ -142,6 +142,12 @@ The stored string is fully self-describing (**PHC format**):
 ```
 $argon2id$v=19$m=65536,t=3,p=2$<base64-salt>$<base64-hash>
 ```
+
+Only this canonical spelling parses: a 16-byte salt, a 32-byte key, unpadded
+standard base64 (not URL-safe), the parameters in the order `m,t,p`, and no
+leading zeros in the numbers. Any other spelling of a valid hash, including one
+written by another library, comes back as `ErrInvalidHash`; rehash those outside
+`Verify`.
 
 ## Verifying a password
 

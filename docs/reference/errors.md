@@ -35,8 +35,8 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `password.ErrInvalidConfig` | ✗ No | `password.Config` validation failed |
-| `password.ErrInvalidHash` | ✗ No | stored hash is malformed or not Argon2id PHC format |
+| `password.ErrInvalidConfig` | ✗ No | `password.Config` validation failed, `New` was given a nil provider, a provider with no logger or more than one `Config`, or a method was called on a `Password` that `New` did not build |
+| `password.ErrInvalidHash` | ✗ No | stored hash is malformed, is not in the canonical Argon2id PHC spelling, or asks for more Argon2 work than this module accepts |
 | `password.ErrWeakPassword` | ✓ Yes | plaintext does not meet the built-in policy |
 | `password.ErrNonPrintableCharacter` | ✓ Yes | the reason inside `ErrWeakPassword` when the NFC-normalized plaintext passes the length checks but holds a control, invisible or otherwise non-printable character, or invalid UTF-8 |
 
