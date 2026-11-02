@@ -2,4 +2,4 @@ module github.com/Glyndor/authcore/examples/deploy/containers
 
 go 1.26.10
 
-require github.com/Glyndor/authcore v1.20.15
+require github.com/Glyndor/authcore v1.22.13
