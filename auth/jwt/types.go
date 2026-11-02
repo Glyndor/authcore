@@ -106,9 +106,9 @@ type Claims[T any] struct {
 type Denylist interface {
 	// IsRevoked reports whether the session identified by jti has been revoked.
 	//
-	// It is called only for an access token that has already passed signature,
-	// expiry, audience and type checks, so it runs at most once per valid
-	// request. Return (false, nil) when the session is active. A non-nil error
+	// It is called only for a token that has already passed signature,
+	// expiry, audience and type checks: an access token in VerifyAccessToken,
+	// a refresh token in RotateTokens. It runs at most once per valid request. Return (false, nil) when the session is active. A non-nil error
 	// is surfaced to the caller wrapped, and must fail closed — the token is
 	// not accepted — so a store outage cannot silently bypass revocation.
 	//

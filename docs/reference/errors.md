@@ -24,7 +24,7 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 | `jwt.ErrInvalidConfig` | ✗ No | `jwt.Config` validation failed |
 | `jwt.ErrTokenExpired` | ✓ Yes | `exp` claim is in the past (beyond leeway) |
 | `jwt.ErrTokenInvalid` | ✗ No | signature invalid, unsupported algorithm, `iss` / `aud` claim does not match `Config`, `iat` or `nbf` in the future beyond the leeway, a missing or invalid `sub` or `jti`, a missing required claim, or a `crit` header |
-| `jwt.ErrTokenMalformed` | ✗ No | not a valid three-part JWT string |
+| `jwt.ErrTokenMalformed` | ✗ No | not a valid three-part JWT string, or a claim of the wrong JSON type (`aud` that is not text, `exp` that is not a number) |
 | `jwt.ErrWrongTokenType` | ✗ No | access token passed where refresh expected, or vice-versa |
 | `jwt.ErrInvalidSubject` | ✗ No | subject passed to `CreateTokens` is not a UUID v7 |
 | `jwt.ErrTokenRevoked` | ✗ No | a configured `Denylist` reports the token's session revoked; also returned by `RotateTokens`. A failure of the store is not this error: it arrives as `jwt: denylist lookup: ...` and the token is refused (fail closed) |
