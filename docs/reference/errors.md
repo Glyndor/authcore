@@ -44,17 +44,17 @@ if errors.Is(err, jwt.ErrTokenExpired) {
 
 | Error | Client-safe? | When |
 |---|---|---|
-| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule |
+| `email.ErrInvalidEmail` | ✓ Yes | Address fails RFC 5321/5322 validation, or `Config.RejectPlusAddressing` is set and the local part contains `+`; `errors.Unwrap` gives the specific rule; `VerifyDomain` also returns it for a domain over the DNS size limits, without looking it up |
 | `email.ErrDomainNoMX` | ✓ Yes | Domain has no MX records or does not exist (the resolver answered NXDOMAIN or NODATA); it cannot receive email |
-| `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user |
-| `email.ErrInvalidConfig` | ✗ No | `New`/`NewWithConfig` was given a nil provider or a provider with no logger |
+| `email.ErrDomainUnresolvable` | ✗ No | DNS lookup failed; treat as soft failure, do not block the user. If the caller's own context ends first, `VerifyDomain` returns that context error instead (`context.DeadlineExceeded` or `context.Canceled`) |
+| `email.ErrInvalidConfig` | ✗ No | `New`/`NewWithConfig` was given a nil provider or a provider with no logger, or a method was called on an `Email` that `New` did not build |
 
 ## `auth/username` package
 
 | Error | Client-safe? | When |
 |---|---|---|
 | `username.ErrInvalidUsername` | ✓ Yes | Username fails a validation rule; `errors.Unwrap` gives the specific rule |
-| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed (startup error, treat as 500) |
+| `username.ErrInvalidConfig` | ✗ No | `username.Config` validation failed, or `New`/`NewWithConfig` was given a nil provider or a provider with no logger (startup error, treat as 500) |
 
 ## `auth/apikey` package
 

@@ -112,8 +112,8 @@ jobs:
 
       - name: Download and verify podup ${{ env.PODUP_VERSION }}
         env:
-          PODUP_VERSION: 5.14.0
-          PODUP_SHA256: ed8619014778e4732b160f3ac3154fbeb57d1aaadefbd685d4e41ff233dfeff8
+          PODUP_VERSION: 5.16.0
+          PODUP_SHA256: 3995ed97c25dc3f1b495407039da9c0e5195f32aa704c1f6f2bf8bbf50f8933b
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           curl -sSL -o "$RUNNER_TEMP/bin/podup" \

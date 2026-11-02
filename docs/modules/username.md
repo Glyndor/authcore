@@ -25,6 +25,10 @@ cfg.AllowReservedNames = []string{"support"} // a real account runs under this n
 userMod, err := username.NewWithConfig(auth, cfg)
 ```
 
+`MinLength` must be at least 1, `MaxLength` at most 255 and never below `MinLength`.
+A value outside that range makes `NewWithConfig` fail with `ErrInvalidConfig` at
+startup; treat it as a 500.
+
 ## Validating and normalizing
 
 Always call `ValidateAndNormalize`. It lowercases, trims whitespace, and
@@ -56,12 +60,12 @@ Validation rules:
 
 | Rule | Default |
 |---|---|
-| Length | `MinLength` – `MaxLength` (default 3 – 32 characters) |
+| Length | `MinLength` – `MaxLength` (default 3 – 32 bytes of the canonical form; every accepted character is one byte) |
 | Allowed characters | `[a-z0-9_-]` only (closed - the homoglyph control) |
 | First character | Letter or digit (not `_` or `-`) |
 | Last character | Letter or digit (not `_` or `-`) |
 | Consecutive specials | `__`, `--`, `_-`, `-_` are rejected |
-| Reserved names | Built-in blocklist, extended with `Config.ExtraReservedNames` and trimmed with `Config.AllowReservedNames` |
+| Reserved names | Built-in blocklist (`admin`, `root`, `support`, `noreply` and about fifty more; the full list is `auth/username/internal/reserved/reserved.go`), extended with `Config.ExtraReservedNames` and trimmed with `Config.AllowReservedNames`; a name in both is allowed |
 
 The length bounds and the reserved-names list are
 [configurable policy fields](../guides/configuration.md#the-principle). The

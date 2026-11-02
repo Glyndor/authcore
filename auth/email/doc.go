@@ -1,9 +1,9 @@
 // Package email provides email address validation and normalization for authcore.
 //
 // Validation follows RFC 5321 and RFC 5322 rules:
-//   - Total length 1–254 characters
+//   - Total length 1–254 bytes of the canonical form
 //   - Exactly one @ separating a non-empty local part and domain
-//   - Local part ≤ 64 characters
+//   - Local part ≤ 64 bytes of the canonical form
 //   - Domain contains at least one dot; no leading, trailing, or consecutive dots
 //   - Each domain label is 1–63 characters
 //
