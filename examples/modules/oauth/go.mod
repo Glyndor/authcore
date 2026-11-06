@@ -2,7 +2,7 @@ module github.com/Glyndor/authcore/examples/modules/oauth
 
 go 1.26.10
 
-require github.com/Glyndor/authcore v1.22.13
+require github.com/Glyndor/authcore v1.22.14
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
